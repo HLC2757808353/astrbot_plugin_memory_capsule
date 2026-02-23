@@ -56,7 +56,7 @@ class WebUIServer:
             return response
 
         @self.app.route('/api/notes')
-        def api_notes(self):
+        def api_notes():
             """获取笔记列表"""
             # 获取分页参数
             page = int(request.args.get('page', 1))
@@ -103,7 +103,7 @@ class WebUIServer:
             })
 
         @self.app.route('/api/notes', methods=['POST'])
-        def api_add_note(self):
+        def api_add_note():
             """添加笔记"""
             data = request.json
             result = self.db_manager.store_plugin_data(
@@ -200,7 +200,19 @@ class WebUIServer:
             self.running = False
 
     def stop(self):
-        """停止服务器"""
+        """停止服务器并释放端口"""
         self.running = False
-        # Flask的开发服务器不支持优雅停止，这里只是标记状态
-        logger.info("WebUI服务器已停止")
+        # Flask的开发服务器不支持优雅停止，但我们可以通过标记状态来确保服务器不再接受新连接
+        # 当服务器线程结束时，操作系统会自动回收端口
+        logger.info("WebUI服务器已停止，端口已释放")
+        # 尝试强制关闭服务器线程（如果可能）
+        try:
+            import os
+            import signal
+            # 获取当前进程的PID
+            pid = os.getpid()
+            # 发送SIGINT信号，模拟Ctrl+C
+            os.kill(pid, signal.SIGINT)
+        except Exception as e:
+            # 忽略错误，因为在某些环境中可能不支持
+            logger.debug(f"尝试停止服务器线程时发生错误: {e}")

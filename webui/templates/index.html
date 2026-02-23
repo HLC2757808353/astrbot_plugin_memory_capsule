@@ -330,8 +330,8 @@ print(result)</pre>
                 const notesCount = notesData.notes ? notesData.notes.length : 0;
                 
                 const response2 = await fetch('/api/relations');
-                const relations = await response2.json();
-                const relationsCount = Array.isArray(relations) ? relations.length : 0;
+                const relationsData = await response2.json();
+                const relationsCount = relationsData.relations ? relationsData.relations.length : 0;
                 
                 const statsHtml = `
                     <p>笔记数量: ${notesCount}</p>
