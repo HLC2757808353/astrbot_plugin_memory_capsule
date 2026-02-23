@@ -245,9 +245,8 @@
                 <div class="row">
                     <div class="col-md-6">
                         <h5>记忆胶囊插件</h5>
-                        <p>版本: v0.0.1</p>
+                        <p>版本: v0.0.7</p>
                         <p>状态: 运行中</p>
-                        <p>WebUI: <a href="http://localhost:5000" target="_blank">http://localhost:5000</a></p>
                     </div>
                     <div class="col-md-6">
                         <h5>存储统计</h5>
@@ -307,8 +306,6 @@ from astrbot_plugin_memory_capsule import store_plugin_data
 
 # 存储数据
 result = store_plugin_data(
-    plugin_name="your_plugin_name",
-    data_type="data_type",
     content="数据内容",
     metadata={"key": "value"}
 )
@@ -348,7 +345,7 @@ print(result)</pre>
 
         // 显示API信息
         function showApiInfo() {
-            alert(`记忆胶囊API接口:\n\n1. store_plugin_data(plugin_name, data_type, content, metadata) - 存储插件数据\n2. query_plugin_data(query_keyword, plugin_name, data_type) - 查询插件数据\n3. get_memory_manager() - 获取记忆管理器实例`);
+            alert(`记忆胶囊API接口:\n\n1. store_plugin_data(content, metadata) - 存储笔记数据\n2. query_plugin_data(query_keyword, data_type) - 查询笔记数据\n3. get_memory_manager() - 获取记忆管理器实例`);
         }
 
         // 页面加载时执行

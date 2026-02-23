@@ -56,7 +56,7 @@ class DatabaseManager:
             
             # 创建索引
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_plugin_data_category ON plugin_data(category)')
-            cursor.execute('CREATE INDEX IF NOT EXISTS idx_plugin_data_plugin ON plugin_data(plugin_name, data_type)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_plugin_data_note ON plugin_data(note_id, data_type)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_relations_user ON relations(user_id)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_relations_platform ON relations(platform)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_relations_user_group_platform ON relations(user_id, group_id, platform)')
@@ -405,8 +405,5 @@ class DatabaseManager:
     def restore_from_backup(self, backup_filename):
         """从备份恢复"""
         result = self.backup_manager.restore_from_backup(backup_filename)
-        # 恢复后需要重新连接数据库
-        if "成功" in result:
-            self.conn = sqlite3.connect(self.db_path)
-            self.cursor = self.conn.cursor()
+        # 恢复后不需要重新连接数据库，因为我们使用的是每个操作独立的连接
         return result
