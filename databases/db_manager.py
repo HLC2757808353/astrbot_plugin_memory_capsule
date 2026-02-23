@@ -7,7 +7,10 @@ from .backup import BackupManager
 
 class DatabaseManager:
     def __init__(self):
-        self.db_path = os.path.join(os.path.dirname(__file__), "..", "data", "memory.db")
+        # 将数据库文件存储在插件目录外，避免更新插件时数据丢失
+        app_data_dir = os.path.join(os.path.expanduser("~"), "AppData", "Local", "AstrBot", "plugins", "memory_capsule")
+        os.makedirs(app_data_dir, exist_ok=True)
+        self.db_path = os.path.join(app_data_dir, "memory.db")
         self.backup_manager = BackupManager(self.db_path)
         
         # 初始化数据库结构

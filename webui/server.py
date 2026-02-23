@@ -3,6 +3,7 @@ import threading
 import time
 import yaml
 import os
+import socket
 from astrbot.api import logger
 
 class WebUIServer:
@@ -153,8 +154,42 @@ class WebUIServer:
         finally:
             self.running = False
 
+    def check_port(self, port):
+        """检测端口是否被占用"""
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(1)
+        try:
+            result = sock.connect_ex(('localhost', port))
+            if result == 0:
+                logger.warning(f"端口 {port} 已被占用")
+                return False
+            else:
+                logger.info(f"端口 {port} 可用")
+                return True
+        except Exception as e:
+            logger.error(f"检测端口时发生错误: {e}")
+            return False
+        finally:
+            sock.close()
+
+    def run(self):
+        """运行服务器"""
+        self.running = True
+        try:
+            # 检测端口是否被占用
+            if not self.check_port(self.port):
+                logger.error(f"WebUI服务器启动失败: 端口 {self.port} 已被占用")
+                return
+            
+            # 使用线程运行，避免阻塞主线程
+            self.app.run(host='0.0.0.0', port=self.port, debug=False, use_reloader=False)
+        except Exception as e:
+            logger.error(f"WebUI服务器运行失败: {e}")
+        finally:
+            self.running = False
+
     def stop(self):
         """停止服务器"""
         self.running = False
         # Flask的开发服务器不支持优雅停止，这里只是标记状态
-        print("WebUI服务器已停止")
+        logger.info("WebUI服务器已停止")
