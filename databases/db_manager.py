@@ -8,23 +8,67 @@ from .backup import BackupManager
 class DatabaseManager:
     def __init__(self):
         self.db_path = os.path.join(os.path.dirname(__file__), "..", "data", "memory.db")
-        self.conn = None
-        self.cursor = None
         self.backup_manager = BackupManager(self.db_path)
+        
+        # 初始化数据库结构
+        self._initialize_database_structure()
 
-    def initialize(self):
-        """初始化数据库"""
+    def _initialize_database_structure(self):
+        """初始化数据库结构"""
         try:
             # 创建数据库目录
             os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
             
-            # 连接数据库
-            self.conn = sqlite3.connect(self.db_path)
-            self.cursor = self.conn.cursor()
+            # 临时连接创建表结构
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
             
-            # 创建表
-            self._create_tables()
+            # 创建插件数据表
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS plugin_data (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                plugin_name TEXT NOT NULL,
+                data_type TEXT NOT NULL,
+                content TEXT NOT NULL,
+                metadata TEXT,
+                category TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            ''')
             
+            # 创建关系数据表
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS relations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL,
+                group_id TEXT NOT NULL,
+                nickname TEXT,
+                alias_history TEXT,
+                impression_summary TEXT,
+                favor_level INTEGER DEFAULT 50,
+                interaction_count INTEGER DEFAULT 0,
+                last_interaction_time TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(user_id, group_id)
+            )
+            ''')
+            
+            # 创建索引
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_plugin_data_category ON plugin_data(category)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_plugin_data_plugin ON plugin_data(plugin_name, data_type)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_relations_user ON relations(user_id)')
+            
+            conn.commit()
+            conn.close()
+            
+            logger.info(f"数据库结构初始化成功: {self.db_path}")
+        except Exception as e:
+            logger.error(f"数据库结构初始化失败: {e}")
+
+    def initialize(self):
+        """初始化数据库"""
+        try:
             # 启动自动备份
             self.backup_manager.start_auto_backup()
             
@@ -32,45 +76,11 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"数据库初始化失败: {e}")
 
-    def _create_tables(self):
-        """创建数据表"""
-        # 创建插件数据表
-        self.cursor.execute('''
-        CREATE TABLE IF NOT EXISTS plugin_data (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            plugin_name TEXT NOT NULL,
-            data_type TEXT NOT NULL,
-            content TEXT NOT NULL,
-            metadata TEXT,
-            category TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-        ''')
-        
-        # 创建关系数据表
-        self.cursor.execute('''
-        CREATE TABLE IF NOT EXISTS relations (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id TEXT NOT NULL,
-            group_id TEXT NOT NULL,
-            nickname TEXT,
-            alias_history TEXT,
-            impression_summary TEXT,
-            favor_level INTEGER DEFAULT 50,
-            interaction_count INTEGER DEFAULT 0,
-            last_interaction_time TIMESTAMP,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(user_id, group_id)
-        )
-        ''')
-        
-        # 创建索引
-        self.cursor.execute('CREATE INDEX IF NOT EXISTS idx_plugin_data_category ON plugin_data(category)')
-        self.cursor.execute('CREATE INDEX IF NOT EXISTS idx_plugin_data_plugin ON plugin_data(plugin_name, data_type)')
-        self.cursor.execute('CREATE INDEX IF NOT EXISTS idx_relations_user ON relations(user_id)')
-        
-        self.conn.commit()
+    def _get_connection(self):
+        """获取数据库连接（每个线程独立）"""
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        return conn
 
     def store_plugin_data(self, plugin_name, data_type, content, metadata=None):
         """存储插件数据"""
@@ -81,13 +91,19 @@ class DatabaseManager:
             # 处理元数据
             metadata_json = json.dumps(metadata) if metadata else None
             
+            # 使用独立连接
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            
             # 插入数据
-            self.cursor.execute('''
+            cursor.execute('''
             INSERT INTO plugin_data (plugin_name, data_type, content, metadata, category, updated_at)
             VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             ''', (plugin_name, data_type, content, metadata_json, category))
             
-            self.conn.commit()
+            conn.commit()
+            conn.close()
+            
             return f"数据存储成功，分类: {category}"
         except Exception as e:
             logger.error(f"存储数据失败: {e}")
@@ -114,9 +130,14 @@ class DatabaseManager:
             
             query += " ORDER BY created_at DESC LIMIT 10"
             
+            # 使用独立连接
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            
             # 执行查询
-            self.cursor.execute(query, params)
-            results = self.cursor.fetchall()
+            cursor.execute(query, params)
+            results = cursor.fetchall()
+            conn.close()
             
             # 处理结果
             data_list = []
@@ -140,9 +161,13 @@ class DatabaseManager:
     def update_relation(self, user_id, group_id, nickname=None, favor_change=0, impression=None, note=None):
         """更新关系"""
         try:
+            # 使用独立连接
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            
             # 检查是否存在记录
-            self.cursor.execute('SELECT id, nickname, alias_history, impression_summary, favor_level FROM relations WHERE user_id=? AND group_id=?', (user_id, group_id))
-            existing = self.cursor.fetchone()
+            cursor.execute('SELECT id, nickname, alias_history, impression_summary, favor_level FROM relations WHERE user_id=? AND group_id=?', (user_id, group_id))
+            existing = cursor.fetchone()
             
             if existing:
                 # 更新现有记录
@@ -170,7 +195,7 @@ class DatabaseManager:
                         new_impression = impression
                 
                 # 执行更新
-                self.cursor.execute('''
+                cursor.execute('''
                 UPDATE relations SET 
                     nickname = ?, 
                     alias_history = ?, 
@@ -183,12 +208,14 @@ class DatabaseManager:
                 ''', (new_nickname, new_alias_history, new_impression, new_favor, relation_id))
             else:
                 # 创建新记录
-                self.cursor.execute('''
+                cursor.execute('''
                 INSERT INTO relations (user_id, group_id, nickname, favor_level, interaction_count, last_interaction_time)
                 VALUES (?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
                 ''', (user_id, group_id, nickname or "Unknown", 50 + favor_change))
             
-            self.conn.commit()
+            conn.commit()
+            conn.close()
+            
             return "关系更新成功"
         except Exception as e:
             logger.error(f"更新关系失败: {e}")
@@ -197,14 +224,19 @@ class DatabaseManager:
     def query_relation(self, query_keyword):
         """查询关系"""
         try:
+            # 使用独立连接
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            
             # 模糊搜索
-            self.cursor.execute('''
+            cursor.execute('''
             SELECT user_id, nickname, group_id, impression_summary, favor_level 
             FROM relations 
             WHERE nickname LIKE ? OR impression_summary LIKE ? OR alias_history LIKE ?
             ''', (f"%{query_keyword}%", f"%{query_keyword}%", f"%{query_keyword}%"))
             
-            results = self.cursor.fetchall()
+            results = cursor.fetchall()
+            conn.close()
             
             # 处理结果
             relation_list = []
@@ -226,8 +258,13 @@ class DatabaseManager:
     def get_all_plugin_data(self, limit=100):
         """获取所有插件数据"""
         try:
-            self.cursor.execute('SELECT id, plugin_name, data_type, content, category, created_at FROM plugin_data ORDER BY created_at DESC LIMIT ?', (limit,))
-            results = self.cursor.fetchall()
+            # 使用独立连接
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute('SELECT id, plugin_name, data_type, content, category, created_at FROM plugin_data ORDER BY created_at DESC LIMIT ?', (limit,))
+            results = cursor.fetchall()
+            conn.close()
             
             data_list = []
             for row in results:
@@ -249,8 +286,13 @@ class DatabaseManager:
     def get_all_relations(self):
         """获取所有关系"""
         try:
-            self.cursor.execute('SELECT id, user_id, nickname, group_id, impression_summary, favor_level, created_at FROM relations ORDER BY created_at DESC')
-            results = self.cursor.fetchall()
+            # 使用独立连接
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute('SELECT id, user_id, nickname, group_id, impression_summary, favor_level, created_at FROM relations ORDER BY created_at DESC')
+            results = cursor.fetchall()
+            conn.close()
             
             relation_list = []
             for row in results:
@@ -273,8 +315,14 @@ class DatabaseManager:
     def delete_plugin_data(self, data_id):
         """删除插件数据"""
         try:
-            self.cursor.execute('DELETE FROM plugin_data WHERE id = ?', (data_id,))
-            self.conn.commit()
+            # 使用独立连接
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute('DELETE FROM plugin_data WHERE id = ?', (data_id,))
+            conn.commit()
+            conn.close()
+            
             return "删除成功"
         except Exception as e:
             logger.error(f"删除数据失败: {e}")
@@ -283,8 +331,14 @@ class DatabaseManager:
     def delete_relation(self, user_id, group_id):
         """删除关系"""
         try:
-            self.cursor.execute('DELETE FROM relations WHERE user_id = ? AND group_id = ?', (user_id, group_id))
-            self.conn.commit()
+            # 使用独立连接
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute('DELETE FROM relations WHERE user_id = ? AND group_id = ?', (user_id, group_id))
+            conn.commit()
+            conn.close()
+            
             return "删除成功"
         except Exception as e:
             logger.error(f"删除关系失败: {e}")
@@ -292,12 +346,9 @@ class DatabaseManager:
 
     def close(self):
         """关闭数据库连接"""
-        if self.conn:
-            self.conn.close()
-            logger.info("数据库连接已关闭")
-        
         # 停止自动备份
         self.backup_manager.stop_auto_backup()
+        logger.info("数据库连接已关闭")
 
     def backup(self):
         """手动执行备份"""

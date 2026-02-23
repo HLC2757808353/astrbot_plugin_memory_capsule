@@ -1,5 +1,5 @@
 from astrbot.api.event import filter, AstrMessageEvent, MessageEventResult
-from astrbot.api.star import Context, Star, register
+from astrbot.api.star import Context, Star, register, Tool
 from astrbot.api import logger
 import os
 import threading
@@ -86,6 +86,181 @@ class MemoryCapsulePlugin(Star):
             self.db_manager.close()
         
         logger.info("记忆胶囊插件已关闭")
+
+    @Tool.register()
+    async def store_memory(self, content: str, plugin_name: str = "system", data_type: str = "note", metadata: dict = None):
+        """
+        存储记忆到记忆胶囊
+        
+        Args:
+            content: 记忆内容
+            plugin_name: 插件名称，默认为"system"
+            data_type: 数据类型，默认为"note"
+            metadata: 元数据，默认为None
+            
+        Returns:
+            str: 存储结果
+        """
+        try:
+            result = self.db_manager.store_plugin_data(plugin_name, data_type, content, metadata)
+            logger.info(f"存储记忆成功: {plugin_name}/{data_type}")
+            return result
+        except Exception as e:
+            logger.error(f"存储记忆失败: {e}")
+            return f"存储失败: {e}"
+
+    @Tool.register()
+    async def query_memory(self, query_keyword: str, plugin_name: str = None, data_type: str = None):
+        """
+        查询记忆胶囊中的记忆
+        
+        Args:
+            query_keyword: 查询关键词
+            plugin_name: 插件名称，默认为None
+            data_type: 数据类型，默认为None
+            
+        Returns:
+            list: 查询结果列表
+        """
+        try:
+            results = self.db_manager.query_plugin_data(query_keyword, plugin_name, data_type)
+            logger.info(f"查询记忆成功，找到 {len(results)} 条结果")
+            return results
+        except Exception as e:
+            logger.error(f"查询记忆失败: {e}")
+            return []
+
+    @Tool.register()
+    async def update_relation(self, user_id: str, group_id: str, nickname: str = None, favor_change: int = 0, impression: str = None):
+        """
+        更新用户关系
+        
+        Args:
+            user_id: 用户ID
+            group_id: 群组ID
+            nickname: 昵称，默认为None
+            favor_change: 好感度变化，默认为0
+            impression: 印象描述，默认为None
+            
+        Returns:
+            str: 更新结果
+        """
+        try:
+            result = self.db_manager.update_relation(user_id, group_id, nickname, favor_change, impression)
+            logger.info(f"更新关系成功: {user_id}@{group_id}")
+            return result
+        except Exception as e:
+            logger.error(f"更新关系失败: {e}")
+            return f"更新失败: {e}"
+
+    @Tool.register()
+    async def query_relation(self, query_keyword: str):
+        """
+        查询用户关系
+        
+        Args:
+            query_keyword: 查询关键词
+            
+        Returns:
+            list: 查询结果列表
+        """
+        try:
+            results = self.db_manager.query_relation(query_keyword)
+            logger.info(f"查询关系成功，找到 {len(results)} 条结果")
+            return results
+        except Exception as e:
+            logger.error(f"查询关系失败: {e}")
+            return []
+
+    @Tool.register()
+    async def get_all_memories(self, limit: int = 100):
+        """
+        获取所有记忆
+        
+        Args:
+            limit: 限制数量，默认为100
+            
+        Returns:
+            list: 记忆列表
+        """
+        try:
+            results = self.db_manager.get_all_plugin_data(limit)
+            logger.info(f"获取所有记忆成功，找到 {len(results)} 条结果")
+            return results
+        except Exception as e:
+            logger.error(f"获取所有记忆失败: {e}")
+            return []
+
+    @Tool.register()
+    async def get_all_relations(self):
+        """
+        获取所有关系
+        
+        Returns:
+            list: 关系列表
+        """
+        try:
+            results = self.db_manager.get_all_relations()
+            logger.info(f"获取所有关系成功，找到 {len(results)} 条结果")
+            return results
+        except Exception as e:
+            logger.error(f"获取所有关系失败: {e}")
+            return []
+
+    @Tool.register()
+    async def delete_memory(self, data_id: int):
+        """
+        删除记忆
+        
+        Args:
+            data_id: 数据ID
+            
+        Returns:
+            str: 删除结果
+        """
+        try:
+            result = self.db_manager.delete_plugin_data(data_id)
+            logger.info(f"删除记忆成功: ID={data_id}")
+            return result
+        except Exception as e:
+            logger.error(f"删除记忆失败: {e}")
+            return f"删除失败: {e}"
+
+    @Tool.register()
+    async def delete_relation(self, user_id: str, group_id: str):
+        """
+        删除关系
+        
+        Args:
+            user_id: 用户ID
+            group_id: 群组ID
+            
+        Returns:
+            str: 删除结果
+        """
+        try:
+            result = self.db_manager.delete_relation(user_id, group_id)
+            logger.info(f"删除关系成功: {user_id}@{group_id}")
+            return result
+        except Exception as e:
+            logger.error(f"删除关系失败: {e}")
+            return f"删除失败: {e}"
+
+    @Tool.register()
+    async def backup_database(self):
+        """
+        备份数据库
+        
+        Returns:
+            str: 备份结果
+        """
+        try:
+            result = self.db_manager.backup()
+            logger.info("备份数据库成功")
+            return result
+        except Exception as e:
+            logger.error(f"备份数据库失败: {e}")
+            return f"备份失败: {e}"
 
 # 外部接口，供其他插件调用
 def get_memory_manager():
