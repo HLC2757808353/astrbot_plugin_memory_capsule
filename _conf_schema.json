@@ -1,0 +1,10 @@
+{
+  "webui_port": {
+    "description": "WebUI服务端口号",
+    "type": "int",
+    "default": 5000,
+    "hint": "请输入WebUI服务的端口号，默认5000",
+    "editable": true,
+    "display_name": "WebUI端口"
+  }
+}

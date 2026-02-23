@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>记忆胶囊 - 笔记管理</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+    <style>
+        body {
+            padding-top: 20px;
+            background-color: #f8f9fa;
+        }
+        .container {
+            max-width: 1200px;
+        }
+        .card {
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .nav-link {
+            font-weight: 500;
+        }
+        .note-item {
+            margin-bottom: 10px;
+            padding: 10px;
+            border: 1px solid #e0e0e0;
+            border-radius: 5px;
+            background-color: #ffffff;
+        }
+        .note-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 5px;
+        }
+        .note-meta {
+            font-size: 0.8rem;
+            color: #666;
+        }
+        .note-content {
+            margin: 10px 0;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <nav class="navbar navbar-expand-lg navbar-light bg-light mb-4">
+            <div class="container-fluid">
+                <a class="navbar-brand" href="/">记忆胶囊</a>
+                <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                    <span class="navbar-toggler-icon"></span>
+                </button>
+                <div class="collapse navbar-collapse" id="navbarNav">
+                    <ul class="navbar-nav">
+                        <li class="nav-item">
+                            <a class="nav-link" href="/">首页</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link active" href="/notes">笔记管理</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="/relations">关系管理</a>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </nav>
+
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                <h3>笔记管理</h3>
+            </div>
+            <div class="card-body">
+                <!-- 添加笔记表单 -->
+                <div class="mb-4">
+                    <h4>添加新笔记</h4>
+                    <form id="add-note-form">
+                        <div class="mb-3">
+                            <label for="plugin-name" class="form-label">插件名称</label>
+                            <input type="text" class="form-control" id="plugin-name" name="plugin_name" value="webui" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="data-type" class="form-label">数据类型</label>
+                            <input type="text" class="form-control" id="data-type" name="data_type" value="note" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="note-content" class="form-label">笔记内容</label>
+                            <textarea class="form-control" id="note-content" name="content" rows="4" required></textarea>
+                        </div>
+                        <div class="mb-3">
+                            <label for="note-metadata" class="form-label">元数据 (JSON格式)</label>
+                            <input type="text" class="form-control" id="note-metadata" name="metadata" value="{}">
+                        </div>
+                        <button type="submit" class="btn btn-primary">添加笔记</button>
+                    </form>
+                </div>
+
+                <!-- 笔记列表 -->
+                <div>
+                    <h4>笔记列表</h4>
+                    <div id="notes-list">
+                        <p>加载中...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // 加载笔记列表
+        async function loadNotes() {
+            try {
+                const response = await fetch('/api/notes');
+                const notes = await response.json();
+                
+                if (notes.length === 0) {
+                    document.getElementById('notes-list').innerHTML = '<p>暂无笔记</p>';
+                    return;
+                }
+                
+                let notesHtml = '';
+                notes.forEach(note => {
+                    notesHtml += `
+                        <div class="note-item">
+                            <div class="note-header">
+                                <div>
+                                    <strong>${note.plugin_name}</strong> / ${note.data_type}
+                                </div>
+                                <div>
+                                    <button class="btn btn-sm btn-danger" onclick="deleteNote(${note.id})">删除</button>
+                                </div>
+                            </div>
+                            <div class="note-meta">
+                                分类: ${note.category} | 创建时间: ${note.created_at}
+                            </div>
+                            <div class="note-content">
+                                ${note.content}
+                            </div>
+                            ${note.metadata ? `<div class="note-meta">元数据: ${note.metadata}</div>` : ''}
+                        </div>
+                    `;
+                });
+                
+                document.getElementById('notes-list').innerHTML = notesHtml;
+            } catch (error) {
+                console.error('加载笔记失败:', error);
+                document.getElementById('notes-list').innerHTML = '<p>加载失败</p>';
+            }
+        }
+
+        // 删除笔记
+        async function deleteNote(noteId) {
+            if (!confirm('确定要删除这条笔记吗？')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/notes/${noteId}`, {
+                    method: 'DELETE'
+                });
+                const result = await response.json();
+                alert(result.result);
+                loadNotes(); // 重新加载笔记列表
+            } catch (error) {
+                console.error('删除笔记失败:', error);
+                alert('删除失败');
+            }
+        }
+
+        // 提交添加笔记表单
+        document.getElementById('add-note-form').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const formData = new FormData(this);
+            const data = {
+                plugin_name: formData.get('plugin_name'),
+                data_type: formData.get('data_type'),
+                content: formData.get('content'),
+                metadata: JSON.parse(formData.get('metadata'))
+            };
+            
+            try {
+                const response = await fetch('/api/notes', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(data)
+                });
+                const result = await response.json();
+                alert(result.result);
+                loadNotes(); // 重新加载笔记列表
+                this.reset(); // 重置表单
+            } catch (error) {
+                console.error('添加笔记失败:', error);
+                alert('添加失败');
+            }
+        });
+
+        // 页面加载时执行
+        window.onload = function() {
+            loadNotes();
+        };
+    </script>
+</body>
+</html>

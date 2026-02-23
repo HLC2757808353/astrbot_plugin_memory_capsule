@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>记忆胶囊 - 首页</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+    <style>
+        body {
+            padding-top: 20px;
+            background-color: #f8f9fa;
+        }
+        .container {
+            max-width: 1200px;
+        }
+        .card {
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .nav-link {
+            font-weight: 500;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <nav class="navbar navbar-expand-lg navbar-light bg-light mb-4">
+            <div class="container-fluid">
+                <a class="navbar-brand" href="/">记忆胶囊</a>
+                <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                    <span class="navbar-toggler-icon"></span>
+                </button>
+                <div class="collapse navbar-collapse" id="navbarNav">
+                    <ul class="navbar-nav">
+                        <li class="nav-item">
+                            <a class="nav-link active" href="/">首页</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="/notes">笔记管理</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="/relations">关系管理</a>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </nav>
+
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                <h3>系统状态</h3>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <h5>记忆胶囊插件</h5>
+                        <p>版本: v0.0.1</p>
+                        <p>状态: 运行中</p>
+                        <p>WebUI: <a href="http://localhost:5000" target="_blank">http://localhost:5000</a></p>
+                    </div>
+                    <div class="col-md-6">
+                        <h5>存储统计</h5>
+                        <div id="storage-stats">
+                            <p>加载中...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header bg-success text-white">
+                <h3>快速操作</h3>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-4">
+                        <div class="card h-100">
+                            <div class="card-body">
+                                <h5 class="card-title">添加笔记</h5>
+                                <p class="card-text">快速添加一条新笔记到记忆胶囊</p>
+                                <a href="/notes" class="btn btn-primary">前往</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card h-100">
+                            <div class="card-body">
+                                <h5 class="card-title">查看关系</h5>
+                                <p class="card-text">查看和管理所有关系记录</p>
+                                <a href="/relations" class="btn btn-success">前往</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card h-100">
+                            <div class="card-body">
+                                <h5 class="card-title">插件接口</h5>
+                                <p class="card-text">查看其他插件如何使用记忆胶囊</p>
+                                <button class="btn btn-info" onclick="showApiInfo()">查看</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header bg-info text-white">
+                <h3>使用说明</h3>
+            </div>
+            <div class="card-body">
+                <h5>其他插件如何使用记忆胶囊</h5>
+                <pre class="bg-light p-3"># 导入记忆胶囊接口
+from astrbot_plugin_memory_capsule import store_plugin_data
+
+# 存储数据
+result = store_plugin_data(
+    plugin_name="your_plugin_name",
+    data_type="data_type",
+    content="数据内容",
+    metadata={"key": "value"}
+)
+print(result)</pre>
+                
+                <h5 class="mt-4">用户如何测试记忆胶囊</h5>
+                <pre class="bg-light p-3"># 在聊天中发送
+/memory test
+
+# 查看状态
+/memory status</pre>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // 加载存储统计
+        async function loadStorageStats() {
+            try {
+                const response = await fetch('/api/notes');
+                const notes = await response.json();
+                
+                const response2 = await fetch('/api/relations');
+                const relations = await response2.json();
+                
+                const statsHtml = `
+                    <p>笔记数量: ${notes.length}</p>
+                    <p>关系数量: ${relations.length}</p>
+                    <p>总存储记录: ${notes.length + relations.length}</p>
+                `;
+                document.getElementById('storage-stats').innerHTML = statsHtml;
+            } catch (error) {
+                console.error('加载统计失败:', error);
+                document.getElementById('storage-stats').innerHTML = '<p>加载失败</p>';
+            }
+        }
+
+        // 显示API信息
+        function showApiInfo() {
+            alert(`记忆胶囊API接口:\n\n1. store_plugin_data(plugin_name, data_type, content, metadata) - 存储插件数据\n2. query_plugin_data(query_keyword, plugin_name, data_type) - 查询插件数据\n3. get_memory_manager() - 获取记忆管理器实例`);
+        }
+
+        // 页面加载时执行
+        window.onload = function() {
+            loadStorageStats();
+        };
+    </script>
+</body>
+</html>
