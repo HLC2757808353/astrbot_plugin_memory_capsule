@@ -15,6 +15,7 @@ class DatabaseManager:
 
     def _initialize_database_structure(self):
         """初始化数据库结构"""
+        conn = None
         try:
             # 创建数据库目录
             os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
@@ -23,9 +24,13 @@ class DatabaseManager:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
             
+            # 先删除现有的表和索引，以确保表结构是最新的
+            cursor.execute('DROP TABLE IF EXISTS plugin_data')
+            cursor.execute('DROP TABLE IF EXISTS relations')
+            
             # 创建插件数据表（笔记表）
             cursor.execute('''
-            CREATE TABLE IF NOT EXISTS plugin_data (
+            CREATE TABLE plugin_data (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 note_id TEXT NOT NULL,
                 data_type TEXT NOT NULL DEFAULT 'string',
@@ -39,7 +44,7 @@ class DatabaseManager:
             
             # 创建关系数据表
             cursor.execute('''
-            CREATE TABLE IF NOT EXISTS relations (
+            CREATE TABLE relations (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id TEXT NOT NULL,
                 group_id TEXT NOT NULL,
@@ -62,11 +67,12 @@ class DatabaseManager:
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_relations_user_group_platform ON relations(user_id, group_id, platform)')
             
             conn.commit()
-            conn.close()
-            
             logger.info(f"数据库结构初始化成功: {self.db_path}")
         except Exception as e:
             logger.error(f"数据库结构初始化失败: {e}")
+        finally:
+            if conn:
+                conn.close()
 
     def initialize(self):
         """初始化数据库"""
