@@ -139,7 +139,7 @@ class MemoryCapsulePlugin(Star):
             user_id(string): 用户ID
             group_id(string): 群组ID
             nickname(string): 昵称，默认为None
-            favor_change(integer): 好感度变化，默认为0
+            favor_change(int): 好感度变化，默认为0
             impression(string): 印象描述，默认为None
             
         Returns:
@@ -178,7 +178,7 @@ class MemoryCapsulePlugin(Star):
         获取所有记忆
         
         Args:
-            limit(integer): 限制数量，默认为100
+            limit(int): 限制数量，默认为100
             
         Returns:
             list: 记忆列表
@@ -213,7 +213,7 @@ class MemoryCapsulePlugin(Star):
         删除记忆
         
         Args:
-            data_id(integer): 数据ID
+            data_id(int): 数据ID
             
         Returns:
             string: 删除结果
