@@ -56,18 +56,21 @@ class WebUIServer:
             return response
 
         @self.app.route('/api/notes')
-        def api_notes():
+        def api_notes(self):
             """获取笔记列表"""
             # 获取分页参数
             page = int(request.args.get('page', 1))
             limit = int(request.args.get('limit', 10))
             offset = (page - 1) * limit
             
+            # 获取分类参数
+            category = request.args.get('category')
+            
             # 获取笔记列表
-            notes = self.db_manager.get_all_plugin_data(limit, offset)
+            notes = self.db_manager.get_all_plugin_data(limit, offset, category)
             
             # 获取总笔记数
-            total_notes = self.db_manager.get_plugin_data_count()
+            total_notes = self.db_manager.get_plugin_data_count(category)
             
             return jsonify({
                 'notes': notes,
@@ -100,12 +103,13 @@ class WebUIServer:
             })
 
         @self.app.route('/api/notes', methods=['POST'])
-        def api_add_note():
+        def api_add_note(self):
             """添加笔记"""
             data = request.json
             result = self.db_manager.store_plugin_data(
                 content=data.get('content', ''),
-                metadata=data.get('metadata', {})
+                metadata=data.get('metadata', {}),
+                category=data.get('category', '')
             )
             return jsonify({'result': result})
 
@@ -176,9 +180,16 @@ class WebUIServer:
         """运行服务器"""
         self.running = True
         try:
-            # 检测端口是否被占用
-            if not self.check_port(self.port):
-                logger.error(f"WebUI服务器启动失败: 端口 {self.port} 已被占用")
+            # 尝试检测并释放端口，最多5次
+            max_attempts = 5
+            for attempt in range(max_attempts):
+                if self.check_port(self.port):
+                    break
+                logger.info(f"尝试释放端口 {self.port}，第 {attempt + 1} 次")
+                time.sleep(5)
+            else:
+                # 所有尝试都失败
+                logger.error(f"WebUI服务器启动失败: 端口 {self.port} 已被占用，尝试释放失败")
                 return
             
             # 使用线程运行，避免阻塞主线程

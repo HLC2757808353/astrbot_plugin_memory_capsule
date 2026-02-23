@@ -89,12 +89,13 @@ class DatabaseManager:
         conn.row_factory = sqlite3.Row
         return conn
 
-    def store_plugin_data(self, content, metadata=None):
+    def store_plugin_data(self, content, metadata=None, category=None):
         """存储笔记数据
         
         参数说明：
         - content: 笔记内容，固定为字符串类型
         - metadata: 元数据，用于存储笔记的额外信息，如标签、关键词等
+        - category: 分类名称
         
         笔记表字段功能说明：
         - id: 主键ID
@@ -111,7 +112,12 @@ class DatabaseManager:
             note_id = f"NOTE_{datetime.now().strftime('%Y%m%d%H%M%S')}_{hash(content) % 10000:04d}"
             
             # 生成分类路径
-            category = f"notes/{datetime.now().strftime('%Y/%m')}"
+            if category:
+                # 使用用户指定的分类
+                category_path = category.strip()
+            else:
+                # 使用默认分类路径
+                category_path = f"notes/{datetime.now().strftime('%Y/%m')}"
             
             # 处理元数据
             metadata_json = json.dumps(metadata) if metadata else None
@@ -124,7 +130,7 @@ class DatabaseManager:
             cursor.execute('''
             INSERT INTO plugin_data (note_id, data_type, content, metadata, category, updated_at)
             VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            ''', (note_id, 'string', content, metadata_json, category))
+            ''', (note_id, 'string', content, metadata_json, category_path))
             
             conn.commit()
             conn.close()
@@ -302,14 +308,18 @@ class DatabaseManager:
             logger.error(f"查询关系失败: {e}")
             return []
 
-    def get_all_plugin_data(self, limit=100, offset=0):
+    def get_all_plugin_data(self, limit=100, offset=0, category=None):
         """获取所有笔记数据"""
         try:
             # 使用独立连接
             conn = self._get_connection()
             cursor = conn.cursor()
             
-            cursor.execute('SELECT id, note_id, data_type, content, category, created_at FROM plugin_data ORDER BY created_at DESC LIMIT ? OFFSET ?', (limit, offset))
+            if category:
+                cursor.execute('SELECT id, note_id, data_type, content, category, created_at FROM plugin_data WHERE category=? ORDER BY created_at DESC LIMIT ? OFFSET ?', (category, limit, offset))
+            else:
+                cursor.execute('SELECT id, note_id, data_type, content, category, created_at FROM plugin_data ORDER BY created_at DESC LIMIT ? OFFSET ?', (limit, offset))
+            
             results = cursor.fetchall()
             conn.close()
             
@@ -330,14 +340,18 @@ class DatabaseManager:
             logger.error(f"获取笔记失败: {e}")
             return []
     
-    def get_plugin_data_count(self):
+    def get_plugin_data_count(self, category=None):
         """获取笔记总数"""
         try:
             # 使用独立连接
             conn = self._get_connection()
             cursor = conn.cursor()
             
-            cursor.execute('SELECT COUNT(*) FROM plugin_data')
+            if category:
+                cursor.execute('SELECT COUNT(*) FROM plugin_data WHERE category=?', (category,))
+            else:
+                cursor.execute('SELECT COUNT(*) FROM plugin_data')
+            
             count = cursor.fetchone()[0]
             conn.close()
             
