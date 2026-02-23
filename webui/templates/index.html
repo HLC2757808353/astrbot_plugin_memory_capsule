@@ -326,15 +326,17 @@ print(result)</pre>
         async function loadStorageStats() {
             try {
                 const response = await fetch('/api/notes');
-                const notes = await response.json();
+                const notesData = await response.json();
+                const notesCount = notesData.notes ? notesData.notes.length : 0;
                 
                 const response2 = await fetch('/api/relations');
                 const relations = await response2.json();
+                const relationsCount = Array.isArray(relations) ? relations.length : 0;
                 
                 const statsHtml = `
-                    <p>笔记数量: ${notes.length}</p>
-                    <p>关系数量: ${relations.length}</p>
-                    <p>总存储记录: ${notes.length + relations.length}</p>
+                    <p>笔记数量: ${notesCount}</p>
+                    <p>关系数量: ${relationsCount}</p>
+                    <p>总存储记录: ${notesCount + relationsCount}</p>
                 `;
                 document.getElementById('storage-stats').innerHTML = statsHtml;
             } catch (error) {

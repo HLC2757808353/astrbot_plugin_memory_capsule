@@ -311,6 +311,12 @@
                 <!-- 笔记列表 -->
                 <div>
                     <h4>本本列表</h4>
+                    <!-- 分类按钮 -->
+                    <div style="margin-bottom: 15px;">
+                        <button class="btn btn-outline" onclick="filterNotes('all')">全部</button>
+                        <button class="btn btn-outline" onclick="filterNotes('bilibili')">bilibili</button>
+                        <button class="btn btn-outline" onclick="filterNotes('Note')">Note</button>
+                    </div>
                     <div id="notes-list">
                         <p>加载中...</p>
                     </div>
@@ -388,7 +394,25 @@
             // 下一页按钮
             paginationHtml += `<button ${currentPage === totalPages ? 'disabled' : ''} onclick="loadNotes(${currentPage + 1})">&gt; 下一页</button>`;
             
+            // 总页数显示
+            paginationHtml += `<span style="margin-left: 20px; margin-right: 10px;">总页数: ${totalPages}</span>`;
+            
+            // 页数跳转
+            paginationHtml += `<span>跳转到: <input type="number" id="page-input" min="1" max="${totalPages}" value="${currentPage}" style="width: 60px; margin: 0 5px;"><button onclick="jumpToPage(${totalPages})")">跳转</button></span>`;
+            
             paginationContainer.innerHTML = paginationHtml;
+        }
+        
+        // 跳转到指定页面
+        function jumpToPage(totalPages) {
+            const pageInput = document.getElementById('page-input');
+            let page = parseInt(pageInput.value);
+            if (isNaN(page) || page < 1) {
+                page = 1;
+            } else if (page > totalPages) {
+                page = totalPages;
+            }
+            loadNotes(page);
         }
 
         // 删除笔记
@@ -437,6 +461,12 @@
                 alert('添加失败');
             }
         });
+
+        // 分类过滤
+        function filterNotes(category) {
+            currentPage = 1;
+            loadNotes();
+        }
 
         // 页面加载时执行
         window.onload = function() {

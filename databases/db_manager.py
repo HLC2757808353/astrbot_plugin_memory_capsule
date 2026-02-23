@@ -343,14 +343,14 @@ class DatabaseManager:
             logger.error(f"获取笔记总数失败: {e}")
             return 0
 
-    def get_all_relations(self):
+    def get_all_relations(self, limit=100, offset=0):
         """获取所有关系"""
         try:
             # 使用独立连接
             conn = self._get_connection()
             cursor = conn.cursor()
             
-            cursor.execute('SELECT id, user_id, nickname, group_id, platform, impression_summary, remark, favor_level, created_at FROM relations ORDER BY created_at DESC')
+            cursor.execute('SELECT id, user_id, nickname, group_id, platform, impression_summary, remark, favor_level, created_at FROM relations ORDER BY created_at DESC LIMIT ? OFFSET ?', (limit, offset))
             results = cursor.fetchall()
             conn.close()
             
@@ -373,6 +373,22 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"获取关系失败: {e}")
             return []
+    
+    def get_relations_count(self):
+        """获取关系总数"""
+        try:
+            # 使用独立连接
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute('SELECT COUNT(*) FROM relations')
+            count = cursor.fetchone()[0]
+            conn.close()
+            
+            return count
+        except Exception as e:
+            logger.error(f"获取关系总数失败: {e}")
+            return 0
 
     def delete_plugin_data(self, data_id):
         """删除插件数据"""

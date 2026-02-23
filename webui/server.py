@@ -79,8 +79,24 @@ class WebUIServer:
         @self.app.route('/api/relations')
         def api_relations():
             """获取关系列表"""
-            relations = self.db_manager.get_all_relations()
-            return jsonify(relations)
+            # 获取分页参数
+            page = int(request.args.get('page', 1))
+            limit = int(request.args.get('limit', 10))
+            offset = (page - 1) * limit
+            
+            # 获取关系列表
+            relations = self.db_manager.get_all_relations(limit, offset)
+            
+            # 获取总关系数
+            total_relations = self.db_manager.get_relations_count()
+            
+            return jsonify({
+                'relations': relations,
+                'total': total_relations,
+                'page': page,
+                'limit': limit,
+                'total_pages': (total_relations + limit - 1) // limit
+            })
 
         @self.app.route('/api/notes', methods=['POST'])
         def api_add_note():
