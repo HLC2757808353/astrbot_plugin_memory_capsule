@@ -74,7 +74,7 @@ class MemoryCapsulePlugin(Star):
             yield event.plain_result(f"{user_name}, 记忆胶囊命令格式：/memory test 或 /memory status")
 
     async def terminate(self):
-        """插件销毁方法1"""
+        """插件销毁方法"""
         logger.info("记忆胶囊插件正在关闭...")
         
         # 关闭WebUI服务
