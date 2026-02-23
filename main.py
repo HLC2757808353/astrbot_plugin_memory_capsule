@@ -93,13 +93,13 @@ class MemoryCapsulePlugin(Star):
         存储记忆到记忆胶囊
         
         Args:
-            content: 记忆内容
-            plugin_name: 插件名称，默认为"system"
-            data_type: 数据类型，默认为"note"
-            metadata: 元数据，默认为None
+            content(string): 记忆内容
+            plugin_name(string): 插件名称，默认为"system"
+            data_type(string): 数据类型，默认为"note"
+            metadata(dict): 元数据，默认为None
             
         Returns:
-            str: 存储结果
+            string: 存储结果
         """
         try:
             result = self.db_manager.store_plugin_data(plugin_name, data_type, content, metadata)
@@ -115,9 +115,9 @@ class MemoryCapsulePlugin(Star):
         查询记忆胶囊中的记忆
         
         Args:
-            query_keyword: 查询关键词
-            plugin_name: 插件名称，默认为None
-            data_type: 数据类型，默认为None
+            query_keyword(string): 查询关键词
+            plugin_name(string): 插件名称，默认为None
+            data_type(string): 数据类型，默认为None
             
         Returns:
             list: 查询结果列表
@@ -136,14 +136,14 @@ class MemoryCapsulePlugin(Star):
         更新用户关系
         
         Args:
-            user_id: 用户ID
-            group_id: 群组ID
-            nickname: 昵称，默认为None
-            favor_change: 好感度变化，默认为0
-            impression: 印象描述，默认为None
+            user_id(string): 用户ID
+            group_id(string): 群组ID
+            nickname(string): 昵称，默认为None
+            favor_change(integer): 好感度变化，默认为0
+            impression(string): 印象描述，默认为None
             
         Returns:
-            str: 更新结果
+            string: 更新结果
         """
         try:
             result = self.db_manager.update_relation(user_id, group_id, nickname, favor_change, impression)
@@ -159,7 +159,7 @@ class MemoryCapsulePlugin(Star):
         查询用户关系
         
         Args:
-            query_keyword: 查询关键词
+            query_keyword(string): 查询关键词
             
         Returns:
             list: 查询结果列表
@@ -178,7 +178,7 @@ class MemoryCapsulePlugin(Star):
         获取所有记忆
         
         Args:
-            limit: 限制数量，默认为100
+            limit(integer): 限制数量，默认为100
             
         Returns:
             list: 记忆列表
@@ -213,10 +213,10 @@ class MemoryCapsulePlugin(Star):
         删除记忆
         
         Args:
-            data_id: 数据ID
+            data_id(integer): 数据ID
             
         Returns:
-            str: 删除结果
+            string: 删除结果
         """
         try:
             result = self.db_manager.delete_plugin_data(data_id)
@@ -232,11 +232,11 @@ class MemoryCapsulePlugin(Star):
         删除关系
         
         Args:
-            user_id: 用户ID
-            group_id: 群组ID
+            user_id(string): 用户ID
+            group_id(string): 群组ID
             
         Returns:
-            str: 删除结果
+            string: 删除结果
         """
         try:
             result = self.db_manager.delete_relation(user_id, group_id)
