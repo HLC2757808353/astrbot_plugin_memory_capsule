@@ -88,7 +88,7 @@ class MemoryCapsulePlugin(Star):
         logger.info("记忆胶囊插件已关闭")
 
     @filter.llm_tool(name="store_memory")
-    async def store_memory(self, content: str, metadata: dict = None):
+    async def store_memory(self, event: AstrMessageEvent, content: str, metadata: dict = None):
         """
         存储记忆到记忆胶囊
         
@@ -108,7 +108,7 @@ class MemoryCapsulePlugin(Star):
             return f"存储失败: {e}"
 
     @filter.llm_tool(name="query_memory")
-    async def query_memory(self, query_keyword: str, data_type: str = None):
+    async def query_memory(self, event: AstrMessageEvent, query_keyword: str, data_type: str = None):
         """
         查询记忆胶囊中的记忆
         
@@ -128,7 +128,7 @@ class MemoryCapsulePlugin(Star):
             return []
 
     @filter.llm_tool(name="update_relation")
-    async def update_relation(self, user_id: str, group_id: str, platform: str = "qq", nickname: str = None, favor_change: int = 0, impression: str = None, remark: str = None):
+    async def update_relation(self, event: AstrMessageEvent, user_id: str, group_id: str, platform: str = "qq", nickname: str = None, favor_change: int = 0, impression: str = None, remark: str = None):
         """
         更新用户关系
         
@@ -153,7 +153,7 @@ class MemoryCapsulePlugin(Star):
             return f"更新失败: {e}"
 
     @filter.llm_tool(name="query_relation")
-    async def query_relation(self, query_keyword: str):
+    async def query_relation(self, event: AstrMessageEvent, query_keyword: str):
         """
         查询用户关系
         
@@ -172,7 +172,7 @@ class MemoryCapsulePlugin(Star):
             return []
 
     @filter.llm_tool(name="get_all_memories")
-    async def get_all_memories(self, limit: int = 100):
+    async def get_all_memories(self, event: AstrMessageEvent, limit: int = 100):
         """
         获取所有记忆
         
@@ -191,7 +191,7 @@ class MemoryCapsulePlugin(Star):
             return []
 
     @filter.llm_tool(name="get_all_relations")
-    async def get_all_relations(self):
+    async def get_all_relations(self, event: AstrMessageEvent):
         """
         获取所有关系
         
@@ -207,7 +207,7 @@ class MemoryCapsulePlugin(Star):
             return []
 
     @filter.llm_tool(name="delete_memory")
-    async def delete_memory(self, data_id: int):
+    async def delete_memory(self, event: AstrMessageEvent, data_id: int):
         """
         删除记忆
         
@@ -226,7 +226,7 @@ class MemoryCapsulePlugin(Star):
             return f"删除失败: {e}"
 
     @filter.llm_tool(name="delete_relation")
-    async def delete_relation(self, user_id: str, group_id: str, platform: str = "qq"):
+    async def delete_relation(self, event: AstrMessageEvent, user_id: str, group_id: str, platform: str = "qq"):
         """
         删除关系
         
@@ -247,7 +247,7 @@ class MemoryCapsulePlugin(Star):
             return f"删除失败: {e}"
 
     @filter.llm_tool(name="backup_database")
-    async def backup_database(self):
+    async def backup_database(self, event: AstrMessageEvent):
         """
         备份数据库
         
@@ -256,10 +256,10 @@ class MemoryCapsulePlugin(Star):
         """
         try:
             result = self.db_manager.backup()
-            logger.info("备份数据库成功")
+            logger.info("数据库备份成功")
             return result
         except Exception as e:
-            logger.error(f"备份数据库失败: {e}")
+            logger.error(f"数据库备份失败: {e}")
             return f"备份失败: {e}"
 
 # 外部接口，供其他插件调用
