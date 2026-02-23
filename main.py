@@ -1,7 +1,6 @@
 from astrbot.api.event import filter, AstrMessageEvent, MessageEventResult
 from astrbot.api.star import Context, Star, register
 from astrbot.api import logger
-from astrbot.api.tool import Tool
 import os
 import threading
 
@@ -88,7 +87,7 @@ class MemoryCapsulePlugin(Star):
         
         logger.info("记忆胶囊插件已关闭")
 
-    @Tool.register()
+    @filter.llm_tool(name="store_memory")
     async def store_memory(self, content: str, plugin_name: str = "system", data_type: str = "note", metadata: dict = None):
         """
         存储记忆到记忆胶囊
@@ -110,7 +109,7 @@ class MemoryCapsulePlugin(Star):
             logger.error(f"存储记忆失败: {e}")
             return f"存储失败: {e}"
 
-    @Tool.register()
+    @filter.llm_tool(name="query_memory")
     async def query_memory(self, query_keyword: str, plugin_name: str = None, data_type: str = None):
         """
         查询记忆胶囊中的记忆
@@ -131,7 +130,7 @@ class MemoryCapsulePlugin(Star):
             logger.error(f"查询记忆失败: {e}")
             return []
 
-    @Tool.register()
+    @filter.llm_tool(name="update_relation")
     async def update_relation(self, user_id: str, group_id: str, nickname: str = None, favor_change: int = 0, impression: str = None):
         """
         更新用户关系
@@ -154,7 +153,7 @@ class MemoryCapsulePlugin(Star):
             logger.error(f"更新关系失败: {e}")
             return f"更新失败: {e}"
 
-    @Tool.register()
+    @filter.llm_tool(name="query_relation")
     async def query_relation(self, query_keyword: str):
         """
         查询用户关系
@@ -173,7 +172,7 @@ class MemoryCapsulePlugin(Star):
             logger.error(f"查询关系失败: {e}")
             return []
 
-    @Tool.register()
+    @filter.llm_tool(name="get_all_memories")
     async def get_all_memories(self, limit: int = 100):
         """
         获取所有记忆
@@ -192,7 +191,7 @@ class MemoryCapsulePlugin(Star):
             logger.error(f"获取所有记忆失败: {e}")
             return []
 
-    @Tool.register()
+    @filter.llm_tool(name="get_all_relations")
     async def get_all_relations(self):
         """
         获取所有关系
@@ -208,7 +207,7 @@ class MemoryCapsulePlugin(Star):
             logger.error(f"获取所有关系失败: {e}")
             return []
 
-    @Tool.register()
+    @filter.llm_tool(name="delete_memory")
     async def delete_memory(self, data_id: int):
         """
         删除记忆
@@ -227,7 +226,7 @@ class MemoryCapsulePlugin(Star):
             logger.error(f"删除记忆失败: {e}")
             return f"删除失败: {e}"
 
-    @Tool.register()
+    @filter.llm_tool(name="delete_relation")
     async def delete_relation(self, user_id: str, group_id: str):
         """
         删除关系
@@ -247,7 +246,7 @@ class MemoryCapsulePlugin(Star):
             logger.error(f"删除关系失败: {e}")
             return f"删除失败: {e}"
 
-    @Tool.register()
+    @filter.llm_tool(name="backup_database")
     async def backup_database(self):
         """
         备份数据库
