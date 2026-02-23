@@ -2,6 +2,7 @@ import sqlite3
 import os
 import json
 from datetime import datetime
+from astrbot import logger
 from .backup import BackupManager
 
 class DatabaseManager:
