@@ -24,13 +24,9 @@ class DatabaseManager:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
             
-            # 先删除现有的表和索引，以确保表结构是最新的
-            cursor.execute('DROP TABLE IF EXISTS plugin_data')
-            cursor.execute('DROP TABLE IF EXISTS relations')
-            
-            # 创建插件数据表（笔记表）
+            # 创建插件数据表（笔记表），如果不存在
             cursor.execute('''
-            CREATE TABLE plugin_data (
+            CREATE TABLE IF NOT EXISTS plugin_data (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 note_id TEXT NOT NULL,
                 data_type TEXT NOT NULL DEFAULT 'string',
@@ -42,9 +38,9 @@ class DatabaseManager:
             )
             ''')
             
-            # 创建关系数据表
+            # 创建关系数据表，如果不存在
             cursor.execute('''
-            CREATE TABLE relations (
+            CREATE TABLE IF NOT EXISTS relations (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id TEXT NOT NULL,
                 group_id TEXT NOT NULL,
@@ -303,14 +299,14 @@ class DatabaseManager:
             logger.error(f"查询关系失败: {e}")
             return []
 
-    def get_all_plugin_data(self, limit=100):
+    def get_all_plugin_data(self, limit=100, offset=0):
         """获取所有笔记数据"""
         try:
             # 使用独立连接
             conn = self._get_connection()
             cursor = conn.cursor()
             
-            cursor.execute('SELECT id, note_id, data_type, content, category, created_at FROM plugin_data ORDER BY created_at DESC LIMIT ?', (limit,))
+            cursor.execute('SELECT id, note_id, data_type, content, category, created_at FROM plugin_data ORDER BY created_at DESC LIMIT ? OFFSET ?', (limit, offset))
             results = cursor.fetchall()
             conn.close()
             
@@ -330,6 +326,22 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"获取笔记失败: {e}")
             return []
+    
+    def get_plugin_data_count(self):
+        """获取笔记总数"""
+        try:
+            # 使用独立连接
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute('SELECT COUNT(*) FROM plugin_data')
+            count = cursor.fetchone()[0]
+            conn.close()
+            
+            return count
+        except Exception as e:
+            logger.error(f"获取笔记总数失败: {e}")
+            return 0
 
     def get_all_relations(self):
         """获取所有关系"""

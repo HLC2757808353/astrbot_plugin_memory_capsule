@@ -1,6 +1,8 @@
 from flask import Flask, render_template, jsonify, request
 import threading
 import time
+import yaml
+import os
 from astrbot.api import logger
 
 class WebUIServer:
@@ -9,14 +11,26 @@ class WebUIServer:
         self.db_manager = db_manager
         self.port = port
         self.running = False
+        self.version = self._get_version()
         self.setup_routes()
+    
+    def _get_version(self):
+        """从metadata.yaml读取版本号"""
+        try:
+            metadata_path = os.path.join(os.path.dirname(__file__), "..", "metadata.yaml")
+            with open(metadata_path, 'r', encoding='utf-8') as f:
+                metadata = yaml.safe_load(f)
+                return metadata.get('version', 'v0.0.1')
+        except Exception as e:
+            logger.error(f"读取版本号失败: {e}")
+            return 'v0.0.1'
 
     def setup_routes(self):
         """设置路由"""
         @self.app.route('/')
         def index():
             from flask import make_response
-            response = make_response(render_template('index.html'))
+            response = make_response(render_template('index.html', version=self.version))
             response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
             response.headers['Pragma'] = 'no-cache'
             response.headers['Expires'] = '0'
@@ -43,8 +57,24 @@ class WebUIServer:
         @self.app.route('/api/notes')
         def api_notes():
             """获取笔记列表"""
-            notes = self.db_manager.get_all_plugin_data()
-            return jsonify(notes)
+            # 获取分页参数
+            page = int(request.args.get('page', 1))
+            limit = int(request.args.get('limit', 10))
+            offset = (page - 1) * limit
+            
+            # 获取笔记列表
+            notes = self.db_manager.get_all_plugin_data(limit, offset)
+            
+            # 获取总笔记数
+            total_notes = self.db_manager.get_plugin_data_count()
+            
+            return jsonify({
+                'notes': notes,
+                'total': total_notes,
+                'page': page,
+                'limit': limit,
+                'total_pages': (total_notes + limit - 1) // limit
+            })
 
         @self.app.route('/api/relations')
         def api_relations():

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>记忆胶囊 - 笔记管理</title>
+    <title>记忆胶囊 - 本本管理</title>
     <style>
         * {
             box-sizing: border-box;
@@ -125,6 +125,17 @@
             background-color: #c82333;
         }
         
+        .btn-outline {
+            border: 1px solid #007bff;
+            color: #007bff;
+            background-color: transparent;
+        }
+        
+        .btn-outline:hover {
+            background-color: #007bff;
+            color: #ffffff;
+        }
+        
         /* 表单 */
         .form-group {
             margin-bottom: 15px;
@@ -149,41 +160,112 @@
             min-height: 100px;
         }
         
-        /* 笔记项 */
-        .note-item {
-            margin-bottom: 10px;
-            padding: 15px;
-            border: 1px solid #e0e0e0;
-            border-radius: 5px;
-            background-color: #ffffff;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        /* 笔记卡片 */
+        .notes-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 15px;
+            margin-bottom: 20px;
         }
         
-        .note-header {
+        .note-card {
+            background-color: #ffffff;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            padding: 15px;
+            height: 200px;
+            overflow-y: auto;
+            position: relative;
+        }
+        
+        .note-card-header {
             display: flex;
             justify-content: space-between;
-            align-items: center;
+            align-items: flex-start;
             margin-bottom: 10px;
         }
         
-        .note-meta {
-            font-size: 0.85rem;
+        .note-card-id {
+            font-size: 12px;
+            font-weight: bold;
+            color: #007bff;
+        }
+        
+        .note-card-actions {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+        }
+        
+        .note-card-meta {
+            font-size: 11px;
             color: #666;
             margin-bottom: 8px;
         }
         
-        .note-content {
-            margin: 10px 0;
-            white-space: pre-wrap;
+        .note-card-content {
+            font-size: 14px;
+            line-height: 1.4;
             word-break: break-word;
-            line-height: 1.5;
+            overflow-y: auto;
+        }
+        
+        /* 分页 */
+        .pagination {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-top: 20px;
+            gap: 10px;
+        }
+        
+        .pagination button {
+            padding: 5px 10px;
+            border: 1px solid #ddd;
+            background-color: #fff;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        
+        .pagination button.active {
+            background-color: #007bff;
+            color: #fff;
+            border-color: #007bff;
+        }
+        
+        .pagination button:disabled {
+            cursor: not-allowed;
+            opacity: 0.5;
         }
         
         /* 响应式设计 */
+        @media (max-width: 1200px) {
+            .notes-grid {
+                grid-template-columns: repeat(4, 1fr);
+            }
+        }
+        
+        @media (max-width: 992px) {
+            .notes-grid {
+                grid-template-columns: repeat(3, 1fr);
+            }
+        }
+        
         @media (max-width: 768px) {
             .navbar-nav {
                 flex-direction: column;
                 gap: 10px;
+            }
+            
+            .notes-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+        
+        @media (max-width: 576px) {
+            .notes-grid {
+                grid-template-columns: 1fr;
             }
         }
     </style>
@@ -197,7 +279,7 @@
                     <a class="nav-link" href="/">首页</a>
                 </li>
                 <li class="nav-item">
-                    <a class="nav-link active" href="/notes">笔记管理</a>
+                    <a class="nav-link active" href="/notes">本本管理</a>
                 </li>
                 <li class="nav-item">
                     <a class="nav-link" href="/relations">关系管理</a>
@@ -207,30 +289,33 @@
 
         <div class="card">
             <div class="card-header bg-primary">
-                <h3>笔记管理</h3>
+                <h3>本本管理</h3>
             </div>
             <div class="card-body">
                 <!-- 添加笔记表单 -->
                 <div style="margin-bottom: 30px;">
-                    <h4>添加新笔记</h4>
+                    <h4>添加新本本</h4>
                     <form id="add-note-form">
                         <div class="form-group">
-                            <label class="form-label" for="note-content">笔记内容</label>
+                            <label class="form-label" for="note-content">本本内容</label>
                             <textarea class="form-control" id="note-content" name="content" rows="4" required></textarea>
                         </div>
                         <div class="form-group">
                             <label class="form-label" for="note-metadata">元数据 (JSON格式，用于存储额外信息如标签、关键词等)</label>
                             <input type="text" class="form-control" id="note-metadata" name="metadata" value="{}">
                         </div>
-                        <button type="submit" class="btn btn-primary">添加笔记</button>
+                        <button type="submit" class="btn btn-primary">添加本本</button>
                     </form>
                 </div>
 
                 <!-- 笔记列表 -->
                 <div>
-                    <h4>笔记列表</h4>
+                    <h4>本本列表</h4>
                     <div id="notes-list">
                         <p>加载中...</p>
+                    </div>
+                    <!-- 分页 -->
+                    <div id="pagination" class="pagination">
                     </div>
                 </div>
             </div>
@@ -238,50 +323,77 @@
     </div>
 
     <script>
+        let currentPage = 1;
+        const pageSize = 10;
+        
         // 加载笔记列表
-        async function loadNotes() {
+        async function loadNotes(page = 1) {
             try {
-                const response = await fetch('/api/notes');
-                const notes = await response.json();
+                const response = await fetch(`/api/notes?page=${page}&limit=${pageSize}`);
+                const data = await response.json();
+                
+                const notes = data.notes;
+                const total = data.total;
+                const totalPages = data.total_pages;
+                currentPage = page;
                 
                 if (notes.length === 0) {
-                    document.getElementById('notes-list').innerHTML = '<p>暂无笔记</p>';
+                    document.getElementById('notes-list').innerHTML = '<p>暂无本本</p>';
+                    document.getElementById('pagination').innerHTML = '';
                     return;
                 }
                 
-                let notesHtml = '';
+                let notesHtml = '<div class="notes-grid">';
                 notes.forEach(note => {
                     notesHtml += `
-                        <div class="note-item">
-                            <div class="note-header">
-                                <div>
-                                    <strong>笔记编号: ${note.note_id}</strong> | 数据类型: ${note.data_type}
-                                </div>
-                                <div>
-                                    <button class="btn btn-danger" onclick="deleteNote(${note.id})">删除</button>
-                                </div>
+                        <div class="note-card">
+                            <div class="note-card-header">
+                                <span class="note-card-id">${note.note_id}</span>
                             </div>
-                            <div class="note-meta">
-                                分类: ${note.category} | 记录时间: ${note.created_at}
+                            <div class="note-card-actions">
+                                <button class="btn btn-danger" style="font-size: 12px; padding: 2px 6px;" onclick="deleteNote(${note.id})">删除</button>
                             </div>
-                            <div class="note-content">
+                            <div class="note-card-meta">
+                                分类: ${note.category} | ${note.created_at}
+                            </div>
+                            <div class="note-card-content">
                                 ${note.content}
                             </div>
-                            ${note.metadata ? `<div class="note-meta">元数据: ${JSON.stringify(note.metadata)}</div>` : ''}
                         </div>
                     `;
                 });
+                notesHtml += '</div>';
                 
                 document.getElementById('notes-list').innerHTML = notesHtml;
+                renderPagination(totalPages);
             } catch (error) {
-                console.error('加载笔记失败:', error);
+                console.error('加载本本失败:', error);
                 document.getElementById('notes-list').innerHTML = '<p>加载失败</p>';
             }
         }
 
+        // 渲染分页
+        function renderPagination(totalPages) {
+            const paginationContainer = document.getElementById('pagination');
+            let paginationHtml = '';
+            
+            // 上一页按钮
+            paginationHtml += `<button ${currentPage === 1 ? 'disabled' : ''} onclick="loadNotes(${currentPage - 1})">&lt; 上一页</button>`;
+            
+            // 页码按钮
+            for (let i = 1; i <= totalPages; i++) {
+                paginationHtml += `<button ${i === currentPage ? 'class="active"' : ''} onclick="loadNotes(${i})")">${i}</button>`;
+            }
+            
+            // 下一页按钮
+            paginationHtml += `<button ${currentPage === totalPages ? 'disabled' : ''} onclick="loadNotes(${currentPage + 1})">&gt; 下一页</button>`;
+            
+            paginationContainer.innerHTML = paginationHtml;
+        }
+
         // 删除笔记
         async function deleteNote(noteId) {
-            if (!confirm('确定要删除这条笔记吗？')) {
+            if (!confirm('确定要删除这条本本吗？')) {
                 return;
             }
             
@@ -291,9 +403,9 @@
                 });
                 const result = await response.json();
                 alert(result.result);
-                loadNotes(); // 重新加载笔记列表
+                loadNotes(currentPage); // 重新加载当前页
             } catch (error) {
-                console.error('删除笔记失败:', error);
+                console.error('删除本本失败:', error);
                 alert('删除失败');
             }
         }
@@ -318,10 +430,10 @@
                 });
                 const result = await response.json();
                 alert(result.result);
-                loadNotes(); // 重新加载笔记列表
+                loadNotes(1); // 重新加载第一页
                 this.reset(); // 重置表单
             } catch (error) {
-                console.error('添加笔记失败:', error);
+                console.error('添加本本失败:', error);
                 alert('添加失败');
             }
         });
