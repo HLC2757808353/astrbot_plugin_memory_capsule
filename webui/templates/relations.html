@@ -174,6 +174,52 @@
                 <h3>关系管理</h3>
             </div>
             <div class="card-body">
+                <!-- 添加关系表单 -->
+                <div style="margin-bottom: 30px;">
+                    <h4>添加/编辑关系</h4>
+                    <form id="add-relation-form">
+                        <div class="form-group">
+                            <label class="form-label" for="user-id">用户ID</label>
+                            <input type="text" class="form-control" id="user-id" name="user_id" required>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="group-id">群组ID</label>
+                            <input type="text" class="form-control" id="group-id" name="group_id" required>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="platform">平台</label>
+                            <input type="text" class="form-control" id="platform" name="platform" value="qq" required>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="nickname">昵称</label>
+                            <input type="text" class="form-control" id="nickname" name="nickname" required>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="favor-change">好感度变化</label>
+                            <input type="number" class="form-control" id="favor-change" name="favor_change" value="0">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="impression">印象</label>
+                            <textarea class="form-control" id="impression" name="impression" rows="3"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="remark">备注</label>
+                            <textarea class="form-control" id="remark" name="remark" rows="2"></textarea>
+                        </div>
+                        <button type="submit" class="btn btn-primary">保存关系</button>
+                    </form>
+                </div>
+
+                <!-- 搜索功能 -->
+                <div style="margin-bottom: 20px;">
+                    <h4>搜索关系</h4>
+                    <div style="display: flex; gap: 10px;">
+                        <input type="text" class="form-control" id="search-query" placeholder="输入关键词搜索..." style="flex: 1;">
+                        <button class="btn btn-primary" onclick="searchRelations()">搜索</button>
+                        <button class="btn btn-secondary" onclick="loadRelations()">重置</button>
+                    </div>
+                </div>
+
                 <!-- 关系列表 -->
                 <div>
                     <h4>关系列表</h4>
@@ -208,10 +254,11 @@
                                 </div>
                                 <div>
                                     好感度: ${relation.favor_level}
+                                    <button class="btn btn-danger" onclick="deleteRelation('${relation.user_id}', '${relation.group_id}', '${relation.platform}')" style="margin-left: 10px;">删除</button>
                                 </div>
                             </div>
                             <div class="relation-meta">
-                                群组: ${relation.group_id} | 创建时间: ${relation.created_at}
+                                群组: ${relation.group_id} | 平台: ${relation.platform} | 创建时间: ${relation.created_at}
                             </div>
                             <div class="favor-bar">
                                 <div class="favor-fill" style="width: ${favorPercentage}%"></div>
@@ -220,6 +267,12 @@
                                 <div class="relation-content">
                                     <h6>印象:</h6>
                                     <p>${relation.impression}</p>
+                                </div>
+                            ` : ''}
+                            ${relation.remark ? `
+                                <div class="relation-content">
+                                    <h6>备注:</h6>
+                                    <p>${relation.remark}</p>
                                 </div>
                             ` : ''}
                         </div>
@@ -232,6 +285,113 @@
                 document.getElementById('relations-list').innerHTML = '<p>加载失败</p>';
             }
         }
+
+        // 搜索关系
+        async function searchRelations() {
+            const query = document.getElementById('search-query').value;
+            try {
+                const response = await fetch(`/api/relations/search?q=${encodeURIComponent(query)}`);
+                const relations = await response.json();
+                
+                if (relations.length === 0) {
+                    document.getElementById('relations-list').innerHTML = '<p>没有找到匹配的关系记录</p>';
+                    return;
+                }
+                
+                let relationsHtml = '';
+                relations.forEach(relation => {
+                    const favorPercentage = relation.favor_level;
+                    relationsHtml += `
+                        <div class="relation-item">
+                            <div class="relation-header">
+                                <div>
+                                    <strong>${relation.nickname}</strong> (${relation.user_id})
+                                </div>
+                                <div>
+                                    好感度: ${relation.favor_level}
+                                    <button class="btn btn-danger" onclick="deleteRelation('${relation.user_id}', '${relation.group_id}', '${relation.platform}')" style="margin-left: 10px;">删除</button>
+                                </div>
+                            </div>
+                            <div class="relation-meta">
+                                群组: ${relation.group_id} | 平台: ${relation.platform} | 创建时间: ${relation.created_at}
+                            </div>
+                            <div class="favor-bar">
+                                <div class="favor-fill" style="width: ${favorPercentage}%"></div>
+                            </div>
+                            ${relation.impression ? `
+                                <div class="relation-content">
+                                    <h6>印象:</h6>
+                                    <p>${relation.impression}</p>
+                                </div>
+                            ` : ''}
+                            ${relation.remark ? `
+                                <div class="relation-content">
+                                    <h6>备注:</h6>
+                                    <p>${relation.remark}</p>
+                                </div>
+                            ` : ''}
+                        </div>
+                    `;
+                });
+                
+                document.getElementById('relations-list').innerHTML = relationsHtml;
+            } catch (error) {
+                console.error('搜索关系失败:', error);
+                document.getElementById('relations-list').innerHTML = '<p>搜索失败</p>';
+            }
+        }
+
+        // 删除关系
+        async function deleteRelation(user_id, group_id, platform) {
+            if (!confirm('确定要删除这条关系记录吗？')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/relations/${user_id}/${group_id}/${platform}`, {
+                    method: 'DELETE'
+                });
+                const result = await response.json();
+                alert(result.result);
+                loadRelations(); // 重新加载关系列表
+            } catch (error) {
+                console.error('删除关系失败:', error);
+                alert('删除失败');
+            }
+        }
+
+        // 保存关系
+        document.getElementById('add-relation-form').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const formData = new FormData(this);
+            const data = {
+                user_id: formData.get('user_id'),
+                group_id: formData.get('group_id'),
+                platform: formData.get('platform'),
+                nickname: formData.get('nickname'),
+                favor_change: parseInt(formData.get('favor_change')),
+                impression: formData.get('impression'),
+                remark: formData.get('remark')
+            };
+            
+            try {
+                const response = await fetch('/api/relations', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(data)
+                });
+                const result = await response.json();
+                alert(result.result);
+                loadRelations(); // 重新加载关系列表
+                this.reset(); // 重置表单
+            } catch (error) {
+                console.error('保存关系失败:', error);
+                alert('保存失败');
+            }
+        });
 
         // 页面加载时执行
         window.onload = function() {

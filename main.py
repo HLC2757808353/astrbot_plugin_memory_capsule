@@ -88,42 +88,39 @@ class MemoryCapsulePlugin(Star):
         logger.info("记忆胶囊插件已关闭")
 
     @filter.llm_tool(name="store_memory")
-    async def store_memory(self, content: str, plugin_name: str = "system", data_type: str = "note", metadata: dict = None):
+    async def store_memory(self, content: str, metadata: dict = None):
         """
         存储记忆到记忆胶囊
         
         Args:
-            content(string): 记忆内容
-            plugin_name(string): 插件名称，默认为"system"
-            data_type(string): 数据类型，默认为"note"
-            metadata(dict): 元数据，默认为None
+            content(string): 记忆内容，固定为字符串类型
+            metadata(dict): 元数据，用于存储额外信息，如标签、关键词等
             
         Returns:
             string: 存储结果
         """
         try:
-            result = self.db_manager.store_plugin_data(plugin_name, data_type, content, metadata)
-            logger.info(f"存储记忆成功: {plugin_name}/{data_type}")
+            result = self.db_manager.store_plugin_data(content, metadata)
+            logger.info("存储记忆成功")
             return result
         except Exception as e:
             logger.error(f"存储记忆失败: {e}")
             return f"存储失败: {e}"
 
     @filter.llm_tool(name="query_memory")
-    async def query_memory(self, query_keyword: str, plugin_name: str = None, data_type: str = None):
+    async def query_memory(self, query_keyword: str, data_type: str = None):
         """
         查询记忆胶囊中的记忆
         
         Args:
             query_keyword(string): 查询关键词
-            plugin_name(string): 插件名称，默认为None
             data_type(string): 数据类型，默认为None
             
         Returns:
             list: 查询结果列表
         """
         try:
-            results = self.db_manager.query_plugin_data(query_keyword, plugin_name, data_type)
+            results = self.db_manager.query_plugin_data(query_keyword, data_type)
             logger.info(f"查询记忆成功，找到 {len(results)} 条结果")
             return results
         except Exception as e:
@@ -131,23 +128,25 @@ class MemoryCapsulePlugin(Star):
             return []
 
     @filter.llm_tool(name="update_relation")
-    async def update_relation(self, user_id: str, group_id: str, nickname: str = None, favor_change: int = 0, impression: str = None):
+    async def update_relation(self, user_id: str, group_id: str, platform: str = "qq", nickname: str = None, favor_change: int = 0, impression: str = None, remark: str = None):
         """
         更新用户关系
         
         Args:
             user_id(string): 用户ID
             group_id(string): 群组ID
+            platform(string): 平台，默认为"qq"
             nickname(string): 昵称，默认为None
             favor_change(int): 好感度变化，默认为0
             impression(string): 印象描述，默认为None
+            remark(string): 备注，默认为None
             
         Returns:
             string: 更新结果
         """
         try:
-            result = self.db_manager.update_relation(user_id, group_id, nickname, favor_change, impression)
-            logger.info(f"更新关系成功: {user_id}@{group_id}")
+            result = self.db_manager.update_relation(user_id, group_id, platform, nickname, favor_change, impression, remark)
+            logger.info(f"更新关系成功: {user_id}@{group_id}@{platform}")
             return result
         except Exception as e:
             logger.error(f"更新关系失败: {e}")
@@ -227,20 +226,21 @@ class MemoryCapsulePlugin(Star):
             return f"删除失败: {e}"
 
     @filter.llm_tool(name="delete_relation")
-    async def delete_relation(self, user_id: str, group_id: str):
+    async def delete_relation(self, user_id: str, group_id: str, platform: str = "qq"):
         """
         删除关系
         
         Args:
             user_id(string): 用户ID
             group_id(string): 群组ID
+            platform(string): 平台，默认为"qq"
             
         Returns:
             string: 删除结果
         """
         try:
-            result = self.db_manager.delete_relation(user_id, group_id)
-            logger.info(f"删除关系成功: {user_id}@{group_id}")
+            result = self.db_manager.delete_relation(user_id, group_id, platform)
+            logger.info(f"删除关系成功: {user_id}@{group_id}@{platform}")
             return result
         except Exception as e:
             logger.error(f"删除关系失败: {e}")
@@ -268,12 +268,12 @@ def get_memory_manager():
     from .databases.db_manager import DatabaseManager
     return DatabaseManager()
 
-def store_plugin_data(plugin_name, data_type, content, metadata=None):
-    """存储插件数据"""
+def store_plugin_data(content, metadata=None):
+    """存储笔记数据"""
     db_manager = get_memory_manager()
-    return db_manager.store_plugin_data(plugin_name, data_type, content, metadata)
+    return db_manager.store_plugin_data(content, metadata)
 
-def query_plugin_data(query_keyword, plugin_name=None, data_type=None):
-    """查询插件数据"""
+def query_plugin_data(query_keyword, data_type=None):
+    """查询笔记数据"""
     db_manager = get_memory_manager()
-    return db_manager.query_plugin_data(query_keyword, plugin_name, data_type)
+    return db_manager.query_plugin_data(query_keyword, data_type)

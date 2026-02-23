@@ -215,19 +215,11 @@
                     <h4>添加新笔记</h4>
                     <form id="add-note-form">
                         <div class="form-group">
-                            <label class="form-label" for="plugin-name">插件名称</label>
-                            <input type="text" class="form-control" id="plugin-name" name="plugin_name" value="webui" required>
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label" for="data-type">数据类型</label>
-                            <input type="text" class="form-control" id="data-type" name="data_type" value="note" required>
-                        </div>
-                        <div class="form-group">
                             <label class="form-label" for="note-content">笔记内容</label>
                             <textarea class="form-control" id="note-content" name="content" rows="4" required></textarea>
                         </div>
                         <div class="form-group">
-                            <label class="form-label" for="note-metadata">元数据 (JSON格式)</label>
+                            <label class="form-label" for="note-metadata">元数据 (JSON格式，用于存储额外信息如标签、关键词等)</label>
                             <input type="text" class="form-control" id="note-metadata" name="metadata" value="{}">
                         </div>
                         <button type="submit" class="btn btn-primary">添加笔记</button>
@@ -263,14 +255,14 @@
                         <div class="note-item">
                             <div class="note-header">
                                 <div>
-                                    <strong>${note.plugin_name}</strong> / ${note.data_type}
+                                    <strong>笔记编号: ${note.note_id}</strong> | 数据类型: ${note.data_type}
                                 </div>
                                 <div>
                                     <button class="btn btn-danger" onclick="deleteNote(${note.id})">删除</button>
                                 </div>
                             </div>
                             <div class="note-meta">
-                                分类: ${note.category} | 创建时间: ${note.created_at}
+                                分类: ${note.category} | 记录时间: ${note.created_at}
                             </div>
                             <div class="note-content">
                                 ${note.content}
@@ -312,8 +304,6 @@
             
             const formData = new FormData(this);
             const data = {
-                plugin_name: formData.get('plugin_name'),
-                data_type: formData.get('data_type'),
                 content: formData.get('content'),
                 metadata: JSON.parse(formData.get('metadata'))
             };

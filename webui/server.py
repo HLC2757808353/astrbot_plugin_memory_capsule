@@ -15,15 +15,30 @@ class WebUIServer:
         """设置路由"""
         @self.app.route('/')
         def index():
-            return render_template('index.html')
+            from flask import make_response
+            response = make_response(render_template('index.html'))
+            response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+            response.headers['Pragma'] = 'no-cache'
+            response.headers['Expires'] = '0'
+            return response
 
         @self.app.route('/notes')
         def notes():
-            return render_template('notes.html')
+            from flask import make_response
+            response = make_response(render_template('notes.html'))
+            response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+            response.headers['Pragma'] = 'no-cache'
+            response.headers['Expires'] = '0'
+            return response
 
         @self.app.route('/relations')
         def relations():
-            return render_template('relations.html')
+            from flask import make_response
+            response = make_response(render_template('relations.html'))
+            response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+            response.headers['Pragma'] = 'no-cache'
+            response.headers['Expires'] = '0'
+            return response
 
         @self.app.route('/api/notes')
         def api_notes():
@@ -42,8 +57,6 @@ class WebUIServer:
             """添加笔记"""
             data = request.json
             result = self.db_manager.store_plugin_data(
-                plugin_name=data.get('plugin_name', 'webui'),
-                data_type=data.get('data_type', 'note'),
                 content=data.get('content', ''),
                 metadata=data.get('metadata', {})
             )
@@ -54,6 +67,34 @@ class WebUIServer:
             """删除笔记"""
             result = self.db_manager.delete_plugin_data(note_id)
             return jsonify({'result': result})
+
+        @self.app.route('/api/relations', methods=['POST'])
+        def api_add_relation():
+            """添加关系"""
+            data = request.json
+            result = self.db_manager.update_relation(
+                user_id=data.get('user_id', ''),
+                group_id=data.get('group_id', ''),
+                platform=data.get('platform', 'qq'),
+                nickname=data.get('nickname', ''),
+                favor_change=data.get('favor_change', 0),
+                impression=data.get('impression', ''),
+                remark=data.get('remark', '')
+            )
+            return jsonify({'result': result})
+
+        @self.app.route('/api/relations/<string:user_id>/<string:group_id>/<string:platform>', methods=['DELETE'])
+        def api_delete_relation(user_id, group_id, platform):
+            """删除关系"""
+            result = self.db_manager.delete_relation(user_id, group_id, platform)
+            return jsonify({'result': result})
+
+        @self.app.route('/api/relations/search')
+        def api_search_relations():
+            """搜索关系（模糊查询）"""
+            query = request.args.get('q', '')
+            relations = self.db_manager.query_relation(query)
+            return jsonify(relations)
 
     def run(self):
         """运行服务器"""

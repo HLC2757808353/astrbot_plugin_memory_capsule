@@ -23,12 +23,12 @@ class DatabaseManager:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
             
-            # 创建插件数据表
+            # 创建插件数据表（笔记表）
             cursor.execute('''
             CREATE TABLE IF NOT EXISTS plugin_data (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                plugin_name TEXT NOT NULL,
-                data_type TEXT NOT NULL,
+                note_id TEXT NOT NULL,
+                data_type TEXT NOT NULL DEFAULT 'string',
                 content TEXT NOT NULL,
                 metadata TEXT,
                 category TEXT,
@@ -43,14 +43,14 @@ class DatabaseManager:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id TEXT NOT NULL,
                 group_id TEXT NOT NULL,
+                platform TEXT DEFAULT 'qq',
                 nickname TEXT,
                 alias_history TEXT,
                 impression_summary TEXT,
-                favor_level INTEGER DEFAULT 50,
-                interaction_count INTEGER DEFAULT 0,
-                last_interaction_time TIMESTAMP,
+                remark TEXT,
+                favor_level INTEGER DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(user_id, group_id)
+                UNIQUE(user_id, group_id, platform)
             )
             ''')
             
@@ -58,6 +58,8 @@ class DatabaseManager:
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_plugin_data_category ON plugin_data(category)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_plugin_data_plugin ON plugin_data(plugin_name, data_type)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_relations_user ON relations(user_id)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_relations_platform ON relations(platform)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_relations_user_group_platform ON relations(user_id, group_id, platform)')
             
             conn.commit()
             conn.close()
@@ -82,11 +84,29 @@ class DatabaseManager:
         conn.row_factory = sqlite3.Row
         return conn
 
-    def store_plugin_data(self, plugin_name, data_type, content, metadata=None):
-        """存储插件数据"""
+    def store_plugin_data(self, content, metadata=None):
+        """存储笔记数据
+        
+        参数说明：
+        - content: 笔记内容，固定为字符串类型
+        - metadata: 元数据，用于存储笔记的额外信息，如标签、关键词等
+        
+        笔记表字段功能说明：
+        - id: 主键ID
+        - note_id: 笔记编号，唯一标识笔记
+        - data_type: 数据类型，默认固定为'string'
+        - content: 笔记内容，字符串类型
+        - metadata: 元数据，用于存储额外信息
+        - category: 分类路径
+        - created_at: 笔记记录时间
+        - updated_at: 更新时间
+        """
         try:
+            # 生成笔记编号
+            note_id = f"NOTE_{datetime.now().strftime('%Y%m%d%H%M%S')}_{hash(content) % 10000:04d}"
+            
             # 生成分类路径
-            category = f"{plugin_name}/{data_type}/{datetime.now().strftime('%Y/%m')}"
+            category = f"notes/{datetime.now().strftime('%Y/%m')}"
             
             # 处理元数据
             metadata_json = json.dumps(metadata) if metadata else None
@@ -97,32 +117,28 @@ class DatabaseManager:
             
             # 插入数据
             cursor.execute('''
-            INSERT INTO plugin_data (plugin_name, data_type, content, metadata, category, updated_at)
+            INSERT INTO plugin_data (note_id, data_type, content, metadata, category, updated_at)
             VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            ''', (plugin_name, data_type, content, metadata_json, category))
+            ''', (note_id, 'string', content, metadata_json, category))
             
             conn.commit()
             conn.close()
             
-            return f"数据存储成功，分类: {category}"
+            return f"笔记存储成功，编号: {note_id}"
         except Exception as e:
-            logger.error(f"存储数据失败: {e}")
+            logger.error(f"存储笔记失败: {e}")
             return f"存储失败: {e}"
 
-    def query_plugin_data(self, query_keyword, plugin_name=None, data_type=None):
-        """查询插件数据"""
+    def query_plugin_data(self, query_keyword, data_type=None):
+        """查询笔记数据"""
         try:
             # 构建查询语句
-            query = "SELECT id, plugin_name, data_type, content, metadata, category, created_at FROM plugin_data WHERE 1=1"
+            query = "SELECT id, note_id, data_type, content, metadata, category, created_at FROM plugin_data WHERE 1=1"
             params = []
             
             if query_keyword:
-                query += " AND (content LIKE ? OR metadata LIKE ?)"
-                params.extend([f"%{query_keyword}%", f"%{query_keyword}%"])
-            
-            if plugin_name:
-                query += " AND plugin_name = ?"
-                params.append(plugin_name)
+                query += " AND (content LIKE ? OR metadata LIKE ? OR note_id LIKE ?)"
+                params.extend([f"%{query_keyword}%", f"%{query_keyword}%", f"%{query_keyword}%"])
             
             if data_type:
                 query += " AND data_type = ?"
@@ -144,7 +160,7 @@ class DatabaseManager:
             for row in results:
                 data = {
                     "id": row[0],
-                    "plugin_name": row[1],
+                    "note_id": row[1],
                     "data_type": row[2],
                     "content": row[3],
                     "metadata": json.loads(row[4]) if row[4] else None,
@@ -155,23 +171,45 @@ class DatabaseManager:
             
             return data_list
         except Exception as e:
-            logger.error(f"查询数据失败: {e}")
+            logger.error(f"查询笔记失败: {e}")
             return []
 
-    def update_relation(self, user_id, group_id, nickname=None, favor_change=0, impression=None, note=None):
-        """更新关系"""
+    def update_relation(self, user_id, group_id, platform='qq', nickname=None, favor_change=0, impression=None, remark=None):
+        """更新关系
+        
+        参数说明：
+        - user_id: 用户ID，唯一标识用户
+        - group_id: 群组ID，标识用户所在的群组
+        - platform: 平台字段，默认为'qq'，未来可能扩展其他平台
+        - nickname: 用户昵称
+        - favor_change: 好感度变化值，会累加到当前好感度
+        - impression: 印象摘要，记录对用户的印象
+        - remark: 备注字段，用于存储额外的备注信息
+        
+        关系表字段功能说明：
+        - id: 主键ID
+        - user_id: 用户ID，唯一标识用户
+        - group_id: 群组ID，标识用户所在的群组
+        - platform: 平台字段，默认为'qq'，未来可能扩展其他平台
+        - nickname: 用户昵称
+        - alias_history: 昵称历史，记录用户曾经使用过的昵称
+        - impression_summary: 印象摘要，记录对用户的印象
+        - remark: 备注字段，用于存储额外的备注信息
+        - favor_level: 好感度，默认值为0，范围0-100
+        - created_at: 创建时间
+        """
         try:
             # 使用独立连接
             conn = self._get_connection()
             cursor = conn.cursor()
             
             # 检查是否存在记录
-            cursor.execute('SELECT id, nickname, alias_history, impression_summary, favor_level FROM relations WHERE user_id=? AND group_id=?', (user_id, group_id))
+            cursor.execute('SELECT id, nickname, alias_history, impression_summary, remark, favor_level FROM relations WHERE user_id=? AND group_id=? AND platform=?', (user_id, group_id, platform))
             existing = cursor.fetchone()
             
             if existing:
                 # 更新现有记录
-                relation_id, old_nickname, alias_history, old_impression, old_favor = existing
+                relation_id, old_nickname, alias_history, old_impression, old_remark, old_favor = existing
                 
                 # 处理昵称变化
                 new_nickname = nickname or old_nickname
@@ -194,24 +232,25 @@ class DatabaseManager:
                     else:
                         new_impression = impression
                 
+                # 处理备注
+                new_remark = remark or old_remark
+                
                 # 执行更新
                 cursor.execute('''
                 UPDATE relations SET 
                     nickname = ?, 
                     alias_history = ?, 
                     impression_summary = ?, 
-                    favor_level = ?, 
-                    interaction_count = interaction_count + 1, 
-                    last_interaction_time = CURRENT_TIMESTAMP,
-                    updated_at = CURRENT_TIMESTAMP
+                    remark = ?, 
+                    favor_level = ?
                 WHERE id = ?
-                ''', (new_nickname, new_alias_history, new_impression, new_favor, relation_id))
+                ''', (new_nickname, new_alias_history, new_impression, new_remark, new_favor, relation_id))
             else:
                 # 创建新记录
                 cursor.execute('''
-                INSERT INTO relations (user_id, group_id, nickname, favor_level, interaction_count, last_interaction_time)
-                VALUES (?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
-                ''', (user_id, group_id, nickname or "Unknown", 50 + favor_change))
+                INSERT INTO relations (user_id, group_id, platform, nickname, remark, favor_level)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ''', (user_id, group_id, platform, nickname or "Unknown", remark or "", favor_change))
             
             conn.commit()
             conn.close()
@@ -230,10 +269,10 @@ class DatabaseManager:
             
             # 模糊搜索
             cursor.execute('''
-            SELECT user_id, nickname, group_id, impression_summary, favor_level 
+            SELECT user_id, nickname, group_id, platform, impression_summary, remark, favor_level, created_at 
             FROM relations 
-            WHERE nickname LIKE ? OR impression_summary LIKE ? OR alias_history LIKE ?
-            ''', (f"%{query_keyword}%", f"%{query_keyword}%", f"%{query_keyword}%"))
+            WHERE nickname LIKE ? OR impression_summary LIKE ? OR alias_history LIKE ? OR remark LIKE ?
+            ''', (f"%{query_keyword}%", f"%{query_keyword}%", f"%{query_keyword}%", f"%{query_keyword}%"))
             
             results = cursor.fetchall()
             conn.close()
@@ -245,8 +284,11 @@ class DatabaseManager:
                     "user_id": row[0],
                     "nickname": row[1],
                     "group_id": row[2],
-                    "impression": row[3],
-                    "favor_level": row[4]
+                    "platform": row[3],
+                    "impression": row[4],
+                    "remark": row[5],
+                    "favor_level": row[6],
+                    "created_at": row[7]
                 }
                 relation_list.append(relation)
             
@@ -256,13 +298,13 @@ class DatabaseManager:
             return []
 
     def get_all_plugin_data(self, limit=100):
-        """获取所有插件数据"""
+        """获取所有笔记数据"""
         try:
             # 使用独立连接
             conn = self._get_connection()
             cursor = conn.cursor()
             
-            cursor.execute('SELECT id, plugin_name, data_type, content, category, created_at FROM plugin_data ORDER BY created_at DESC LIMIT ?', (limit,))
+            cursor.execute('SELECT id, note_id, data_type, content, category, created_at FROM plugin_data ORDER BY created_at DESC LIMIT ?', (limit,))
             results = cursor.fetchall()
             conn.close()
             
@@ -270,7 +312,7 @@ class DatabaseManager:
             for row in results:
                 data = {
                     "id": row[0],
-                    "plugin_name": row[1],
+                    "note_id": row[1],
                     "data_type": row[2],
                     "content": row[3],
                     "category": row[4],
@@ -280,7 +322,7 @@ class DatabaseManager:
             
             return data_list
         except Exception as e:
-            logger.error(f"获取数据失败: {e}")
+            logger.error(f"获取笔记失败: {e}")
             return []
 
     def get_all_relations(self):
@@ -290,7 +332,7 @@ class DatabaseManager:
             conn = self._get_connection()
             cursor = conn.cursor()
             
-            cursor.execute('SELECT id, user_id, nickname, group_id, impression_summary, favor_level, created_at FROM relations ORDER BY created_at DESC')
+            cursor.execute('SELECT id, user_id, nickname, group_id, platform, impression_summary, remark, favor_level, created_at FROM relations ORDER BY created_at DESC')
             results = cursor.fetchall()
             conn.close()
             
@@ -301,9 +343,11 @@ class DatabaseManager:
                     "user_id": row[1],
                     "nickname": row[2],
                     "group_id": row[3],
-                    "impression": row[4],
-                    "favor_level": row[5],
-                    "created_at": row[6]
+                    "platform": row[4],
+                    "impression": row[5],
+                    "remark": row[6],
+                    "favor_level": row[7],
+                    "created_at": row[8]
                 }
                 relation_list.append(relation)
             
@@ -328,14 +372,14 @@ class DatabaseManager:
             logger.error(f"删除数据失败: {e}")
             return f"删除失败: {e}"
 
-    def delete_relation(self, user_id, group_id):
+    def delete_relation(self, user_id, group_id, platform='qq'):
         """删除关系"""
         try:
             # 使用独立连接
             conn = self._get_connection()
             cursor = conn.cursor()
             
-            cursor.execute('DELETE FROM relations WHERE user_id = ? AND group_id = ?', (user_id, group_id))
+            cursor.execute('DELETE FROM relations WHERE user_id = ? AND group_id = ? AND platform = ?', (user_id, group_id, platform))
             conn.commit()
             conn.close()
             
