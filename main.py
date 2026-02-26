@@ -134,7 +134,7 @@ class MemoryCapsulePlugin(Star):
             return []
 
     @filter.llm_tool(name="update_relation")
-    async def update_relation(self, event: AstrMessageEvent, user_id: str, group_id: str, platform: str = "qq", nickname: str = None, favor_change: int = 0, impression: str = None, remark: str = None):
+    async def update_relation(self, event: AstrMessageEvent, user_id: str, group_id: str, platform: str = "qq", nickname: str = None, nicknames: list = None, first_meet_group: str = None, first_meet_time = None, favor_change: int = 0, relationship: str = None, remark: str = None):
         """
         更新用户关系
         
@@ -143,8 +143,11 @@ class MemoryCapsulePlugin(Star):
             group_id(string): 群组ID
             platform(string): 平台，默认为"qq"
             nickname(string): 昵称，默认为None
+            nicknames(list): 昵称数组，默认为None
+            first_meet_group(string): 初次见面群组，默认为None
+            first_meet_time: 初次见面时间，默认为None
             favor_change(int): 好感度变化，默认为0
-            impression(string): 印象描述，默认为None
+            relationship(string): 关系，默认为None
             remark(string): 备注，默认为None
             
         Returns:
@@ -152,7 +155,7 @@ class MemoryCapsulePlugin(Star):
         """
         try:
             import asyncio
-            result = await asyncio.to_thread(self.db_manager.update_relation, user_id, group_id, platform, nickname, favor_change, impression, remark)
+            result = await asyncio.to_thread(self.db_manager.update_relation, user_id, group_id, platform, nickname, nicknames, first_meet_group, first_meet_time, favor_change, relationship, remark)
             logger.info(f"更新关系成功: {user_id}@{group_id}@{platform}")
             return result
         except Exception as e:
@@ -273,6 +276,76 @@ class MemoryCapsulePlugin(Star):
         except Exception as e:
             logger.error(f"数据库备份失败: {e}")
             return f"备份失败: {e}"
+
+    @filter.message()
+    async def inject_relation_context(self, event: AstrMessageEvent):
+        """
+        注入用户关系信息到AI上下文
+        
+        每次对话时，自动获取用户的关系信息并注入到系统提示词中
+        如果用户没有关系信息，自动添加一个新的关系记录
+        """
+        try:
+            # 获取用户信息
+            user_id = event.get_sender_id()
+            user_name = event.get_sender_name()
+            group_id = event.get_group_id() or "private"
+            platform = event.get_platform() or "qq"
+            
+            # 查找用户关系信息
+            import asyncio
+            relations = await asyncio.to_thread(self.db_manager.query_relation, user_id)
+            
+            # 如果没有关系信息，自动添加
+            if not relations:
+                logger.info(f"用户 {user_id} 首次对话，自动添加关系记录")
+                await self.update_relation(
+                    event=event,
+                    user_id=user_id,
+                    group_id=group_id,
+                    platform=platform,
+                    nickname=user_name,
+                    first_meet_group=group_id,
+                    first_meet_time=event.get_timestamp()
+                )
+                # 重新获取关系信息
+                relations = await asyncio.to_thread(self.db_manager.query_relation, user_id)
+            
+            # 构建关系信息上下文
+            if relations:
+                relation = relations[0]
+                relation_context = f"\n\n用户关系信息:\n"
+                relation_context += f"- 用户ID: {relation['user_id']}\n"
+                relation_context += f"- 昵称: {relation['nickname']}\n"
+                if relation['nicknames']:
+                    relation_context += f"- 昵称列表: {', '.join(relation['nicknames'])}\n"
+                if relation['first_meet_group']:
+                    relation_context += f"- 初次见面群组: {relation['first_meet_group']}\n"
+                if relation['first_meet_time']:
+                    relation_context += f"- 初次见面时间: {relation['first_meet_time']}\n"
+                relation_context += f"- 平台: {relation['platform']}\n"
+                relation_context += f"- 好感度: {relation['favor_level']}\n"
+                if relation['relationship']:
+                    relation_context += f"- 关系: {relation['relationship']}\n"
+                if relation['remark']:
+                    relation_context += f"- 备注: {relation['remark']}\n"
+                
+                # 注入到系统提示词
+                # 注意：具体的注入方式可能需要根据AstrBot的API调整
+                # 这里假设event对象有方法来修改系统提示词
+                if hasattr(event, 'set_system_prompt'):
+                    current_prompt = event.get_system_prompt() or ""
+                    new_prompt = current_prompt + relation_context
+                    event.set_system_prompt(new_prompt)
+                elif hasattr(event, 'context') and hasattr(event.context, 'system_prompt'):
+                    event.context.system_prompt = (event.context.system_prompt or "") + relation_context
+                
+                logger.info(f"成功注入用户 {user_id} 的关系信息到上下文")
+        except Exception as e:
+            logger.error(f"注入关系信息失败: {e}")
+        
+        # 继续处理消息
+        return event
 
 # 外部接口，供其他插件调用
 # 注意：这些函数已在 __init__.py 中重新定义，使用单例模式

@@ -124,8 +124,11 @@ class WebUIServer:
                 group_id=data.get('group_id', ''),
                 platform=data.get('platform', 'qq'),
                 nickname=data.get('nickname', ''),
+                nicknames=data.get('nicknames', []),
+                first_meet_group=data.get('first_meet_group', ''),
+                first_meet_time=data.get('first_meet_time'),
                 favor_change=data.get('favor_change', 0),
-                impression=data.get('impression', ''),
+                relationship=data.get('relationship', ''),
                 remark=data.get('remark', '')
             )
             return jsonify({'result': result})

@@ -398,14 +398,11 @@
                     <h4>本本列表</h4>
                     <!-- 搜索功能 -->
                     <div style="margin-bottom: 15px;">
-                        <div style="display: flex; gap: 10px; align-items: center;">
-                            <input type="text" class="form-control" id="note-search" placeholder="输入关键词搜索..." style="flex: 1; border-radius: 12px; border: 2px solid #f0c8d2; padding: 12px 16px;">
-                            <select class="form-control" id="category-select" style="border-radius: 12px; border: 2px solid #f0c8d2; padding: 12px 16px;">
-                                <option value="all">全部分类</option>
-                                <!-- 分类选项将通过JavaScript动态添加 -->
-                            </select>
+                        <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                            <input type="text" class="form-control" id="note-search" placeholder="输入关键词搜索..." style="flex: 2; min-width: 400px; border-radius: 12px; border: 2px solid #f0c8d2; padding: 14px 18px; font-size: 16px;">
+                            <input type="text" class="form-control" id="category-search" placeholder="输入分类搜索..." style="flex: 1; min-width: 250px; border-radius: 12px; border: 2px solid #f0c8d2; padding: 14px 18px; font-size: 16px;">
                             <button class="btn btn-primary" onclick="searchNotes()">搜索</button>
-                            <button class="btn btn-secondary" onclick="resetSearch()">重置</button>
+                            <button class="btn btn-outline" onclick="resetSearch()">重置</button>
                         </div>
                     </div>
                     <!-- 标签选择器 -->
@@ -434,8 +431,8 @@
         async function loadNotes(page = 1) {
             try {
                 let url = `/api/notes?page=${page}&limit=${pageSize}`;
-                const category = document.getElementById('category-select').value;
-                if (category !== 'all') {
+                const category = document.getElementById('category-search').value;
+                if (category) {
                     url += `&category=${encodeURIComponent(category)}`;
                 }
                 const response = await fetch(url);
@@ -644,10 +641,10 @@
         // 搜索笔记
         async function searchNotes() {
             const query = document.getElementById('note-search').value;
-            const category = document.getElementById('category-select').value;
+            const category = document.getElementById('category-search').value;
             try {
                 let url = `/api/notes/search?q=${encodeURIComponent(query)}`;
-                if (category !== 'all') {
+                if (category) {
                     url += `&category=${encodeURIComponent(category)}`;
                 }
                 if (selectedTags.length > 0) {
@@ -723,11 +720,14 @@
                 
                 tags.forEach(tag => {
                     const tagElement = document.createElement('div');
-                    tagElement.className = `tag-item`;
+                    tagElement.className = `tag-item ${selectedTags.includes(tag) ? 'active' : ''}`;
                     tagElement.textContent = tag;
                     tagElement.onclick = function() {
                         toggleTag(tag);
                     };
+                    // 添加点击效果
+                    tagElement.style.cursor = 'pointer';
+                    tagElement.style.transition = 'all 0.3s ease';
                     tagContainer.appendChild(tagElement);
                 });
             } catch (error) {
@@ -740,19 +740,8 @@
             try {
                 const response = await fetch('/api/categories');
                 const categories = await response.json();
-                
-                const categorySelect = document.getElementById('category-select');
-                // 保留全部分类选项
-                const allOption = categorySelect.querySelector('option[value="all"]');
-                categorySelect.innerHTML = '';
-                categorySelect.appendChild(allOption);
-                
-                categories.forEach(category => {
-                    const option = document.createElement('option');
-                    option.value = category;
-                    option.textContent = category;
-                    categorySelect.appendChild(option);
-                });
+                // 分类加载成功，可用于后续功能扩展
+                console.log('分类加载成功:', categories);
             } catch (error) {
                 console.error('加载分类失败:', error);
             }
@@ -768,12 +757,14 @@
                 selectedTags.push(tag);
             }
             loadTags();
+            // 自动执行搜索
+            searchNotes();
         }
         
         // 重置搜索
         function resetSearch() {
             document.getElementById('note-search').value = '';
-            document.getElementById('category-select').value = 'all';
+            document.getElementById('category-search').value = '';
             selectedTags = [];
             loadTags();
             loadNotes(1);

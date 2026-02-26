@@ -51,14 +51,34 @@ class DatabaseManager:
                 group_id TEXT NOT NULL,
                 platform TEXT DEFAULT 'qq',
                 nickname TEXT,
-                alias_history TEXT,
-                impression_summary TEXT,
-                remark TEXT,
+                nicknames TEXT, -- 昵称数组，JSON格式
+                first_meet_group TEXT, -- 初次见面群组
+                first_meet_time TIMESTAMP, -- 初次见面时间
                 favor_level INTEGER DEFAULT 0,
+                relationship TEXT, -- 关系
+                remark TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(user_id, group_id, platform)
             )
             ''')
+            
+            # 添加缺失的列（如果需要）
+            try:
+                cursor.execute('ALTER TABLE relations ADD COLUMN nicknames TEXT')
+            except:
+                pass
+            try:
+                cursor.execute('ALTER TABLE relations ADD COLUMN first_meet_group TEXT')
+            except:
+                pass
+            try:
+                cursor.execute('ALTER TABLE relations ADD COLUMN first_meet_time TIMESTAMP')
+            except:
+                pass
+            try:
+                cursor.execute('ALTER TABLE relations ADD COLUMN relationship TEXT')
+            except:
+                pass
             
             # 创建索引
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_plugin_data_category ON plugin_data(category)')
@@ -120,11 +140,16 @@ class DatabaseManager:
             
             # 生成分类路径
             if category:
-                # 使用用户指定的分类
+                # 使用用户指定的分类，确保不包含日期路径
                 category_path = category.strip()
+                # 移除可能的日期路径格式
+                if '/' in category_path and ('/' in category_path.split('/')[1] if len(category_path.split('/')) > 1 else False):
+                    # 如果包含日期路径格式，提取最后一部分作为分类
+                    parts = category_path.split('/')
+                    category_path = parts[-1] if parts[-1] else "未分类"
             else:
-                # 使用默认分类路径
-                category_path = f"notes/{datetime.now().strftime('%Y/%m')}"
+                # 使用默认分类
+                category_path = "未分类"
             
             # 处理元数据
             metadata_json = json.dumps(metadata) if metadata else None
@@ -251,7 +276,7 @@ class DatabaseManager:
             logger.error(f"获取分类失败: {e}")
             return []
 
-    def update_relation(self, user_id, group_id, platform='qq', nickname=None, favor_change=0, impression=None, remark=None):
+    def update_relation(self, user_id, group_id, platform='qq', nickname=None, nicknames=None, first_meet_group=None, first_meet_time=None, favor_change=0, relationship=None, remark=None):
         """更新关系
         
         参数说明：
@@ -259,8 +284,11 @@ class DatabaseManager:
         - group_id: 群组ID，标识用户所在的群组
         - platform: 平台字段，默认为'qq'，未来可能扩展其他平台
         - nickname: 用户昵称
+        - nicknames: 昵称数组
+        - first_meet_group: 初次见面群组
+        - first_meet_time: 初次见面时间
         - favor_change: 好感度变化值，会累加到当前好感度
-        - impression: 印象摘要，记录对用户的印象
+        - relationship: 关系
         - remark: 备注字段，用于存储额外的备注信息
         
         关系表字段功能说明：
@@ -269,10 +297,12 @@ class DatabaseManager:
         - group_id: 群组ID，标识用户所在的群组
         - platform: 平台字段，默认为'qq'，未来可能扩展其他平台
         - nickname: 用户昵称
-        - alias_history: 昵称历史，记录用户曾经使用过的昵称
-        - impression_summary: 印象摘要，记录对用户的印象
-        - remark: 备注字段，用于存储额外的备注信息
+        - nicknames: 昵称数组，JSON格式
+        - first_meet_group: 初次见面群组
+        - first_meet_time: 初次见面时间
         - favor_level: 好感度，默认值为0，范围0-100
+        - relationship: 关系
+        - remark: 备注字段，用于存储额外的备注信息
         - created_at: 创建时间
         """
         try:
@@ -281,33 +311,40 @@ class DatabaseManager:
             cursor = conn.cursor()
             
             # 检查是否存在记录
-            cursor.execute('SELECT id, nickname, alias_history, impression_summary, remark, favor_level FROM relations WHERE user_id=? AND group_id=? AND platform=?', (user_id, group_id, platform))
+            cursor.execute('SELECT id, nickname, nicknames, first_meet_group, first_meet_time, favor_level, relationship, remark FROM relations WHERE user_id=? AND group_id=? AND platform=?', (user_id, group_id, platform))
             existing = cursor.fetchone()
             
             if existing:
                 # 更新现有记录
-                relation_id, old_nickname, alias_history, old_impression, old_remark, old_favor = existing
+                relation_id, old_nickname, old_nicknames, old_first_meet_group, old_first_meet_time, old_favor, old_relationship, old_remark = existing
                 
-                # 处理昵称变化
+                # 处理昵称
                 new_nickname = nickname or old_nickname
-                new_alias_history = alias_history or ""
-                if nickname and nickname != old_nickname:
-                    if new_alias_history:
-                        new_alias_history += f",{old_nickname}"
-                    else:
-                        new_alias_history = old_nickname
+                
+                # 处理昵称数组
+                new_nicknames = nicknames or []
+                if old_nicknames:
+                    try:
+                        import json
+                        existing_nicknames = json.loads(old_nicknames)
+                        if isinstance(existing_nicknames, list):
+                            new_nicknames = existing_nicknames
+                            if nickname and nickname not in new_nicknames:
+                                new_nicknames.append(nickname)
+                    except:
+                        pass
+                new_nicknames_json = json.dumps(new_nicknames) if new_nicknames else None
+                
+                # 处理初次见面信息
+                new_first_meet_group = first_meet_group or old_first_meet_group
+                new_first_meet_time = first_meet_time or old_first_meet_time
                 
                 # 处理好感度
                 new_favor = old_favor + favor_change
                 new_favor = max(0, min(100, new_favor))
                 
-                # 处理印象
-                new_impression = old_impression or ""
-                if impression:
-                    if new_impression:
-                        new_impression += f"\n{impression}"
-                    else:
-                        new_impression = impression
+                # 处理关系
+                new_relationship = relationship or old_relationship
                 
                 # 处理备注
                 new_remark = remark or old_remark
@@ -316,18 +353,26 @@ class DatabaseManager:
                 cursor.execute('''
                 UPDATE relations SET 
                     nickname = ?, 
-                    alias_history = ?, 
-                    impression_summary = ?, 
-                    remark = ?, 
-                    favor_level = ?
+                    nicknames = ?, 
+                    first_meet_group = ?, 
+                    first_meet_time = ?, 
+                    favor_level = ?, 
+                    relationship = ?, 
+                    remark = ?
                 WHERE id = ?
-                ''', (new_nickname, new_alias_history, new_impression, new_remark, new_favor, relation_id))
+                ''', (new_nickname, new_nicknames_json, new_first_meet_group, new_first_meet_time, new_favor, new_relationship, new_remark, relation_id))
             else:
+                # 处理昵称数组
+                new_nicknames = nicknames or []
+                if nickname and nickname not in new_nicknames:
+                    new_nicknames.append(nickname)
+                new_nicknames_json = json.dumps(new_nicknames) if new_nicknames else None
+                
                 # 创建新记录
                 cursor.execute('''
-                INSERT INTO relations (user_id, group_id, platform, nickname, remark, favor_level)
-                VALUES (?, ?, ?, ?, ?, ?)
-                ''', (user_id, group_id, platform, nickname or "Unknown", remark or "", favor_change))
+                INSERT INTO relations (user_id, group_id, platform, nickname, nicknames, first_meet_group, first_meet_time, favor_level, relationship, remark)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (user_id, group_id, platform, nickname or "Unknown", new_nicknames_json, first_meet_group, first_meet_time, favor_change, relationship, remark or ""))
             
             conn.commit()
             conn.close()
@@ -346,9 +391,9 @@ class DatabaseManager:
             
             # 模糊搜索，增加 user_id 和 group_id 的搜索
             cursor.execute('''
-            SELECT user_id, nickname, group_id, platform, impression_summary, remark, favor_level, created_at 
+            SELECT user_id, nickname, nicknames, group_id, platform, first_meet_group, first_meet_time, favor_level, relationship, remark, created_at 
             FROM relations 
-            WHERE user_id LIKE ? OR nickname LIKE ? OR group_id LIKE ? OR platform LIKE ? OR impression_summary LIKE ? OR alias_history LIKE ? OR remark LIKE ?
+            WHERE user_id LIKE ? OR nickname LIKE ? OR group_id LIKE ? OR platform LIKE ? OR first_meet_group LIKE ? OR relationship LIKE ? OR remark LIKE ?
             ''', (f"%{query_keyword}%", f"%{query_keyword}%", f"%{query_keyword}%", f"%{query_keyword}%", f"%{query_keyword}%", f"%{query_keyword}%", f"%{query_keyword}%"))
             
             results = cursor.fetchall()
@@ -357,15 +402,23 @@ class DatabaseManager:
             # 处理结果
             relation_list = []
             for row in results:
+                try:
+                    nicknames = json.loads(row[2]) if row[2] else []
+                except:
+                    nicknames = []
+                
                 relation = {
                     "user_id": row[0],
                     "nickname": row[1],
-                    "group_id": row[2],
-                    "platform": row[3],
-                    "impression": row[4],
-                    "remark": row[5],
-                    "favor_level": row[6],
-                    "created_at": row[7]
+                    "nicknames": nicknames,
+                    "group_id": row[3],
+                    "platform": row[4],
+                    "first_meet_group": row[5],
+                    "first_meet_time": row[6],
+                    "favor_level": row[7],
+                    "relationship": row[8],
+                    "remark": row[9],
+                    "created_at": row[10]
                 }
                 relation_list.append(relation)
             
@@ -434,22 +487,30 @@ class DatabaseManager:
             conn = self._get_connection()
             cursor = conn.cursor()
             
-            cursor.execute('SELECT id, user_id, nickname, group_id, platform, impression_summary, remark, favor_level, created_at FROM relations ORDER BY created_at DESC LIMIT ? OFFSET ?', (limit, offset))
+            cursor.execute('SELECT id, user_id, nickname, nicknames, group_id, platform, first_meet_group, first_meet_time, favor_level, relationship, remark, created_at FROM relations ORDER BY created_at DESC LIMIT ? OFFSET ?', (limit, offset))
             results = cursor.fetchall()
             conn.close()
             
             relation_list = []
             for row in results:
+                try:
+                    nicknames = json.loads(row[3]) if row[3] else []
+                except:
+                    nicknames = []
+                
                 relation = {
                     "id": row[0],
                     "user_id": row[1],
                     "nickname": row[2],
-                    "group_id": row[3],
-                    "platform": row[4],
-                    "impression": row[5],
-                    "remark": row[6],
-                    "favor_level": row[7],
-                    "created_at": row[8]
+                    "nicknames": nicknames,
+                    "group_id": row[4],
+                    "platform": row[5],
+                    "first_meet_group": row[6],
+                    "first_meet_time": row[7],
+                    "favor_level": row[8],
+                    "relationship": row[9],
+                    "remark": row[10],
+                    "created_at": row[11]
                 }
                 relation_list.append(relation)
             
