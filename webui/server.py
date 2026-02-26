@@ -302,7 +302,9 @@ class WebUIServer:
             
             # 使用socket创建服务器
             from werkzeug.serving import make_server
-            self.server = make_server('0.0.0.0', self.port, self.app, threaded=True, fd=server_socket)
+            # 获取socket的文件描述符
+            fd = server_socket.fileno()
+            self.server = make_server('0.0.0.0', self.port, self.app, threaded=True, fd=fd)
             logger.info(f"WebUI服务器已启动，端口: {self.port}")
             
             # 运行服务器直到self.running为False
