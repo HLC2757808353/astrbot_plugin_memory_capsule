@@ -7,8 +7,8 @@ from .backup import BackupManager
 
 class DatabaseManager:
     def __init__(self):
-        # 将数据库文件存储在插件目录外，避免更新插件时数据丢失
-        app_data_dir = os.path.join(os.path.expanduser("~"), "AppData", "Local", "AstrBot", "plugins", "memory_capsule")
+        # 将数据库文件存储在插件目录下的 data 文件夹中，确保跨平台兼容
+        app_data_dir = os.path.join(os.path.dirname(__file__), "..", "data")
         os.makedirs(app_data_dir, exist_ok=True)
         self.db_path = os.path.join(app_data_dir, "memory.db")
         self.backup_manager = BackupManager(self.db_path)
@@ -290,12 +290,12 @@ class DatabaseManager:
             conn = self._get_connection()
             cursor = conn.cursor()
             
-            # 模糊搜索
+            # 模糊搜索，增加 user_id 和 group_id 的搜索
             cursor.execute('''
             SELECT user_id, nickname, group_id, platform, impression_summary, remark, favor_level, created_at 
             FROM relations 
-            WHERE nickname LIKE ? OR impression_summary LIKE ? OR alias_history LIKE ? OR remark LIKE ?
-            ''', (f"%{query_keyword}%", f"%{query_keyword}%", f"%{query_keyword}%", f"%{query_keyword}%"))
+            WHERE user_id LIKE ? OR nickname LIKE ? OR group_id LIKE ? OR platform LIKE ? OR impression_summary LIKE ? OR alias_history LIKE ? OR remark LIKE ?
+            ''', (f"%{query_keyword}%", f"%{query_keyword}%", f"%{query_keyword}%", f"%{query_keyword}%", f"%{query_keyword}%", f"%{query_keyword}%", f"%{query_keyword}%"))
             
             results = cursor.fetchall()
             conn.close()
@@ -435,14 +435,14 @@ class DatabaseManager:
             logger.error(f"删除数据失败: {e}")
             return f"删除失败: {e}"
 
-    def delete_relation(self, user_id, group_id, platform='qq'):
+    def delete_relation(self, user_id, platform='qq'):
         """删除关系"""
         try:
             # 使用独立连接
             conn = self._get_connection()
             cursor = conn.cursor()
             
-            cursor.execute('DELETE FROM relations WHERE user_id = ? AND group_id = ? AND platform = ?', (user_id, group_id, platform))
+            cursor.execute('DELETE FROM relations WHERE user_id = ? AND platform = ?', (user_id, platform))
             conn.commit()
             conn.close()
             

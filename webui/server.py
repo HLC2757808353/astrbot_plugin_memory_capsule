@@ -142,29 +142,78 @@ class WebUIServer:
             )
             return jsonify({'result': result})
 
-        @self.app.route('/api/relations/<string:user_id>/<string:group_id>/<string:platform>', methods=['DELETE'])
-        def api_delete_relation(user_id, group_id, platform):
+        @self.app.route('/api/relations/<string:user_id>/<string:platform>', methods=['DELETE'])
+        def api_delete_relation(user_id, platform):
             """删除关系"""
-            result = self.db_manager.delete_relation(user_id, group_id, platform)
+            result = self.db_manager.delete_relation(user_id, platform)
             return jsonify({'result': result})
 
         @self.app.route('/api/relations/search')
         def api_search_relations():
             """搜索关系（模糊查询）"""
             query = request.args.get('q', '')
-            relations = self.db_manager.query_relation(query)
-            return jsonify(relations)
+            search_type = request.args.get('type', 'name')
+            
+            # 使用独立连接
+            conn = self.db_manager._get_connection()
+            cursor = conn.cursor()
+            
+            # 根据搜索类型构建查询
+            if search_type == 'id':
+                # ID搜索，精确匹配
+                cursor.execute('''
+                SELECT user_id, nickname, group_id, platform, impression_summary, remark, favor_level, created_at 
+                FROM relations 
+                WHERE user_id = ?
+                ''', (query,))
+            elif search_type == 'group_id':
+                # 群号搜索
+                cursor.execute('''
+                SELECT user_id, nickname, group_id, platform, impression_summary, remark, favor_level, created_at 
+                FROM relations 
+                WHERE group_id LIKE ?
+                ''', (f"%{query}%",))
+            elif search_type == 'group_name':
+                # 群名搜索（这里假设 group_id 中包含群名）
+                cursor.execute('''
+                SELECT user_id, nickname, group_id, platform, impression_summary, remark, favor_level, created_at 
+                FROM relations 
+                WHERE group_id LIKE ?
+                ''', (f"%{query}%",))
+            else:
+                # 名称搜索（默认）
+                cursor.execute('''
+                SELECT user_id, nickname, group_id, platform, impression_summary, remark, favor_level, created_at 
+                FROM relations 
+                WHERE nickname LIKE ? OR remark LIKE ?
+                ''', (f"%{query}%", f"%{query}%"))
+            
+            results = cursor.fetchall()
+            conn.close()
+            
+            # 处理结果
+            relation_list = []
+            for row in results:
+                relation = {
+                    "user_id": row[0],
+                    "nickname": row[1],
+                    "group_id": row[2],
+                    "platform": row[3],
+                    "impression": row[4],
+                    "remark": row[5],
+                    "favor_level": row[6],
+                    "created_at": row[7]
+                }
+                relation_list.append(relation)
+            
+            return jsonify(relation_list)
 
-    def run(self):
-        """运行服务器"""
-        self.running = True
-        try:
-            # 使用线程运行，避免阻塞主线程
-            self.app.run(host='0.0.0.0', port=self.port, debug=False, use_reloader=False)
-        except Exception as e:
-            logger.error(f"WebUI服务器运行失败: {e}")
-        finally:
-            self.running = False
+        @self.app.route('/shutdown', methods=['POST'])
+        def shutdown():
+            """关闭服务器"""
+            from werkzeug.server import shutdown_server
+            shutdown_server()
+            return 'Server shutting down...'
 
     def check_port(self, port):
         """检测端口是否被占用"""
@@ -211,15 +260,10 @@ class WebUIServer:
         """停止服务器并释放端口"""
         self.running = False
         logger.info("WebUI服务器已停止，端口已释放")
-        # 尝试强制关闭服务器线程（如果可能）
+        # 尝试通过shutdown路由优雅关闭服务器
         try:
-            # 对于Flask开发服务器，我们需要通过其他方式停止
-            # 这里我们可以尝试获取服务器线程并终止它
-            import threading
-            for thread in threading.enumerate():
-                if thread.name == 'WebUI Server':
-                    thread.join(timeout=1)
-                    break
+            import requests
+            requests.post(f"http://localhost:{self.port}/shutdown")
         except Exception as e:
             # 忽略错误，因为在某些环境中可能不支持
-            logger.debug(f"尝试停止服务器线程时发生错误: {e}")
+            logger.debug(f"尝试停止服务器时发生错误: {e}")

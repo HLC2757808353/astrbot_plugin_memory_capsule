@@ -27,6 +27,10 @@ class MemoryCapsulePlugin(Star):
         self.db_manager = DatabaseManager()
         self.db_manager.initialize()
         
+        # 将实例注册到全局，供 __init__.py 调用
+        from . import set_global_manager
+        set_global_manager(self.db_manager)
+        
         # 启动WebUI服务
         self._start_webui()
         
@@ -100,7 +104,8 @@ class MemoryCapsulePlugin(Star):
             string: 存储结果
         """
         try:
-            result = self.db_manager.store_plugin_data(content, metadata)
+            import asyncio
+            result = await asyncio.to_thread(self.db_manager.store_plugin_data, content, metadata)
             logger.info("存储记忆成功")
             return result
         except Exception as e:
@@ -120,7 +125,8 @@ class MemoryCapsulePlugin(Star):
             list: 查询结果列表
         """
         try:
-            results = self.db_manager.query_plugin_data(query_keyword, data_type)
+            import asyncio
+            results = await asyncio.to_thread(self.db_manager.query_plugin_data, query_keyword, data_type)
             logger.info(f"查询记忆成功，找到 {len(results)} 条结果")
             return results
         except Exception as e:
@@ -145,7 +151,8 @@ class MemoryCapsulePlugin(Star):
             string: 更新结果
         """
         try:
-            result = self.db_manager.update_relation(user_id, group_id, platform, nickname, favor_change, impression, remark)
+            import asyncio
+            result = await asyncio.to_thread(self.db_manager.update_relation, user_id, group_id, platform, nickname, favor_change, impression, remark)
             logger.info(f"更新关系成功: {user_id}@{group_id}@{platform}")
             return result
         except Exception as e:
@@ -164,7 +171,8 @@ class MemoryCapsulePlugin(Star):
             list: 查询结果列表
         """
         try:
-            results = self.db_manager.query_relation(query_keyword)
+            import asyncio
+            results = await asyncio.to_thread(self.db_manager.query_relation, query_keyword)
             logger.info(f"查询关系成功，找到 {len(results)} 条结果")
             return results
         except Exception as e:
@@ -183,7 +191,8 @@ class MemoryCapsulePlugin(Star):
             list: 记忆列表
         """
         try:
-            results = self.db_manager.get_all_plugin_data(limit)
+            import asyncio
+            results = await asyncio.to_thread(self.db_manager.get_all_plugin_data, limit)
             logger.info(f"获取所有记忆成功，找到 {len(results)} 条结果")
             return results
         except Exception as e:
@@ -199,7 +208,8 @@ class MemoryCapsulePlugin(Star):
             list: 关系列表
         """
         try:
-            results = self.db_manager.get_all_relations()
+            import asyncio
+            results = await asyncio.to_thread(self.db_manager.get_all_relations)
             logger.info(f"获取所有关系成功，找到 {len(results)} 条结果")
             return results
         except Exception as e:
@@ -218,7 +228,8 @@ class MemoryCapsulePlugin(Star):
             string: 删除结果
         """
         try:
-            result = self.db_manager.delete_plugin_data(data_id)
+            import asyncio
+            result = await asyncio.to_thread(self.db_manager.delete_plugin_data, data_id)
             logger.info(f"删除记忆成功: ID={data_id}")
             return result
         except Exception as e:
@@ -226,21 +237,21 @@ class MemoryCapsulePlugin(Star):
             return f"删除失败: {e}"
 
     @filter.llm_tool(name="delete_relation")
-    async def delete_relation(self, event: AstrMessageEvent, user_id: str, group_id: str, platform: str = "qq"):
+    async def delete_relation(self, event: AstrMessageEvent, user_id: str, platform: str = "qq"):
         """
         删除关系
         
         Args:
             user_id(string): 用户ID
-            group_id(string): 群组ID
             platform(string): 平台，默认为"qq"
             
         Returns:
             string: 删除结果
         """
         try:
-            result = self.db_manager.delete_relation(user_id, group_id, platform)
-            logger.info(f"删除关系成功: {user_id}@{group_id}@{platform}")
+            import asyncio
+            result = await asyncio.to_thread(self.db_manager.delete_relation, user_id, platform)
+            logger.info(f"删除关系成功: {user_id}@{platform}")
             return result
         except Exception as e:
             logger.error(f"删除关系失败: {e}")
@@ -255,7 +266,8 @@ class MemoryCapsulePlugin(Star):
             str: 备份结果
         """
         try:
-            result = self.db_manager.backup()
+            import asyncio
+            result = await asyncio.to_thread(self.db_manager.backup)
             logger.info("数据库备份成功")
             return result
         except Exception as e:
@@ -263,17 +275,4 @@ class MemoryCapsulePlugin(Star):
             return f"备份失败: {e}"
 
 # 外部接口，供其他插件调用
-def get_memory_manager():
-    """获取记忆管理器实例"""
-    from .databases.db_manager import DatabaseManager
-    return DatabaseManager()
-
-def store_plugin_data(content, metadata=None):
-    """存储笔记数据"""
-    db_manager = get_memory_manager()
-    return db_manager.store_plugin_data(content, metadata)
-
-def query_plugin_data(query_keyword, data_type=None):
-    """查询笔记数据"""
-    db_manager = get_memory_manager()
-    return db_manager.query_plugin_data(query_keyword, data_type)
+# 注意：这些函数已在 __init__.py 中重新定义，使用单例模式

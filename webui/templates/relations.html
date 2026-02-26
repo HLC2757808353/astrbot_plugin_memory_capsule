@@ -413,7 +413,7 @@
                                     </div>
                                 </div>
                                 <div class="relation-actions">
-                                    <button class="btn btn-danger" onclick="deleteRelation('${relation.user_id}', '${relation.group_id}', '${relation.platform}')">删除</button>
+                                    <button class="btn btn-danger" onclick="deleteRelation('${relation.user_id}', '${relation.platform}')">删除</button>
                                 </div>
                             </div>
                             <div class="favor-section">
@@ -531,7 +531,7 @@
                                     </div>
                                 </div>
                                 <div class="relation-actions">
-                                    <button class="btn btn-danger" onclick="deleteRelation('${relation.user_id}', '${relation.group_id}', '${relation.platform}')">删除</button>
+                                    <button class="btn btn-danger" onclick="deleteRelation('${relation.user_id}', '${relation.platform}')">删除</button>
                                 </div>
                             </div>
                             <div class="favor-section">
@@ -559,13 +559,13 @@
         }
 
         // 删除关系
-        async function deleteRelation(user_id, group_id, platform) {
+        async function deleteRelation(user_id, platform) {
             if (!confirm('确定要删除这条关系记录吗？')) {
                 return;
             }
             
             try {
-                const response = await fetch(`/api/relations/${user_id}/${group_id}/${platform}`, {
+                const response = await fetch(`/api/relations/${user_id}/${platform}`, {
                     method: 'DELETE'
                 });
                 const result = await response.json();
