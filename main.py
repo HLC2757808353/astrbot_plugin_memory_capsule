@@ -134,7 +134,7 @@ class MemoryCapsulePlugin(Star):
             return []
 
     @filter.llm_tool(name="update_relation")
-    async def update_relation(self, event: AstrMessageEvent, user_id: str, group_id: str, platform: str = "qq", nickname: str = None, nicknames: list = None, first_meet_group: str = None, first_meet_time = None, favor_change: int = 0, relationship: str = None, remark: str = None):
+    async def update_relation(self, event: AstrMessageEvent, user_id: str, group_id: str, platform: str = "qq", nickname: str = None, nicknames: list = None, first_meet_group: str = None, first_meet_time: str = None, favor_change: int = 0, relationship: str = None, remark: str = None):
         """
         更新用户关系
         
