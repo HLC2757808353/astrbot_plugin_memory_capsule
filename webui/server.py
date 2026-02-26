@@ -268,118 +268,48 @@ class WebUIServer:
             # 直接创建服务器，使用SO_REUSEADDR选项
             import socket
             
-            # 创建socket并设置SO_REUSEADDR选项
-            server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            # 尝试使用指定端口，如果失败则自动选择一个可用端口
+            used_port = self.port
+            server_socket = None
             
             # 尝试绑定端口，最多5次
             max_attempts = 5
             for attempt in range(max_attempts):
                 try:
-                    server_socket.bind(('0.0.0.0', self.port))
-                    logger.info(f"成功绑定端口 {self.port}")
+                    # 创建socket并设置SO_REUSEADDR选项
+                    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                    server_socket.bind(('0.0.0.0', used_port))
+                    logger.info(f"成功绑定端口 {used_port}")
+                    self.port = used_port  # 更新端口为实际使用的端口
                     break
                 except Exception as e:
-                    logger.warning(f"尝试 {attempt + 1}/{max_attempts} 绑定端口 {self.port} 失败: {e}")
-                    # 尝试强制释放端口
-                    try:
+                    logger.warning(f"尝试 {attempt + 1}/{max_attempts} 绑定端口 {used_port} 失败: {e}")
+                    # 如果是第一次失败，尝试自动选择一个可用端口
+                    if attempt == 0:
+                        # 尝试使用随机端口
                         temp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                         temp_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                        temp_sock.bind(('0.0.0.0', self.port))
+                        temp_sock.bind(('0.0.0.0', 0))  # 0表示自动选择可用端口
+                        used_port = temp_sock.getsockname()[1]
                         temp_sock.close()
-                        logger.info(f"端口 {self.port} 已强制释放")
-                    except Exception as release_error:
-                        logger.debug(f"强制释放端口时发生错误: {release_error}")
+                        logger.info(f"自动选择可用端口: {used_port}")
+                    else:
+                        # 尝试强制释放端口
+                        try:
+                            temp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                            temp_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                            temp_sock.bind(('0.0.0.0', used_port))
+                            temp_sock.close()
+                            logger.info(f"端口 {used_port} 已强制释放")
+                        except Exception as release_error:
+                            logger.debug(f"强制释放端口时发生错误: {release_error}")
                     time.sleep(1)
             else:
                 # 所有尝试都失败
                 logger.error(f"WebUI服务器启动失败: 端口 {self.port} 已被占用，尝试释放失败")
-                server_socket.close()
-                
-                # 尝试kill占用端口的服务器进程
-                try:
-                    import subprocess
-                    
-                    # 使用netstat命令查找占用端口的进程
-                    if os.name == 'nt':  # Windows
-                        logger.info(f"正在查找占用端口 {self.port} 的进程...")
-                        cmd = f"netstat -ano | findstr :{self.port}"
-                        result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-                        
-                        logger.info(f"netstat命令输出: {result.stdout}")
-                        
-                        # 解析输出，找到PID
-                        lines = result.stdout.strip().split('\n')
-                        logger.info(f"找到 {len(lines)} 行结果")
-                        
-                        # 收集所有唯一的PID
-                        pids = set()
-                        for line in lines:
-                            if line:
-                                parts = line.strip().split()
-                                logger.info(f"行内容: {line}")
-                                logger.info(f"分割后: {parts}")
-                                if len(parts) >= 5:
-                                    pid = parts[-1]
-                                    pids.add(pid)
-                                    logger.info(f"找到占用端口 {self.port} 的进程 PID: {pid}")
-                                else:
-                                    logger.warning(f"行格式不正确: {line}")
-                        
-                        # 只杀死第一个找到的进程，避免杀死所有相关进程
-                        if pids:
-                            pid_to_kill = list(pids)[0]
-                            logger.info(f"只杀死第一个占用端口 {self.port} 的进程 PID: {pid_to_kill}")
-                            try:
-                                kill_result = subprocess.run(f"taskkill /F /PID {pid_to_kill}", shell=True, capture_output=True, text=True)
-                                logger.info(f"taskkill命令输出: {kill_result.stdout}")
-                                logger.info(f"taskkill命令错误: {kill_result.stderr}")
-                                logger.info(f"已杀死占用端口 {self.port} 的进程 PID: {pid_to_kill}")
-                            except Exception as kill_error:
-                                logger.error(f"尝试杀死进程时发生错误: {kill_error}")
-                        else:
-                            logger.info(f"没有找到占用端口 {self.port} 的进程")
-                    else:  # Linux/Mac
-                        logger.info(f"正在查找占用端口 {self.port} 的进程...")
-                        cmd = f"lsof -i :{self.port}"
-                        result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-                        
-                        logger.info(f"lsof命令输出: {result.stdout}")
-                        
-                        # 解析输出，找到PID
-                        lines = result.stdout.strip().split('\n')
-                        logger.info(f"找到 {len(lines)} 行结果")
-                        
-                        # 收集所有唯一的PID
-                        pids = set()
-                        for line in lines[1:]:  # 跳过标题行
-                            if line:
-                                parts = line.strip().split()
-                                logger.info(f"行内容: {line}")
-                                logger.info(f"分割后: {parts}")
-                                if len(parts) >= 2:
-                                    pid = parts[1]
-                                    pids.add(pid)
-                                    logger.info(f"找到占用端口 {self.port} 的进程 PID: {pid}")
-                                else:
-                                    logger.warning(f"行格式不正确: {line}")
-                        
-                        # 只杀死第一个找到的进程，避免杀死所有相关进程
-                        if pids:
-                            pid_to_kill = list(pids)[0]
-                            logger.info(f"只杀死第一个占用端口 {self.port} 的进程 PID: {pid_to_kill}")
-                            try:
-                                kill_result = subprocess.run(f"kill -9 {pid_to_kill}", shell=True, capture_output=True, text=True)
-                                logger.info(f"kill命令输出: {kill_result.stdout}")
-                                logger.info(f"kill命令错误: {kill_result.stderr}")
-                                logger.info(f"已杀死占用端口 {self.port} 的进程 PID: {pid_to_kill}")
-                            except Exception as kill_error:
-                                logger.error(f"尝试杀死进程时发生错误: {kill_error}")
-                        else:
-                            logger.info(f"没有找到占用端口 {self.port} 的进程")
-                except Exception as e:
-                    logger.error(f"尝试查找和杀死占用端口的进程时发生错误: {e}")
-                
+                if server_socket:
+                    server_socket.close()
                 return
             
             # 开始监听
@@ -394,8 +324,18 @@ class WebUIServer:
             
             # 运行服务器直到self.running为False
             while self.running:
-                # 处理一个请求，超时1秒
-                self.server.handle_request()
+                try:
+                    # 处理一个请求，使用select来实现超时
+                    import select
+                    # 获取服务器的socket
+                    server_socket = self.server.socket
+                    # 使用select监听socket，超时1秒
+                    ready, _, _ = select.select([server_socket], [], [], 1.0)
+                    if ready:
+                        # 有请求到达，处理请求
+                        self.server.handle_request()
+                except Exception as e:
+                    logger.debug(f"处理请求时发生错误: {e}")
         except Exception as e:
             logger.error(f"WebUI服务器运行失败: {e}")
         finally:
@@ -423,94 +363,10 @@ class WebUIServer:
                 logger.debug(f"尝试通过服务器实例停止服务器时发生错误: {e}")
         
         # 等待一段时间，确保服务器完全停止
-        time.sleep(1)
-        
-        # 尝试kill占用端口的服务器进程
-        try:
-            import subprocess
-            
-            # 使用netstat命令查找占用端口的进程
-            if os.name == 'nt':  # Windows
-                logger.info(f"正在查找占用端口 {self.port} 的进程...")
-                cmd = f"netstat -ano | findstr :{self.port}"
-                result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-                
-                logger.info(f"netstat命令输出: {result.stdout}")
-                
-                # 解析输出，找到PID
-                lines = result.stdout.strip().split('\n')
-                logger.info(f"找到 {len(lines)} 行结果")
-                
-                # 收集所有唯一的PID
-                pids = set()
-                for line in lines:
-                    if line:
-                        parts = line.strip().split()
-                        logger.info(f"行内容: {line}")
-                        logger.info(f"分割后: {parts}")
-                        if len(parts) >= 5:
-                            pid = parts[-1]
-                            pids.add(pid)
-                            logger.info(f"找到占用端口 {self.port} 的进程 PID: {pid}")
-                        else:
-                            logger.warning(f"行格式不正确: {line}")
-                
-                # 只杀死第一个找到的进程，避免杀死所有相关进程
-                if pids:
-                    pid_to_kill = list(pids)[0]
-                    logger.info(f"只杀死第一个占用端口 {self.port} 的进程 PID: {pid_to_kill}")
-                    try:
-                        kill_result = subprocess.run(f"taskkill /F /PID {pid_to_kill}", shell=True, capture_output=True, text=True)
-                        logger.info(f"taskkill命令输出: {kill_result.stdout}")
-                        logger.info(f"taskkill命令错误: {kill_result.stderr}")
-                        logger.info(f"已杀死占用端口 {self.port} 的进程 PID: {pid_to_kill}")
-                    except Exception as kill_error:
-                        logger.error(f"尝试杀死进程时发生错误: {kill_error}")
-                else:
-                    logger.info(f"没有找到占用端口 {self.port} 的进程")
-            else:  # Linux/Mac
-                logger.info(f"正在查找占用端口 {self.port} 的进程...")
-                cmd = f"lsof -i :{self.port}"
-                result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-                
-                logger.info(f"lsof命令输出: {result.stdout}")
-                
-                # 解析输出，找到PID
-                lines = result.stdout.strip().split('\n')
-                logger.info(f"找到 {len(lines)} 行结果")
-                
-                # 收集所有唯一的PID
-                pids = set()
-                for line in lines[1:]:  # 跳过标题行
-                    if line:
-                        parts = line.strip().split()
-                        logger.info(f"行内容: {line}")
-                        logger.info(f"分割后: {parts}")
-                        if len(parts) >= 2:
-                            pid = parts[1]
-                            pids.add(pid)
-                            logger.info(f"找到占用端口 {self.port} 的进程 PID: {pid}")
-                        else:
-                            logger.warning(f"行格式不正确: {line}")
-                
-                # 只杀死第一个找到的进程，避免杀死所有相关进程
-                if pids:
-                    pid_to_kill = list(pids)[0]
-                    logger.info(f"只杀死第一个占用端口 {self.port} 的进程 PID: {pid_to_kill}")
-                    try:
-                        kill_result = subprocess.run(f"kill -9 {pid_to_kill}", shell=True, capture_output=True, text=True)
-                        logger.info(f"kill命令输出: {kill_result.stdout}")
-                        logger.info(f"kill命令错误: {kill_result.stderr}")
-                        logger.info(f"已杀死占用端口 {self.port} 的进程 PID: {pid_to_kill}")
-                    except Exception as kill_error:
-                        logger.error(f"尝试杀死进程时发生错误: {kill_error}")
-                else:
-                    logger.info(f"没有找到占用端口 {self.port} 的进程")
-        except Exception as e:
-            logger.error(f"尝试查找和杀死占用端口的进程时发生错误: {e}")
+        time.sleep(2)
         
         # 强制释放端口的逻辑 - 多次尝试
-        max_release_attempts = 3
+        max_release_attempts = 5
         for attempt in range(max_release_attempts):
             try:
                 # 创建一个临时socket来尝试释放端口
@@ -522,10 +378,11 @@ class WebUIServer:
                 break
             except Exception as e:
                 logger.debug(f"尝试 {attempt + 1}/{max_release_attempts} 强制释放端口时发生错误: {e}")
-                time.sleep(0.5)
+                # 增加等待时间
+                time.sleep(1)
         
         # 等待一段时间，确保端口完全释放
-        time.sleep(1)
+        time.sleep(2)
         
         # 再次检查端口是否被释放
         if self.check_port(self.port):
