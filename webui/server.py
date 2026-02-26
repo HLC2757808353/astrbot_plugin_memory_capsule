@@ -1,11 +1,11 @@
-from flask import Flask, render_template, jsonify, request
+from flask import Flask, render_template, jsonify, request, make_response
 import threading
 import time
 import yaml
 import os
 import socket
 
-# 容错处理，当astrbot模块不可用时使用默认日志
+# 容错处理
 try:
     from astrbot.api import logger
 except ImportError:
@@ -21,7 +21,6 @@ class WebUIServer:
         self.running = False
         self.version = self._get_version()
         self.server_thread = None
-        self.server = None  # 存储服务器实例
         self.setup_routes()
     
     def _get_version(self):
@@ -37,83 +36,52 @@ class WebUIServer:
 
     def setup_routes(self):
         """设置路由"""
+        # ... (这里保留你原来的路由代码不变，为了简洁省略重复部分) ...
         @self.app.route('/')
         def index():
-            from flask import make_response
             response = make_response(render_template('index.html', version=self.version))
             response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
-            response.headers['Pragma'] = 'no-cache'
-            response.headers['Expires'] = '0'
             return response
 
         @self.app.route('/notes')
         def notes():
-            from flask import make_response
             response = make_response(render_template('notes.html'))
             response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
-            response.headers['Pragma'] = 'no-cache'
-            response.headers['Expires'] = '0'
             return response
 
         @self.app.route('/relations')
         def relations():
-            from flask import make_response
             response = make_response(render_template('relations.html'))
             response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
-            response.headers['Pragma'] = 'no-cache'
-            response.headers['Expires'] = '0'
             return response
 
         @self.app.route('/api/notes')
         def api_notes():
-            """获取笔记列表"""
-            # 获取分页参数
             page = int(request.args.get('page', 1))
             limit = int(request.args.get('limit', 10))
             offset = (page - 1) * limit
-            
-            # 获取分类参数
             category = request.args.get('category')
-            
-            # 获取笔记列表
             notes = self.db_manager.get_all_plugin_data(limit, offset, category)
-            
-            # 获取总笔记数
             total_notes = self.db_manager.get_plugin_data_count(category)
-            
             return jsonify({
-                'notes': notes,
-                'total': total_notes,
-                'page': page,
-                'limit': limit,
-                'total_pages': (total_notes + limit - 1) // limit
+                'notes': notes, 'total': total_notes, 'page': page,
+                'limit': limit, 'total_pages': (total_notes + limit - 1) // limit
             })
 
         @self.app.route('/api/relations')
         def api_relations():
-            """获取关系列表"""
-            # 获取分页参数
             page = int(request.args.get('page', 1))
             limit = int(request.args.get('limit', 10))
             offset = (page - 1) * limit
-            
-            # 获取关系列表
             relations = self.db_manager.get_all_relations(limit, offset)
-            
-            # 获取总关系数
             total_relations = self.db_manager.get_relations_count()
-            
             return jsonify({
-                'relations': relations,
-                'total': total_relations,
-                'page': page,
-                'limit': limit,
-                'total_pages': (total_relations + limit - 1) // limit
+                'relations': relations, 'total': total_relations, 'page': page,
+                'limit': limit, 'total_pages': (total_relations + limit - 1) // limit
             })
 
         @self.app.route('/api/notes', methods=['POST'])
         def api_add_note():
-            """添加笔记"""
             data = request.json
             result = self.db_manager.store_plugin_data(
                 content=data.get('content', ''),
@@ -124,13 +92,11 @@ class WebUIServer:
 
         @self.app.route('/api/notes/<int:note_id>', methods=['DELETE'])
         def api_delete_note(note_id):
-            """删除笔记"""
             result = self.db_manager.delete_plugin_data(note_id)
             return jsonify({'result': result})
 
         @self.app.route('/api/notes/search')
         def api_search_notes():
-            """搜索笔记"""
             query = request.args.get('q')
             category = request.args.get('category')
             notes = self.db_manager.query_plugin_data(query, category=category)
@@ -138,7 +104,6 @@ class WebUIServer:
 
         @self.app.route('/api/relations', methods=['POST'])
         def api_add_relation():
-            """添加关系"""
             data = request.json
             result = self.db_manager.update_relation(
                 user_id=data.get('user_id', ''),
@@ -153,157 +118,83 @@ class WebUIServer:
 
         @self.app.route('/api/relations/<string:user_id>/<string:platform>', methods=['DELETE'])
         def api_delete_relation(user_id, platform):
-            """删除关系"""
             result = self.db_manager.delete_relation(user_id, platform)
             return jsonify({'result': result})
 
         @self.app.route('/api/relations/search')
         def api_search_relations():
-            """搜索关系（模糊查询）"""
             query = request.args.get('q', '')
             search_type = request.args.get('type', 'name')
-            
-            # 使用独立连接
             conn = self.db_manager._get_connection()
             cursor = conn.cursor()
-            
-            # 根据搜索类型构建查询
             if search_type == 'id':
-                # ID搜索，精确匹配
-                cursor.execute('''
-                SELECT user_id, nickname, group_id, platform, impression_summary, remark, favor_level, created_at 
-                FROM relations 
-                WHERE user_id = ?
-                ''', (query,))
-            elif search_type == 'group_id':
-                # 群号搜索
-                cursor.execute('''
-                SELECT user_id, nickname, group_id, platform, impression_summary, remark, favor_level, created_at 
-                FROM relations 
-                WHERE group_id LIKE ?
-                ''', (f"%{query}%",))
-            elif search_type == 'group_name':
-                # 群名搜索（这里假设 group_id 中包含群名）
-                cursor.execute('''
-                SELECT user_id, nickname, group_id, platform, impression_summary, remark, favor_level, created_at 
-                FROM relations 
-                WHERE group_id LIKE ?
-                ''', (f"%{query}%",))
+                cursor.execute('SELECT user_id, nickname, group_id, platform, impression_summary, remark, favor_level, created_at FROM relations WHERE user_id = ?', (query,))
+            elif search_type in ['group_id', 'group_name']:
+                cursor.execute('SELECT user_id, nickname, group_id, platform, impression_summary, remark, favor_level, created_at FROM relations WHERE group_id LIKE ?', (f"%{query}%",))
             else:
-                # 名称搜索（默认）
-                cursor.execute('''
-                SELECT user_id, nickname, group_id, platform, impression_summary, remark, favor_level, created_at 
-                FROM relations 
-                WHERE nickname LIKE ? OR remark LIKE ?
-                ''', (f"%{query}%", f"%{query}%"))
-            
+                cursor.execute('SELECT user_id, nickname, group_id, platform, impression_summary, remark, favor_level, created_at FROM relations WHERE nickname LIKE ? OR remark LIKE ?', (f"%{query}%", f"%{query}%"))
             results = cursor.fetchall()
             conn.close()
-            
-            # 处理结果
-            relation_list = []
-            for row in results:
-                relation = {
-                    "user_id": row[0],
-                    "nickname": row[1],
-                    "group_id": row[2],
-                    "platform": row[3],
-                    "impression": row[4],
-                    "remark": row[5],
-                    "favor_level": row[6],
-                    "created_at": row[7]
-                }
-                relation_list.append(relation)
-            
+            relation_list = [{"user_id": r[0], "nickname": r[1], "group_id": r[2], "platform": r[3], "impression": r[4], "remark": r[5], "favor_level": r[6], "created_at": r[7]} for r in results]
             return jsonify(relation_list)
 
         @self.app.route('/shutdown', methods=['POST'])
         def shutdown():
-            """关闭服务器"""
-            # 使用兼容的方法关闭服务器
-            try:
-                # 尝试使用旧版本的shutdown_server
-                from werkzeug.server import shutdown_server
-                shutdown_server()
-                return 'Server shutting down...'
-            except ImportError:
-                # 对于新版本的Werkzeug，使用不同的方法
+            """关闭服务器的内部接口"""
+            func = request.environ.get('werkzeug.server.shutdown')
+            if func is None:
+                # 尝试兼容旧版本或其他WSGI服务器
                 try:
-                    from flask import request
-                    request.environ.get('werkzeug.server.shutdown')()
-                    return 'Server shutting down...'
-                except Exception as e:
-                    logger.error(f"关闭服务器时发生错误: {e}")
-                    return 'Failed to shutdown server'
-
-
-    def check_port(self, port):
-        """检测端口是否被占用"""
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(1)
-        try:
-            # 尝试绑定端口，而不是仅仅连接
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            sock.bind(('localhost', port))
-            sock.close()
-            logger.info(f"端口 {port} 可用")
-            return True
-        except socket.error as e:
-            logger.warning(f"端口 {port} 已被占用: {e}")
-            return False
-        finally:
-            try:
-                sock.close()
-            except:
-                pass
+                    from werkzeug.server import shutdown_server
+                    shutdown_server()
+                except:
+                    logger.error("无法关闭服务器：缺少 shutdown 函数")
+            else:
+                func()
+            return 'Server shutting down...'
 
     def run(self):
         """运行服务器"""
         self.running = True
         try:
-            # 尝试检测并释放端口，最多5次
-            max_attempts = 5
-            for attempt in range(max_attempts):
-                if self.check_port(self.port):
-                    break
-                logger.info(f"尝试释放端口 {self.port}，第 {attempt + 1} 次")
-                
-                # 尝试强制释放端口
-                try:
-                    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                    sock.bind(('localhost', self.port))
-                    sock.close()
-                    logger.info(f"端口 {self.port} 已强制释放")
-                except Exception as e:
-                    logger.debug(f"强制释放端口时发生错误: {e}")
-                
-                time.sleep(2)  # 减少等待时间，提高响应速度
+            # 注意：这里移除了错误的端口检查逻辑
+            # 设置 use_reloader=False 避免多进程问题，设置 threaded=True 支持并发
+            # Werkzeug 默认开启 SO_REUSEADDR，这有助于快速重启
+            self.app.run(host='0.0.0.0', port=self.port, debug=False, use_reloader=False, threaded=True)
+        except OSError as e:
+            if "Address already in use" in str(e):
+                logger.error(f"端口 {self.port} 已被占用，请检查是否有残留进程或修改端口配置。")
             else:
-                # 所有尝试都失败
-                logger.error(f"WebUI服务器启动失败: 端口 {self.port} 已被占用，尝试释放失败")
-                return
-            
-            # 使用app.run启动服务器，设置use_reloader=False避免多进程问题
-            # 直接运行服务器，因为这个方法已经在一个线程中运行
-            self.app.run(host='0.0.0.0', port=self.port, debug=False, use_reloader=False)
+                logger.error(f"WebUI服务器运行失败: {e}")
         except Exception as e:
             logger.error(f"WebUI服务器运行失败: {e}")
         finally:
             self.running = False
 
     def stop(self):
-        """停止服务器并释放端口"""
-        self.running = False
-        logger.info(f"WebUI服务器正在停止，准备释放端口 {self.port}...")
+        """停止服务器并释放端口（确保线程结束）"""
+        if not self.running and not (self.server_thread and self.server_thread.is_alive()):
+            logger.info("WebUI服务器未运行，无需停止。")
+            return
+
+        logger.info(f"正在停止 WebUI 服务器 (端口 {self.port})...")
         
-        # 尝试通过shutdown路由优雅关闭服务器，只处理当前端口
+        # 1. 尝试通过 HTTP 请求触发内部关闭
         try:
             import requests
-            response = requests.post(f"http://localhost:{self.port}/shutdown", timeout=3)
-            logger.info(f"端口 {self.port} 已通过shutdown路由优雅关闭: {response.text}")
-        except Exception as e:
-            # 忽略错误，因为在某些环境中可能不支持
-            logger.debug(f"尝试通过shutdown路由停止端口 {self.port} 时发生错误: {e}")
+            # 设置超时时间短一点，防止卡死
+            requests.post(f"http://localhost:{self.port}/shutdown", timeout=2)
+        except Exception:
+            # 忽略错误（服务器可能已经停了，或者网络不通）
+            pass
+
+        # 2. 【关键修改】等待线程真正结束
+        if self.server_thread and self.server_thread.is_alive():
+            # 等待线程结束，最多等5秒
+            self.server_thread.join(timeout=5)
+            if self.server_thread.is_alive():
+                logger.warning(f"WebUI 服务器线程在 5 秒后未能停止，可能存在僵尸线程。")
+            else:
+                logger.info(f"WebUI 服务器线程已完全停止，端口 {self.port} 已释放。")
         
-        logger.info(f"WebUI服务器已停止，端口 {self.port} 已释放")
+        self.running = False
