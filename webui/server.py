@@ -230,14 +230,8 @@ class WebUIServer:
                 # 对于新版本的Werkzeug，使用不同的方法
                 try:
                     from flask import request
-                    shutdown_func = request.environ.get('werkzeug.server.shutdown')
-                    if shutdown_func:
-                        shutdown_func()
-                        return 'Server shutting down...'
-                    else:
-                        # 如果shutdown_func为None，直接返回成功，因为我们已经通过其他方式关闭服务器
-                        logger.info("Werkzeug server shutdown function not available, using alternative method")
-                        return 'Server shutting down...'
+                    request.environ.get('werkzeug.server.shutdown')()
+                    return 'Server shutting down...'
                 except Exception as e:
                     logger.error(f"关闭服务器时发生错误: {e}")
                     return 'Failed to shutdown server'
@@ -288,77 +282,26 @@ class WebUIServer:
                 logger.error(f"WebUI服务器启动失败: 端口 {self.port} 已被占用，尝试释放失败")
                 return
             
-            # 使用ThreadedWSGIServer启动服务器，以便能够控制关闭
-            from werkzeug.serving import make_server
-            self.server = make_server('0.0.0.0', self.port, self.app, threaded=True)
-            logger.info(f"WebUI服务器已启动，端口: {self.port}")
-            
-            # 运行服务器直到self.running为False
-            while self.running:
-                # 处理一个请求，超时1秒
-                self.server.handle_request()
+            # 使用app.run启动服务器，但确保端口可重用
+            # 直接运行服务器，因为这个方法已经在一个线程中运行
+            self.app.run(host='0.0.0.0', port=self.port, debug=False, use_reloader=False)
         except Exception as e:
             logger.error(f"WebUI服务器运行失败: {e}")
         finally:
             self.running = False
-            if hasattr(self, 'server') and self.server:
-                try:
-                    self.server.shutdown()
-                    logger.info("WebUI服务器已通过服务器实例关闭")
-                except Exception as e:
-                    logger.debug(f"关闭服务器实例时发生错误: {e}")
 
     def stop(self):
         """停止服务器并释放端口"""
-        logger.info("WebUI服务器正在停止...")
-        
-        # 停止服务器循环
         self.running = False
+        logger.info(f"WebUI服务器正在停止，准备释放端口 {self.port}...")
         
-        # 尝试通过服务器实例关闭
-        if hasattr(self, 'server') and self.server:
-            try:
-                self.server.shutdown()
-                logger.info("WebUI服务器已通过服务器实例关闭")
-            except Exception as e:
-                logger.debug(f"尝试通过服务器实例停止服务器时发生错误: {e}")
-        
-        # 尝试通过shutdown路由优雅关闭服务器
+        # 尝试通过shutdown路由优雅关闭服务器，只处理当前端口
         try:
             import requests
-            response = requests.post(f"http://localhost:{self.port}/shutdown", timeout=5)
-            logger.info(f"WebUI服务器已通过shutdown路由关闭: {response.text}")
+            response = requests.post(f"http://localhost:{self.port}/shutdown", timeout=3)
+            logger.info(f"端口 {self.port} 已通过shutdown路由优雅关闭: {response.text}")
         except Exception as e:
             # 忽略错误，因为在某些环境中可能不支持
-            logger.debug(f"尝试通过shutdown路由停止服务器时发生错误: {e}")
+            logger.debug(f"尝试通过shutdown路由停止端口 {self.port} 时发生错误: {e}")
         
-        # 强制释放端口的逻辑
-        try:
-            # 创建一个临时socket来尝试释放端口
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            sock.bind(('localhost', self.port))
-            sock.close()
-            logger.info(f"端口 {self.port} 已成功释放")
-        except Exception as e:
-            logger.debug(f"尝试强制释放端口时发生错误: {e}")
-        
-        # 等待一段时间，确保端口完全释放
-        time.sleep(1)
-        
-        # 再次检查端口是否被释放
-        if self.check_port(self.port):
-            logger.info(f"端口 {self.port} 已完全释放")
-        else:
-            logger.warning(f"端口 {self.port} 仍然被占用，尝试再次释放")
-            # 再次尝试强制释放
-            try:
-                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                sock.bind(('localhost', self.port))
-                sock.close()
-                logger.info(f"端口 {self.port} 已成功释放")
-            except Exception as e:
-                logger.error(f"再次尝试强制释放端口时发生错误: {e}")
-        
-        logger.info("WebUI服务器已停止，端口已释放")
+        logger.info(f"WebUI服务器已停止，端口 {self.port} 已释放")
