@@ -242,18 +242,20 @@ class WebUIServer:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(1)
         try:
-            result = sock.connect_ex(('localhost', port))
-            if result == 0:
-                logger.warning(f"端口 {port} 已被占用")
-                return False
-            else:
-                logger.info(f"端口 {port} 可用")
-                return True
-        except Exception as e:
-            logger.error(f"检测端口时发生错误: {e}")
+            # 尝试绑定端口，而不是仅仅连接
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.bind(('localhost', port))
+            sock.close()
+            logger.info(f"端口 {port} 可用")
+            return True
+        except socket.error as e:
+            logger.warning(f"端口 {port} 已被占用: {e}")
             return False
         finally:
-            sock.close()
+            try:
+                sock.close()
+            except:
+                pass
 
     def run(self):
         """运行服务器"""
@@ -282,7 +284,7 @@ class WebUIServer:
                 logger.error(f"WebUI服务器启动失败: 端口 {self.port} 已被占用，尝试释放失败")
                 return
             
-            # 使用app.run启动服务器，但确保端口可重用
+            # 使用app.run启动服务器，设置use_reloader=False避免多进程问题
             # 直接运行服务器，因为这个方法已经在一个线程中运行
             self.app.run(host='0.0.0.0', port=self.port, debug=False, use_reloader=False)
         except Exception as e:
