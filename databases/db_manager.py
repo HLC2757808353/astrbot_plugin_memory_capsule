@@ -143,13 +143,14 @@ class DatabaseManager:
             logger.error(f"存储笔记失败: {e}")
             return f"存储失败: {e}"
 
-    def query_plugin_data(self, query_keyword=None, data_type=None, category=None):
+    def query_plugin_data(self, query_keyword=None, data_type=None, category=None, tags=None):
         """查询笔记数据
         
         参数说明：
         - query_keyword: 查询关键词，可用于搜索标题、内容、元数据等
         - data_type: 数据类型，默认为None
         - category: 分类名称，默认为None
+        - tags: 标签列表，默认为None
         """
         try:
             # 构建查询语句
@@ -168,6 +169,11 @@ class DatabaseManager:
             if category:
                 query += " AND category = ?"
                 params.append(category)
+            
+            if tags and isinstance(tags, list):
+                for tag in tags:
+                    query += " AND metadata LIKE ?"
+                    params.append(f"%{tag}%")
             
             query += " ORDER BY created_at DESC LIMIT 50"
             
@@ -197,6 +203,52 @@ class DatabaseManager:
             return data_list
         except Exception as e:
             logger.error(f"查询笔记失败: {e}")
+            return []
+    
+    def get_all_tags(self):
+        """获取所有标签"""
+        try:
+            # 使用独立连接
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            
+            # 获取所有包含metadata的记录
+            cursor.execute('SELECT metadata FROM plugin_data WHERE metadata IS NOT NULL')
+            results = cursor.fetchall()
+            conn.close()
+            
+            # 提取标签
+            tags = set()
+            for row in results:
+                try:
+                    metadata = json.loads(row[0])
+                    if isinstance(metadata, dict) and 'tags' in metadata:
+                        if isinstance(metadata['tags'], list):
+                            tags.update(metadata['tags'])
+                except:
+                    pass
+            
+            return list(tags)
+        except Exception as e:
+            logger.error(f"获取标签失败: {e}")
+            return []
+    
+    def get_all_categories(self):
+        """获取所有分类"""
+        try:
+            # 使用独立连接
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            
+            # 获取所有分类
+            cursor.execute('SELECT DISTINCT category FROM plugin_data WHERE category IS NOT NULL')
+            results = cursor.fetchall()
+            conn.close()
+            
+            categories = [row[0] for row in results]
+            return categories
+        except Exception as e:
+            logger.error(f"获取分类失败: {e}")
             return []
 
     def update_relation(self, user_id, group_id, platform='qq', nickname=None, favor_change=0, impression=None, remark=None):
@@ -330,9 +382,9 @@ class DatabaseManager:
             cursor = conn.cursor()
             
             if category:
-                cursor.execute('SELECT id, note_id, data_type, content, category, created_at FROM plugin_data WHERE category=? ORDER BY created_at DESC LIMIT ? OFFSET ?', (category, limit, offset))
+                cursor.execute('SELECT id, note_id, data_type, content, metadata, category, created_at FROM plugin_data WHERE category=? ORDER BY created_at DESC LIMIT ? OFFSET ?', (category, limit, offset))
             else:
-                cursor.execute('SELECT id, note_id, data_type, content, category, created_at FROM plugin_data ORDER BY created_at DESC LIMIT ? OFFSET ?', (limit, offset))
+                cursor.execute('SELECT id, note_id, data_type, content, metadata, category, created_at FROM plugin_data ORDER BY created_at DESC LIMIT ? OFFSET ?', (limit, offset))
             
             results = cursor.fetchall()
             conn.close()
@@ -344,8 +396,9 @@ class DatabaseManager:
                     "note_id": row[1],
                     "data_type": row[2],
                     "content": row[3],
-                    "category": row[4],
-                    "created_at": row[5]
+                    "metadata": json.loads(row[4]) if row[4] else None,
+                    "category": row[5],
+                    "created_at": row[6]
                 }
                 data_list.append(data)
             

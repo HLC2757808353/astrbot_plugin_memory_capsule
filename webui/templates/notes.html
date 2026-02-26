@@ -192,7 +192,7 @@
             border-radius: 12px;
             box-shadow: 0 4px 12px rgba(255, 182, 193, 0.2);
             padding: 15px;
-            height: 200px;
+            height: 220px;
             overflow-y: auto;
             position: relative;
             transition: all 0.3s ease;
@@ -228,11 +228,58 @@
             margin-bottom: 8px;
         }
         
+        .note-card-tags {
+            margin-bottom: 8px;
+        }
+        
+        .note-tag {
+            display: inline-block;
+            padding: 2px 8px;
+            margin-right: 5px;
+            margin-bottom: 5px;
+            background-color: #ffe6f0;
+            color: #e91e63;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 500;
+        }
+        
         .note-card-content {
             font-size: 14px;
             line-height: 1.4;
             word-break: break-word;
             overflow-y: auto;
+        }
+        
+        /* 标签选择器 */
+        .tag-selector {
+            margin-bottom: 15px;
+        }
+        
+        .tag-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 8px;
+        }
+        
+        .tag-item {
+            padding: 6px 12px;
+            background-color: #f0f0f0;
+            border-radius: 16px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.3s ease;
+        }
+        
+        .tag-item:hover {
+            background-color: #ffe6f0;
+            color: #e91e63;
+        }
+        
+        .tag-item.active {
+            background-color: #e91e63;
+            color: #ffffff;
         }
         
         /* 分页 */
@@ -332,11 +379,15 @@
                         </div>
                         <div class="form-group">
                             <label class="form-label" for="note-category">分类</label>
-                            <input type="text" class="form-control" id="note-category" name="category" placeholder="输入分类名称，如 bilibili、Note 等">
+                            <input type="text" class="form-control" id="note-category" name="category" placeholder="输入分类名称，如 B站视频、Note 等">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="note-tags">标签 (用逗号分隔)</label>
+                            <input type="text" class="form-control" id="note-tags" name="tags" placeholder="输入标签，如 编程, 搞笑, Python">
                         </div>
                         <div class="form-group">
                             <label class="form-label" for="note-metadata">元数据 (JSON格式，用于存储额外信息如标签、关键词等)</label>
-                            <input type="text" class="form-control" id="note-metadata" name="metadata" value="{}">
+                            <input type="text" class="form-control" id="note-metadata" name="metadata" value="{}" readonly>
                         </div>
                         <button type="submit" class="btn btn-primary">添加本本</button>
                     </form>
@@ -349,15 +400,20 @@
                     <div style="margin-bottom: 15px;">
                         <div style="display: flex; gap: 10px; align-items: center;">
                             <input type="text" class="form-control" id="note-search" placeholder="输入关键词搜索..." style="flex: 1; border-radius: 12px; border: 2px solid #f0c8d2; padding: 12px 16px;">
+                            <select class="form-control" id="category-select" style="border-radius: 12px; border: 2px solid #f0c8d2; padding: 12px 16px;">
+                                <option value="all">全部分类</option>
+                                <!-- 分类选项将通过JavaScript动态添加 -->
+                            </select>
                             <button class="btn btn-primary" onclick="searchNotes()">搜索</button>
-                            <button class="btn btn-secondary" onclick="loadNotes()">重置</button>
+                            <button class="btn btn-secondary" onclick="resetSearch()">重置</button>
                         </div>
                     </div>
-                    <!-- 分类按钮 -->
-                    <div style="margin-bottom: 15px;">
-                        <button class="btn btn-outline" onclick="filterNotes('all')">全部</button>
-                        <button class="btn btn-outline" onclick="filterNotes('bilibili')">bilibili</button>
-                        <button class="btn btn-outline" onclick="filterNotes('Note')">Note</button>
+                    <!-- 标签选择器 -->
+                    <div class="tag-selector">
+                        <h5>标签筛选</h5>
+                        <div class="tag-container" id="tag-container">
+                            <!-- 标签将通过JavaScript动态添加 -->
+                        </div>
                     </div>
                     <div id="notes-list">
                         <p>加载中...</p>
@@ -377,7 +433,12 @@
         // 加载笔记列表
         async function loadNotes(page = 1) {
             try {
-                const response = await fetch(`/api/notes?page=${page}&limit=${pageSize}`);
+                let url = `/api/notes?page=${page}&limit=${pageSize}`;
+                const category = document.getElementById('category-select').value;
+                if (category !== 'all') {
+                    url += `&category=${encodeURIComponent(category)}`;
+                }
+                const response = await fetch(url);
                 const data = await response.json();
                 
                 const notes = data.notes;
@@ -393,17 +454,28 @@
                 
                 let notesHtml = '<div class="notes-grid">';
                 notes.forEach(note => {
+                    // 处理标签
+                    let tagsHtml = '';
+                    if (note.metadata && note.metadata.tags) {
+                        tagsHtml = '<div class="note-card-tags">';
+                        note.metadata.tags.forEach(tag => {
+                            tagsHtml += `<span class="note-tag">#${tag}</span>`;
+                        });
+                        tagsHtml += '</div>';
+                    }
+                    
                     notesHtml += `
                         <div class="note-card" style="cursor: pointer; transition: all 0.3s ease;" onclick="viewNote(${note.id})">
                             <div class="note-card-header">
                                 <span class="note-card-id">${note.note_id}</span>
                             </div>
                             <div class="note-card-actions">
-                                <button class="btn btn-danger" style="font-size: 12px; padding: 2px 6px;" onclick="event.stopPropagation(); deleteNote(${note.id})">删除</button>
+                                <button class="btn btn-danger" style="font-size: 12px; padding: 2px 6px;" onclick="event.stopPropagation(); deleteNote(${note.id})">&lt;/button&gt;</button>
                             </div>
                             <div class="note-card-meta">
                                 分类: ${note.category} | ${note.created_at}
                             </div>
+                            ${tagsHtml}
                             <div class="note-card-content">
                                 ${note.content}
                             </div>
@@ -572,8 +644,19 @@
         // 搜索笔记
         async function searchNotes() {
             const query = document.getElementById('note-search').value;
+            const category = document.getElementById('category-select').value;
             try {
-                const response = await fetch(`/api/notes/search?q=${encodeURIComponent(query)}`);
+                let url = `/api/notes/search?q=${encodeURIComponent(query)}`;
+                if (category !== 'all') {
+                    url += `&category=${encodeURIComponent(category)}`;
+                }
+                if (selectedTags.length > 0) {
+                    selectedTags.forEach(tag => {
+                        url += `&tags=${encodeURIComponent(tag)}`;
+                    });
+                }
+                
+                const response = await fetch(url);
                 const notes = await response.json();
                 
                 if (notes.length === 0) {
@@ -584,17 +667,28 @@
                 
                 let notesHtml = '<div class="notes-grid">';
                 notes.forEach(note => {
+                    // 处理标签
+                    let tagsHtml = '';
+                    if (note.metadata && note.metadata.tags) {
+                        tagsHtml = '<div class="note-card-tags">';
+                        note.metadata.tags.forEach(tag => {
+                            tagsHtml += `<span class="note-tag">#${tag}</span>`;
+                        });
+                        tagsHtml += '</div>';
+                    }
+                    
                     notesHtml += `
                         <div class="note-card" style="cursor: pointer; transition: all 0.3s ease;" onclick="viewNote(${note.id})">
                             <div class="note-card-header">
                                 <span class="note-card-id">${note.note_id}</span>
                             </div>
                             <div class="note-card-actions">
-                                <button class="btn btn-danger" style="font-size: 12px; padding: 2px 6px;" onclick="event.stopPropagation(); deleteNote(${note.id})">删除</button>
+                                <button class="btn btn-danger" style="font-size: 12px; padding: 2px 6px;" onclick="event.stopPropagation(); deleteNote(${note.id})">&lt;/button&gt;
                             </div>
                             <div class="note-card-meta">
                                 分类: ${note.category} | ${note.created_at}
                             </div>
+                            ${tagsHtml}
                             <div class="note-card-content">
                                 ${note.content}
                             </div>
@@ -614,7 +708,76 @@
         // 页面加载时执行
         window.onload = function() {
             loadNotes();
+            loadTags();
+            loadCategories();
         };
+        
+        // 加载标签
+        async function loadTags() {
+            try {
+                const response = await fetch('/api/tags');
+                const tags = await response.json();
+                
+                const tagContainer = document.getElementById('tag-container');
+                tagContainer.innerHTML = '';
+                
+                tags.forEach(tag => {
+                    const tagElement = document.createElement('div');
+                    tagElement.className = `tag-item`;
+                    tagElement.textContent = tag;
+                    tagElement.onclick = function() {
+                        toggleTag(tag);
+                    };
+                    tagContainer.appendChild(tagElement);
+                });
+            } catch (error) {
+                console.error('加载标签失败:', error);
+            }
+        }
+        
+        // 加载分类
+        async function loadCategories() {
+            try {
+                const response = await fetch('/api/categories');
+                const categories = await response.json();
+                
+                const categorySelect = document.getElementById('category-select');
+                // 保留全部分类选项
+                const allOption = categorySelect.querySelector('option[value="all"]');
+                categorySelect.innerHTML = '';
+                categorySelect.appendChild(allOption);
+                
+                categories.forEach(category => {
+                    const option = document.createElement('option');
+                    option.value = category;
+                    option.textContent = category;
+                    categorySelect.appendChild(option);
+                });
+            } catch (error) {
+                console.error('加载分类失败:', error);
+            }
+        }
+        
+        // 切换标签选择
+        let selectedTags = [];
+        function toggleTag(tag) {
+            const index = selectedTags.indexOf(tag);
+            if (index > -1) {
+                selectedTags.splice(index, 1);
+            } else {
+                selectedTags.push(tag);
+            }
+            loadTags();
+        }
+        
+        // 重置搜索
+        function resetSearch() {
+            document.getElementById('note-search').value = '';
+            document.getElementById('category-select').value = 'all';
+            selectedTags = [];
+            loadTags();
+            loadNotes(1);
+        }
     </script>
 </body>
 </html>

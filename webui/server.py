@@ -97,10 +97,24 @@ class WebUIServer:
 
         @self.app.route('/api/notes/search')
         def api_search_notes():
+            """搜索笔记"""
             query = request.args.get('q')
             category = request.args.get('category')
-            notes = self.db_manager.query_plugin_data(query, category=category)
+            tags = request.args.getlist('tags')
+            notes = self.db_manager.query_plugin_data(query, category=category, tags=tags)
             return jsonify(notes)
+        
+        @self.app.route('/api/tags')
+        def api_tags():
+            """获取所有标签"""
+            tags = self.db_manager.get_all_tags()
+            return jsonify(tags)
+        
+        @self.app.route('/api/categories')
+        def api_categories():
+            """获取所有分类"""
+            categories = self.db_manager.get_all_categories()
+            return jsonify(categories)
 
         @self.app.route('/api/relations', methods=['POST'])
         def api_add_relation():
