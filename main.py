@@ -277,7 +277,7 @@ class MemoryCapsulePlugin(Star):
             logger.error(f"数据库备份失败: {e}")
             return f"备份失败: {e}"
 
-    @filter.message()
+    @filter.on_decorating_result()
     async def inject_relation_context(self, event: AstrMessageEvent):
         """
         注入用户关系信息到AI上下文
