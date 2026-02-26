@@ -53,7 +53,7 @@ class MemoryCapsulePlugin(Star):
         try:
             from .webui.server import WebUIServer
             self.webui_server = WebUIServer(self.db_manager, port=self.webui_port)
-            self.webui_thread = threading.Thread(target=self.webui_server.run, daemon=True)
+            self.webui_thread = threading.Thread(target=self.webui_server.run, daemon=True, name='WebUI Server')
             self.webui_thread.start()
             logger.info(f"WebUI服务已启动，端口: {self.webui_port}")
         except Exception as e:

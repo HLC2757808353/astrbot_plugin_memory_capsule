@@ -108,8 +108,13 @@ class DatabaseManager:
         - updated_at: 更新时间
         """
         try:
-            # 生成笔记编号
-            note_id = f"NOTE_{datetime.now().strftime('%Y%m%d%H%M%S')}_{hash(content) % 10000:04d}"
+            # 生成笔记编号（从1开始递增）
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            cursor.execute('SELECT MAX(CAST(SUBSTR(note_id, 6) AS INTEGER)) FROM plugin_data WHERE note_id LIKE "NOTE_%"')
+            max_id = cursor.fetchone()[0]
+            next_id = (max_id if max_id else 0) + 1
+            note_id = f"NOTE_{next_id:06d}"
             
             # 生成分类路径
             if category:
@@ -121,10 +126,6 @@ class DatabaseManager:
             
             # 处理元数据
             metadata_json = json.dumps(metadata) if metadata else None
-            
-            # 使用独立连接
-            conn = self._get_connection()
-            cursor = conn.cursor()
             
             # 插入数据
             cursor.execute('''
@@ -140,22 +141,33 @@ class DatabaseManager:
             logger.error(f"存储笔记失败: {e}")
             return f"存储失败: {e}"
 
-    def query_plugin_data(self, query_keyword, data_type=None):
-        """查询笔记数据"""
+    def query_plugin_data(self, query_keyword=None, data_type=None, category=None):
+        """查询笔记数据
+        
+        参数说明：
+        - query_keyword: 查询关键词，可用于搜索标题、内容、元数据等
+        - data_type: 数据类型，默认为None
+        - category: 分类名称，默认为None
+        """
         try:
             # 构建查询语句
             query = "SELECT id, note_id, data_type, content, metadata, category, created_at FROM plugin_data WHERE 1=1"
             params = []
             
             if query_keyword:
-                query += " AND (content LIKE ? OR metadata LIKE ? OR note_id LIKE ?)"
-                params.extend([f"%{query_keyword}%", f"%{query_keyword}%", f"%{query_keyword}%"])
+                # 宽松搜索，匹配内容、元数据、笔记编号或分类
+                query += " AND (content LIKE ? OR metadata LIKE ? OR note_id LIKE ? OR category LIKE ?)"
+                params.extend([f"%{query_keyword}%", f"%{query_keyword}%", f"%{query_keyword}%", f"%{query_keyword}%"])
             
             if data_type:
                 query += " AND data_type = ?"
                 params.append(data_type)
             
-            query += " ORDER BY created_at DESC LIMIT 10"
+            if category:
+                query += " AND category = ?"
+                params.append(category)
+            
+            query += " ORDER BY created_at DESC LIMIT 50"
             
             # 使用独立连接
             conn = self._get_connection()

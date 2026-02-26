@@ -119,6 +119,14 @@ class WebUIServer:
             result = self.db_manager.delete_plugin_data(note_id)
             return jsonify({'result': result})
 
+        @self.app.route('/api/notes/search')
+        def api_search_notes():
+            """搜索笔记"""
+            query = request.args.get('q')
+            category = request.args.get('category')
+            notes = self.db_manager.query_plugin_data(query, category=category)
+            return jsonify(notes)
+
         @self.app.route('/api/relations', methods=['POST'])
         def api_add_relation():
             """添加关系"""
@@ -202,17 +210,16 @@ class WebUIServer:
     def stop(self):
         """停止服务器并释放端口"""
         self.running = False
-        # Flask的开发服务器不支持优雅停止，但我们可以通过标记状态来确保服务器不再接受新连接
-        # 当服务器线程结束时，操作系统会自动回收端口
         logger.info("WebUI服务器已停止，端口已释放")
         # 尝试强制关闭服务器线程（如果可能）
         try:
-            import os
-            import signal
-            # 获取当前进程的PID
-            pid = os.getpid()
-            # 发送SIGINT信号，模拟Ctrl+C
-            os.kill(pid, signal.SIGINT)
+            # 对于Flask开发服务器，我们需要通过其他方式停止
+            # 这里我们可以尝试获取服务器线程并终止它
+            import threading
+            for thread in threading.enumerate():
+                if thread.name == 'WebUI Server':
+                    thread.join(timeout=1)
+                    break
         except Exception as e:
             # 忽略错误，因为在某些环境中可能不支持
             logger.debug(f"尝试停止服务器线程时发生错误: {e}")

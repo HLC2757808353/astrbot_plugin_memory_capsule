@@ -15,7 +15,7 @@
             font-family: Arial, sans-serif;
             line-height: 1.6;
             color: #333;
-            background-color: #f8f9fa;
+            background-color: #fdf5f7;
             padding-top: 20px;
         }
         
@@ -28,8 +28,8 @@
         /* 导航栏 */
         .navbar {
             background-color: #ffffff;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            border-radius: 12px;
+            box-shadow: 0 4px 8px rgba(255, 182, 193, 0.2);
             margin-bottom: 20px;
             padding: 15px;
         }
@@ -37,7 +37,7 @@
         .navbar-brand {
             font-size: 1.5rem;
             font-weight: bold;
-            color: #007bff;
+            color: #e91e63;
             text-decoration: none;
         }
         
@@ -56,26 +56,27 @@
             color: #666;
             text-decoration: none;
             font-weight: 500;
-            padding: 5px 10px;
-            border-radius: 4px;
+            padding: 8px 15px;
+            border-radius: 20px;
             transition: all 0.3s ease;
         }
         
         .nav-link:hover {
-            color: #007bff;
-            background-color: #f0f8ff;
+            color: #e91e63;
+            background-color: #fff0f5;
         }
         
         .nav-link.active {
-            color: #007bff;
+            color: #e91e63;
             font-weight: bold;
+            background-color: #ffe6f0;
         }
         
         /* 卡片 */
         .card {
             background-color: #ffffff;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(255, 182, 193, 0.2);
             margin-bottom: 20px;
             overflow: hidden;
         }
@@ -84,10 +85,11 @@
             padding: 15px 20px;
             color: #ffffff;
             font-weight: bold;
+            border-radius: 12px 12px 0 0;
         }
         
         .card-header.bg-primary {
-            background-color: #007bff;
+            background-color: #e91e63;
         }
         
         .card-body {
@@ -98,10 +100,16 @@
         .relation-item {
             margin-bottom: 15px;
             padding: 20px;
-            border: 1px solid #e0e0e0;
-            border-radius: 8px;
+            border: 2px solid #f0c8d2;
+            border-radius: 12px;
             background-color: #ffffff;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            box-shadow: 0 4px 12px rgba(255, 182, 193, 0.2);
+            transition: all 0.3s ease;
+        }
+        
+        .relation-item:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 16px rgba(255, 182, 193, 0.3);
         }
         
         .relation-header {
@@ -207,17 +215,23 @@
         }
         
         .pagination button {
-            padding: 5px 10px;
-            border: 1px solid #ddd;
+            padding: 8px 16px;
+            border: 2px solid #f0c8d2;
             background-color: #fff;
-            border-radius: 4px;
+            border-radius: 20px;
             cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .pagination button:hover {
+            border-color: #e91e63;
+            color: #e91e63;
         }
         
         .pagination button.active {
-            background-color: #007bff;
+            background-color: #e91e63;
             color: #fff;
-            border-color: #007bff;
+            border-color: #e91e63;
         }
         
         .pagination button:disabled {
@@ -278,43 +292,39 @@
             </div>
             <div class="card-body">
                 <!-- 添加关系表单 -->
-                <div style="margin-bottom: 30px; padding: 20px; background-color: #f8f9fa; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
-                    <h4 style="margin-bottom: 20px; color: #007bff;">添加/编辑关系</h4>
+                <div style="margin-bottom: 30px; padding: 20px; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 12px rgba(255, 182, 193, 0.2);">
+                    <h4 style="margin-bottom: 20px; color: #e91e63;">添加/编辑关系</h4>
                     <form id="add-relation-form">
                         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 15px;">
                             <div class="form-group">
                                 <label class="form-label" for="user-id">用户ID</label>
-                                <input type="text" class="form-control" id="user-id" name="user_id" required style="border-radius: 4px; border: 1px solid #ced4da; padding: 8px 12px; font-size: 14px; transition: all 0.3s ease;">
+                                <input type="text" class="form-control" id="user-id" name="user_id" required style="border-radius: 12px; border: 2px solid #f0c8d2; padding: 12px 16px; font-size: 14px; transition: all 0.3s ease;">
                             </div>
                             <div class="form-group">
                                 <label class="form-label" for="group-id">初识地点</label>
-                                <input type="text" class="form-control" id="group-id" name="group_id" required style="border-radius: 4px; border: 1px solid #ced4da; padding: 8px 12px; font-size: 14px; transition: all 0.3s ease;">
+                                <input type="text" class="form-control" id="group-id" name="group_id" required style="border-radius: 12px; border: 2px solid #f0c8d2; padding: 12px 16px; font-size: 14px; transition: all 0.3s ease;">
                             </div>
                             <div class="form-group">
                                 <label class="form-label" for="platform">平台</label>
-                                <input type="text" class="form-control" id="platform" name="platform" value="qq" required style="border-radius: 4px; border: 1px solid #ced4da; padding: 8px 12px; font-size: 14px; transition: all 0.3s ease;">
+                                <input type="text" class="form-control" id="platform" name="platform" value="qq" required style="border-radius: 12px; border: 2px solid #f0c8d2; padding: 12px 16px; font-size: 14px; transition: all 0.3s ease;">
                             </div>
                             <div class="form-group">
                                 <label class="form-label" for="nickname">昵称</label>
-                                <input type="text" class="form-control" id="nickname" name="nickname" required style="border-radius: 4px; border: 1px solid #ced4da; padding: 8px 12px; font-size: 14px; transition: all 0.3s ease;">
+                                <input type="text" class="form-control" id="nickname" name="nickname" required style="border-radius: 12px; border: 2px solid #f0c8d2; padding: 12px 16px; font-size: 14px; transition: all 0.3s ease;">
                             </div>
                             <div class="form-group">
                                 <label class="form-label" for="favor-change">好感度</label>
-                                <input type="number" class="form-control" id="favor-change" name="favor_change" value="0" min="0" max="100" style="border-radius: 4px; border: 1px solid #ced4da; padding: 8px 12px; font-size: 14px; transition: all 0.3s ease;">
+                                <input type="number" class="form-control" id="favor-change" name="favor_change" value="0" min="0" max="100" style="border-radius: 12px; border: 2px solid #f0c8d2; padding: 12px 16px; font-size: 14px; transition: all 0.3s ease;">
                             </div>
                         </div>
                         <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 15px; margin-top: 15px;">
                             <div class="form-group">
                                 <label class="form-label" for="remark">备注</label>
-                                <textarea class="form-control" id="remark" name="remark" rows="4" style="border-radius: 4px; border: 1px solid #ced4da; padding: 8px 12px; font-size: 14px; resize: vertical; transition: all 0.3s ease;"></textarea>
-                            </div>
-                            <div class="form-group">
-                                <label class="form-label" for="impression">印象</label>
-                                <textarea class="form-control" id="impression" name="impression" rows="4" style="border-radius: 4px; border: 1px solid #ced4da; padding: 8px 12px; font-size: 14px; resize: vertical; transition: all 0.3s ease;"></textarea>
+                                <textarea class="form-control" id="remark" name="remark" rows="4" style="border-radius: 12px; border: 2px solid #f0c8d2; padding: 12px 16px; font-size: 14px; resize: vertical; transition: all 0.3s ease;"></textarea>
                             </div>
                         </div>
                         <div style="margin-top: 20px;">
-                            <button type="submit" class="btn btn-primary" style="padding: 10px 20px; font-size: 16px; border-radius: 4px; transition: all 0.3s ease;">保存关系</button>
+                            <button type="submit" class="btn btn-primary" style="padding: 12px 24px; font-size: 16px; border-radius: 25px; transition: all 0.3s ease;">保存关系</button>
                         </div>
                     </form>
                 </div>
@@ -323,13 +333,13 @@
                 <div style="margin-bottom: 20px;">
                     <h4>搜索关系</h4>
                     <div style="display: flex; gap: 10px; align-items: center;">
-                        <select class="form-control" id="search-type" style="width: 150px; font-size: 16px; padding: 10px;">
+                        <select class="form-control" id="search-type" style="width: 150px; font-size: 16px; padding: 10px; border-radius: 12px; border: 2px solid #f0c8d2;">
                             <option value="name">名称搜索</option>
                             <option value="id">ID搜索</option>
                             <option value="group_name">群名搜索</option>
                             <option value="group_id">群号搜索</option>
                         </select>
-                        <input type="text" class="form-control" id="search-query" placeholder="输入关键词搜索..." style="flex: 2; font-size: 16px; padding: 10px;">
+                        <input type="text" class="form-control" id="search-query" placeholder="输入关键词搜索..." style="flex: 2; font-size: 16px; padding: 12px 16px; border-radius: 12px; border: 2px solid #f0c8d2;">
                         <button class="btn btn-primary" onclick="searchRelations()">搜索</button>
                         <button class="btn btn-secondary" onclick="loadRelations()">重置</button>
                     </div>
@@ -413,15 +423,9 @@
                             </div>
                             <div class="notes-section">
                                 ${relation.remark ? `
-                                    <div class="remark-container">
+                                    <div class="remark-container" style="flex: 1;">
                                         <div class="notes-title">备注:</div>
                                         <div class="notes-content">${relation.remark}</div>
-                                    </div>
-                                ` : ''}
-                                ${relation.impression ? `
-                                    <div class="impression-container">
-                                        <div class="notes-title">印象:</div>
-                                        <div class="notes-content">${relation.impression}</div>
                                     </div>
                                 ` : ''}
                             </div>
@@ -478,6 +482,13 @@
         async function searchRelations() {
             const query = document.getElementById('search-query').value;
             const searchType = document.getElementById('search-type').value;
+            
+            // 验证搜索条件
+            if (!query) {
+                alert('请输入搜索关键词');
+                return;
+            }
+            
             try {
                 const response = await fetch(`/api/relations/search?q=${encodeURIComponent(query)}&type=${encodeURIComponent(searchType)}`);
                 const relations = await response.json();
@@ -530,15 +541,9 @@
                             </div>
                             <div class="notes-section">
                                 ${relation.remark ? `
-                                    <div class="remark-container">
+                                    <div class="remark-container" style="flex: 1;">
                                         <div class="notes-title">备注:</div>
                                         <div class="notes-content">${relation.remark}</div>
-                                    </div>
-                                ` : ''}
-                                ${relation.impression ? `
-                                    <div class="impression-container">
-                                        <div class="notes-title">印象:</div>
-                                        <div class="notes-content">${relation.impression}</div>
                                     </div>
                                 ` : ''}
                             </div>
