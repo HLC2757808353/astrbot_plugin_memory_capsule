@@ -343,49 +343,72 @@ class WebUIServer:
         # 尝试kill占用端口的进程
         try:
             import subprocess
-            import re
             
             # 使用netstat命令查找占用端口的进程
             if os.name == 'nt':  # Windows
+                logger.info(f"正在查找占用端口 {self.port} 的进程...")
                 cmd = f"netstat -ano | findstr :{self.port}"
                 result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
                 
+                logger.info(f"netstat命令输出: {result.stdout}")
+                
                 # 解析输出，找到PID
                 lines = result.stdout.strip().split('\n')
+                logger.info(f"找到 {len(lines)} 行结果")
+                
                 for line in lines:
                     if line:
                         parts = line.strip().split()
+                        logger.info(f"行内容: {line}")
+                        logger.info(f"分割后: {parts}")
                         if len(parts) >= 5:
                             pid = parts[-1]
                             logger.info(f"找到占用端口 {self.port} 的进程 PID: {pid}")
                             
                             # 尝试kill进程
                             try:
-                                subprocess.run(f"taskkill /F /PID {pid}", shell=True, capture_output=True, text=True)
+                                logger.info(f"正在杀死进程 PID: {pid}")
+                                kill_result = subprocess.run(f"taskkill /F /PID {pid}", shell=True, capture_output=True, text=True)
+                                logger.info(f"taskkill命令输出: {kill_result.stdout}")
+                                logger.info(f"taskkill命令错误: {kill_result.stderr}")
                                 logger.info(f"已杀死占用端口 {self.port} 的进程 PID: {pid}")
                             except Exception as kill_error:
-                                logger.debug(f"尝试杀死进程时发生错误: {kill_error}")
+                                logger.error(f"尝试杀死进程时发生错误: {kill_error}")
+                        else:
+                            logger.warning(f"行格式不正确: {line}")
             else:  # Linux/Mac
+                logger.info(f"正在查找占用端口 {self.port} 的进程...")
                 cmd = f"lsof -i :{self.port}"
                 result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
                 
+                logger.info(f"lsof命令输出: {result.stdout}")
+                
                 # 解析输出，找到PID
                 lines = result.stdout.strip().split('\n')
+                logger.info(f"找到 {len(lines)} 行结果")
+                
                 for line in lines[1:]:  # 跳过标题行
                     if line:
                         parts = line.strip().split()
+                        logger.info(f"行内容: {line}")
+                        logger.info(f"分割后: {parts}")
                         if len(parts) >= 2:
                             pid = parts[1]
                             logger.info(f"找到占用端口 {self.port} 的进程 PID: {pid}")
                             
                             # 尝试kill进程
                             try:
-                                subprocess.run(f"kill -9 {pid}", shell=True, capture_output=True, text=True)
+                                logger.info(f"正在杀死进程 PID: {pid}")
+                                kill_result = subprocess.run(f"kill -9 {pid}", shell=True, capture_output=True, text=True)
+                                logger.info(f"kill命令输出: {kill_result.stdout}")
+                                logger.info(f"kill命令错误: {kill_result.stderr}")
                                 logger.info(f"已杀死占用端口 {self.port} 的进程 PID: {pid}")
                             except Exception as kill_error:
-                                logger.debug(f"尝试杀死进程时发生错误: {kill_error}")
+                                logger.error(f"尝试杀死进程时发生错误: {kill_error}")
+                        else:
+                            logger.warning(f"行格式不正确: {line}")
         except Exception as e:
-            logger.debug(f"尝试查找和杀死占用端口的进程时发生错误: {e}")
+            logger.error(f"尝试查找和杀死占用端口的进程时发生错误: {e}")
         
         # 强制释放端口的逻辑 - 多次尝试
         max_release_attempts = 3
