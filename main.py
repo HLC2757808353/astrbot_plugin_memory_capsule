@@ -145,7 +145,7 @@ class MemoryCapsulePlugin(Star):
             nickname(string): 昵称，默认为None
             nicknames(list): 昵称数组，默认为None
             first_meet_group(string): 初次见面群组，默认为None
-            first_meet_time: 初次见面时间，默认为None
+            first_meet_time(string): 初次见面时间，默认为None
             favor_change(int): 好感度变化，默认为0
             relationship(string): 关系，默认为None
             remark(string): 备注，默认为None
