@@ -296,7 +296,7 @@ class WebUIServer:
                 logger.error(f"WebUI服务器启动失败: 端口 {self.port} 已被占用，尝试释放失败")
                 server_socket.close()
                 
-                # 尝试kill占用端口的进程
+                # 尝试kill占用端口的服务器进程
                 try:
                     import subprocess
                     
@@ -312,6 +312,8 @@ class WebUIServer:
                         lines = result.stdout.strip().split('\n')
                         logger.info(f"找到 {len(lines)} 行结果")
                         
+                        # 收集所有唯一的PID
+                        pids = set()
                         for line in lines:
                             if line:
                                 parts = line.strip().split()
@@ -319,19 +321,24 @@ class WebUIServer:
                                 logger.info(f"分割后: {parts}")
                                 if len(parts) >= 5:
                                     pid = parts[-1]
+                                    pids.add(pid)
                                     logger.info(f"找到占用端口 {self.port} 的进程 PID: {pid}")
-                                    
-                                    # 尝试kill进程
-                                    try:
-                                        logger.info(f"正在杀死进程 PID: {pid}")
-                                        kill_result = subprocess.run(f"taskkill /F /PID {pid}", shell=True, capture_output=True, text=True)
-                                        logger.info(f"taskkill命令输出: {kill_result.stdout}")
-                                        logger.info(f"taskkill命令错误: {kill_result.stderr}")
-                                        logger.info(f"已杀死占用端口 {self.port} 的进程 PID: {pid}")
-                                    except Exception as kill_error:
-                                        logger.error(f"尝试杀死进程时发生错误: {kill_error}")
                                 else:
                                     logger.warning(f"行格式不正确: {line}")
+                        
+                        # 只杀死第一个找到的进程，避免杀死所有相关进程
+                        if pids:
+                            pid_to_kill = list(pids)[0]
+                            logger.info(f"只杀死第一个占用端口 {self.port} 的进程 PID: {pid_to_kill}")
+                            try:
+                                kill_result = subprocess.run(f"taskkill /F /PID {pid_to_kill}", shell=True, capture_output=True, text=True)
+                                logger.info(f"taskkill命令输出: {kill_result.stdout}")
+                                logger.info(f"taskkill命令错误: {kill_result.stderr}")
+                                logger.info(f"已杀死占用端口 {self.port} 的进程 PID: {pid_to_kill}")
+                            except Exception as kill_error:
+                                logger.error(f"尝试杀死进程时发生错误: {kill_error}")
+                        else:
+                            logger.info(f"没有找到占用端口 {self.port} 的进程")
                     else:  # Linux/Mac
                         logger.info(f"正在查找占用端口 {self.port} 的进程...")
                         cmd = f"lsof -i :{self.port}"
@@ -343,6 +350,8 @@ class WebUIServer:
                         lines = result.stdout.strip().split('\n')
                         logger.info(f"找到 {len(lines)} 行结果")
                         
+                        # 收集所有唯一的PID
+                        pids = set()
                         for line in lines[1:]:  # 跳过标题行
                             if line:
                                 parts = line.strip().split()
@@ -350,19 +359,24 @@ class WebUIServer:
                                 logger.info(f"分割后: {parts}")
                                 if len(parts) >= 2:
                                     pid = parts[1]
+                                    pids.add(pid)
                                     logger.info(f"找到占用端口 {self.port} 的进程 PID: {pid}")
-                                    
-                                    # 尝试kill进程
-                                    try:
-                                        logger.info(f"正在杀死进程 PID: {pid}")
-                                        kill_result = subprocess.run(f"kill -9 {pid}", shell=True, capture_output=True, text=True)
-                                        logger.info(f"kill命令输出: {kill_result.stdout}")
-                                        logger.info(f"kill命令错误: {kill_result.stderr}")
-                                        logger.info(f"已杀死占用端口 {self.port} 的进程 PID: {pid}")
-                                    except Exception as kill_error:
-                                        logger.error(f"尝试杀死进程时发生错误: {kill_error}")
                                 else:
                                     logger.warning(f"行格式不正确: {line}")
+                        
+                        # 只杀死第一个找到的进程，避免杀死所有相关进程
+                        if pids:
+                            pid_to_kill = list(pids)[0]
+                            logger.info(f"只杀死第一个占用端口 {self.port} 的进程 PID: {pid_to_kill}")
+                            try:
+                                kill_result = subprocess.run(f"kill -9 {pid_to_kill}", shell=True, capture_output=True, text=True)
+                                logger.info(f"kill命令输出: {kill_result.stdout}")
+                                logger.info(f"kill命令错误: {kill_result.stderr}")
+                                logger.info(f"已杀死占用端口 {self.port} 的进程 PID: {pid_to_kill}")
+                            except Exception as kill_error:
+                                logger.error(f"尝试杀死进程时发生错误: {kill_error}")
+                        else:
+                            logger.info(f"没有找到占用端口 {self.port} 的进程")
                 except Exception as e:
                     logger.error(f"尝试查找和杀死占用端口的进程时发生错误: {e}")
                 
@@ -411,7 +425,7 @@ class WebUIServer:
         # 等待一段时间，确保服务器完全停止
         time.sleep(1)
         
-        # 尝试kill占用端口的进程
+        # 尝试kill占用端口的服务器进程
         try:
             import subprocess
             
@@ -427,6 +441,8 @@ class WebUIServer:
                 lines = result.stdout.strip().split('\n')
                 logger.info(f"找到 {len(lines)} 行结果")
                 
+                # 收集所有唯一的PID
+                pids = set()
                 for line in lines:
                     if line:
                         parts = line.strip().split()
@@ -434,19 +450,24 @@ class WebUIServer:
                         logger.info(f"分割后: {parts}")
                         if len(parts) >= 5:
                             pid = parts[-1]
+                            pids.add(pid)
                             logger.info(f"找到占用端口 {self.port} 的进程 PID: {pid}")
-                            
-                            # 尝试kill进程
-                            try:
-                                logger.info(f"正在杀死进程 PID: {pid}")
-                                kill_result = subprocess.run(f"taskkill /F /PID {pid}", shell=True, capture_output=True, text=True)
-                                logger.info(f"taskkill命令输出: {kill_result.stdout}")
-                                logger.info(f"taskkill命令错误: {kill_result.stderr}")
-                                logger.info(f"已杀死占用端口 {self.port} 的进程 PID: {pid}")
-                            except Exception as kill_error:
-                                logger.error(f"尝试杀死进程时发生错误: {kill_error}")
                         else:
                             logger.warning(f"行格式不正确: {line}")
+                
+                # 只杀死第一个找到的进程，避免杀死所有相关进程
+                if pids:
+                    pid_to_kill = list(pids)[0]
+                    logger.info(f"只杀死第一个占用端口 {self.port} 的进程 PID: {pid_to_kill}")
+                    try:
+                        kill_result = subprocess.run(f"taskkill /F /PID {pid_to_kill}", shell=True, capture_output=True, text=True)
+                        logger.info(f"taskkill命令输出: {kill_result.stdout}")
+                        logger.info(f"taskkill命令错误: {kill_result.stderr}")
+                        logger.info(f"已杀死占用端口 {self.port} 的进程 PID: {pid_to_kill}")
+                    except Exception as kill_error:
+                        logger.error(f"尝试杀死进程时发生错误: {kill_error}")
+                else:
+                    logger.info(f"没有找到占用端口 {self.port} 的进程")
             else:  # Linux/Mac
                 logger.info(f"正在查找占用端口 {self.port} 的进程...")
                 cmd = f"lsof -i :{self.port}"
@@ -458,6 +479,8 @@ class WebUIServer:
                 lines = result.stdout.strip().split('\n')
                 logger.info(f"找到 {len(lines)} 行结果")
                 
+                # 收集所有唯一的PID
+                pids = set()
                 for line in lines[1:]:  # 跳过标题行
                     if line:
                         parts = line.strip().split()
@@ -465,19 +488,24 @@ class WebUIServer:
                         logger.info(f"分割后: {parts}")
                         if len(parts) >= 2:
                             pid = parts[1]
+                            pids.add(pid)
                             logger.info(f"找到占用端口 {self.port} 的进程 PID: {pid}")
-                            
-                            # 尝试kill进程
-                            try:
-                                logger.info(f"正在杀死进程 PID: {pid}")
-                                kill_result = subprocess.run(f"kill -9 {pid}", shell=True, capture_output=True, text=True)
-                                logger.info(f"kill命令输出: {kill_result.stdout}")
-                                logger.info(f"kill命令错误: {kill_result.stderr}")
-                                logger.info(f"已杀死占用端口 {self.port} 的进程 PID: {pid}")
-                            except Exception as kill_error:
-                                logger.error(f"尝试杀死进程时发生错误: {kill_error}")
                         else:
                             logger.warning(f"行格式不正确: {line}")
+                
+                # 只杀死第一个找到的进程，避免杀死所有相关进程
+                if pids:
+                    pid_to_kill = list(pids)[0]
+                    logger.info(f"只杀死第一个占用端口 {self.port} 的进程 PID: {pid_to_kill}")
+                    try:
+                        kill_result = subprocess.run(f"kill -9 {pid_to_kill}", shell=True, capture_output=True, text=True)
+                        logger.info(f"kill命令输出: {kill_result.stdout}")
+                        logger.info(f"kill命令错误: {kill_result.stderr}")
+                        logger.info(f"已杀死占用端口 {self.port} 的进程 PID: {pid_to_kill}")
+                    except Exception as kill_error:
+                        logger.error(f"尝试杀死进程时发生错误: {kill_error}")
+                else:
+                    logger.info(f"没有找到占用端口 {self.port} 的进程")
         except Exception as e:
             logger.error(f"尝试查找和杀死占用端口的进程时发生错误: {e}")
         
