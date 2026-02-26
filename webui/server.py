@@ -340,6 +340,53 @@ class WebUIServer:
         # 等待一段时间，确保服务器完全停止
         time.sleep(1)
         
+        # 尝试kill占用端口的进程
+        try:
+            import subprocess
+            import re
+            
+            # 使用netstat命令查找占用端口的进程
+            if os.name == 'nt':  # Windows
+                cmd = f"netstat -ano | findstr :{self.port}"
+                result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+                
+                # 解析输出，找到PID
+                lines = result.stdout.strip().split('\n')
+                for line in lines:
+                    if line:
+                        parts = line.strip().split()
+                        if len(parts) >= 5:
+                            pid = parts[-1]
+                            logger.info(f"找到占用端口 {self.port} 的进程 PID: {pid}")
+                            
+                            # 尝试kill进程
+                            try:
+                                subprocess.run(f"taskkill /F /PID {pid}", shell=True, capture_output=True, text=True)
+                                logger.info(f"已杀死占用端口 {self.port} 的进程 PID: {pid}")
+                            except Exception as kill_error:
+                                logger.debug(f"尝试杀死进程时发生错误: {kill_error}")
+            else:  # Linux/Mac
+                cmd = f"lsof -i :{self.port}"
+                result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+                
+                # 解析输出，找到PID
+                lines = result.stdout.strip().split('\n')
+                for line in lines[1:]:  # 跳过标题行
+                    if line:
+                        parts = line.strip().split()
+                        if len(parts) >= 2:
+                            pid = parts[1]
+                            logger.info(f"找到占用端口 {self.port} 的进程 PID: {pid}")
+                            
+                            # 尝试kill进程
+                            try:
+                                subprocess.run(f"kill -9 {pid}", shell=True, capture_output=True, text=True)
+                                logger.info(f"已杀死占用端口 {self.port} 的进程 PID: {pid}")
+                            except Exception as kill_error:
+                                logger.debug(f"尝试杀死进程时发生错误: {kill_error}")
+        except Exception as e:
+            logger.debug(f"尝试查找和杀死占用端口的进程时发生错误: {e}")
+        
         # 强制释放端口的逻辑 - 多次尝试
         max_release_attempts = 3
         for attempt in range(max_release_attempts):
