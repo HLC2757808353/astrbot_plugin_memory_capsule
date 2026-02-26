@@ -362,28 +362,5 @@ class WebUIServer:
             except Exception as e:
                 logger.debug(f"尝试通过服务器实例停止服务器时发生错误: {e}")
         
-        # 等待一段时间，确保服务器完全停止
-        time.sleep(1)
-        
-        # 优雅地释放端口，只绑定到localhost，避免影响其他服务
-        try:
-            # 创建一个临时socket来尝试释放端口
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            # 只绑定到localhost，避免影响其他服务
-            sock.bind(('localhost', self.port))
-            sock.close()
-            logger.info(f"端口 {self.port} 已成功释放")
-        except Exception as e:
-            logger.debug(f"尝试释放端口时发生错误: {e}")
-        
-        # 等待一段时间，确保端口完全释放
-        time.sleep(1)
-        
-        # 再次检查端口是否被释放
-        if self.check_port(self.port):
-            logger.info(f"端口 {self.port} 已完全释放")
-        else:
-            logger.warning(f"端口 {self.port} 仍然被占用，但不会强制释放，以避免影响其他服务")
-        
-        logger.info("WebUI服务器已停止，端口已释放")
+        # 不等待，直接返回，避免阻塞插件卸载
+        logger.info("WebUI服务器已停止")
