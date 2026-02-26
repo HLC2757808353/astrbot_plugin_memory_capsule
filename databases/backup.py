@@ -6,14 +6,22 @@ import threading
 from astrbot.api import logger
 
 class BackupManager:
-    def __init__(self, db_path):
+    def __init__(self, db_path, config=None):
         self.db_path = db_path
-        self.backup_dir = os.path.join(os.path.dirname(db_path), "backups")
-        self.auto_backup_enabled = False
-        self.auto_backup_interval = 24 * 60 * 60  # 24小时
-        self.max_backups = 10
+        self.backup_dir = os.path.join(os.path.dirname(db_path), "memory_capsule_backups")
+        self.config = config or {}
+        self.auto_backup_enabled = self.config.get('backup_enabled', True)
+        self.auto_backup_interval = self.config.get('backup_interval', 24) * 60 * 60  # 转换为秒
         self.backup_thread = None
         self.running = False
+        
+        # 从配置中获取阶梯式备份策略
+        self.backup_policy = {
+            'hourly': self.config.get('backup_hourly', 24),  # 保留最近24小时的每小时备份
+            'daily': self.config.get('backup_daily', 7),      # 保留最近7天的每天备份
+            'weekly': self.config.get('backup_weekly', 4),     # 保留最近4周的每周备份
+            'monthly': self.config.get('backup_monthly', 12)   # 保留最近12个月的每月备份
+        }
         
         # 创建备份目录
         os.makedirs(self.backup_dir, exist_ok=True)
@@ -22,7 +30,8 @@ class BackupManager:
         """执行备份"""
         try:
             # 生成备份文件名
-            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            now = datetime.datetime.now()
+            timestamp = now.strftime("%Y%m%d_%H%M%S")
             backup_filename = f"memory_{timestamp}.db"
             backup_path = os.path.join(self.backup_dir, backup_filename)
             
@@ -39,7 +48,7 @@ class BackupManager:
             return f"备份失败: {e}"
 
     def _cleanup_old_backups(self):
-        """清理旧备份，保留最新的几个"""
+        """清理旧备份，实现阶梯式备份策略"""
         try:
             # 获取所有备份文件
             backups = []
@@ -47,17 +56,45 @@ class BackupManager:
                 if file.endswith('.db'):
                     file_path = os.path.join(self.backup_dir, file)
                     if os.path.isfile(file_path):
-                        backups.append((file_path, os.path.getmtime(file_path)))
+                        mtime = os.path.getmtime(file_path)
+                        backups.append((file_path, mtime))
             
-            # 按修改时间排序
+            # 按修改时间排序（最新的在前）
             backups.sort(key=lambda x: x[1], reverse=True)
             
-            # 删除多余的备份
-            for backup_path, _ in backups[self.max_backups:]:
-                os.remove(backup_path)
-                logger.info(f"删除旧备份: {os.path.basename(backup_path)}")
+            # 分类备份文件
+            now = time.time()
+            hourly_backups = []
+            daily_backups = []
+            weekly_backups = []
+            monthly_backups = []
+            
+            for backup_path, mtime in backups:
+                age = now - mtime
+                if age < 24 * 3600:  # 1小时内
+                    hourly_backups.append((backup_path, mtime))
+                elif age < 7 * 24 * 3600:  # 1天内
+                    daily_backups.append((backup_path, mtime))
+                elif age < 4 * 7 * 24 * 3600:  # 1周内
+                    weekly_backups.append((backup_path, mtime))
+                elif age < 12 * 30 * 24 * 3600:  # 1个月内
+                    monthly_backups.append((backup_path, mtime))
+            
+            # 清理超出保留数量的备份
+            self._cleanup_backup_group(hourly_backups, self.backup_policy['hourly'])
+            self._cleanup_backup_group(daily_backups, self.backup_policy['daily'])
+            self._cleanup_backup_group(weekly_backups, self.backup_policy['weekly'])
+            self._cleanup_backup_group(monthly_backups, self.backup_policy['monthly'])
+            
         except Exception as e:
             logger.error(f"清理备份失败: {e}")
+    
+    def _cleanup_backup_group(self, backups, max_count):
+        """清理指定组的备份文件，保留最新的max_count个"""
+        if len(backups) > max_count:
+            for backup_path, _ in backups[max_count:]:
+                os.remove(backup_path)
+                logger.info(f"删除旧备份: {os.path.basename(backup_path)}")
 
     def start_auto_backup(self):
         """启动自动备份"""

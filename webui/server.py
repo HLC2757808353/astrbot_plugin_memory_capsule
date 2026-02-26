@@ -4,7 +4,14 @@ import time
 import yaml
 import os
 import socket
-from astrbot.api import logger
+
+# 容错处理，当astrbot模块不可用时使用默认日志
+try:
+    from astrbot.api import logger
+except ImportError:
+    import logging
+    logger = logging.getLogger(__name__)
+    logging.basicConfig(level=logging.INFO)
 
 class WebUIServer:
     def __init__(self, db_manager, port=5000):
@@ -14,6 +21,7 @@ class WebUIServer:
         self.running = False
         self.version = self._get_version()
         self.server_thread = None
+        self.server = None  # 存储服务器实例
         self.setup_routes()
     
     def _get_version(self):
@@ -212,9 +220,22 @@ class WebUIServer:
         @self.app.route('/shutdown', methods=['POST'])
         def shutdown():
             """关闭服务器"""
-            from werkzeug.server import shutdown_server
-            shutdown_server()
-            return 'Server shutting down...'
+            # 使用兼容的方法关闭服务器
+            try:
+                # 尝试使用旧版本的shutdown_server
+                from werkzeug.server import shutdown_server
+                shutdown_server()
+                return 'Server shutting down...'
+            except ImportError:
+                # 对于新版本的Werkzeug，使用不同的方法
+                try:
+                    from flask import request
+                    request.environ.get('werkzeug.server.shutdown')()
+                    return 'Server shutting down...'
+                except Exception as e:
+                    logger.error(f"关闭服务器时发生错误: {e}")
+                    return 'Failed to shutdown server'
+
 
     def check_port(self, port):
         """检测端口是否被占用"""
@@ -261,6 +282,7 @@ class WebUIServer:
                 logger.error(f"WebUI服务器启动失败: 端口 {self.port} 已被占用，尝试释放失败")
                 return
             
+            # 使用app.run启动服务器，但确保端口可重用
             # 直接运行服务器，因为这个方法已经在一个线程中运行
             self.app.run(host='0.0.0.0', port=self.port, debug=False, use_reloader=False)
         except Exception as e:

@@ -24,7 +24,7 @@ class MemoryCapsulePlugin(Star):
         
         # 初始化数据库管理
         from .databases.db_manager import DatabaseManager
-        self.db_manager = DatabaseManager()
+        self.db_manager = DatabaseManager(self.config)
         self.db_manager.initialize()
         
         # 将实例注册到全局，供 __init__.py 调用

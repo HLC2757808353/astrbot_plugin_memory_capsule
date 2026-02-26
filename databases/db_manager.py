@@ -6,12 +6,14 @@ from astrbot import logger
 from .backup import BackupManager
 
 class DatabaseManager:
-    def __init__(self):
-        # 将数据库文件存储在插件目录下的 data 文件夹中，确保跨平台兼容
-        app_data_dir = os.path.join(os.path.dirname(__file__), "..", "data")
+    def __init__(self, config=None):
+        # 将数据库文件存储在插件目录的上上个目录中，确保跨平台兼容
+        # 路径：d:\Astrbot\AstrBot\data\memory_capsule.db
+        app_data_dir = os.path.join(os.path.dirname(__file__), "..", "..")
         os.makedirs(app_data_dir, exist_ok=True)
-        self.db_path = os.path.join(app_data_dir, "memory.db")
-        self.backup_manager = BackupManager(self.db_path)
+        self.db_path = os.path.join(app_data_dir, "memory_capsule.db")
+        self.config = config or {}
+        self.backup_manager = BackupManager(self.db_path, self.config)
         
         # 初始化数据库结构
         self._initialize_database_structure()
