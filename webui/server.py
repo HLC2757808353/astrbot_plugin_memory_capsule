@@ -265,32 +265,44 @@ class WebUIServer:
         """运行服务器"""
         self.running = True
         try:
-            # 尝试检测并释放端口，最多5次
+            # 直接创建服务器，使用SO_REUSEADDR选项
+            import socket
+            
+            # 创建socket并设置SO_REUSEADDR选项
+            server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            
+            # 尝试绑定端口，最多5次
             max_attempts = 5
             for attempt in range(max_attempts):
-                if self.check_port(self.port):
-                    break
-                logger.info(f"尝试释放端口 {self.port}，第 {attempt + 1} 次")
-                
-                # 尝试强制释放端口
                 try:
-                    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                    sock.bind(('localhost', self.port))
-                    sock.close()
-                    logger.info(f"端口 {self.port} 已强制释放")
+                    server_socket.bind(('0.0.0.0', self.port))
+                    logger.info(f"成功绑定端口 {self.port}")
+                    break
                 except Exception as e:
-                    logger.debug(f"强制释放端口时发生错误: {e}")
-                
-                time.sleep(2)  # 减少等待时间，提高响应速度
+                    logger.warning(f"尝试 {attempt + 1}/{max_attempts} 绑定端口 {self.port} 失败: {e}")
+                    # 尝试强制释放端口
+                    try:
+                        temp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                        temp_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                        temp_sock.bind(('0.0.0.0', self.port))
+                        temp_sock.close()
+                        logger.info(f"端口 {self.port} 已强制释放")
+                    except Exception as release_error:
+                        logger.debug(f"强制释放端口时发生错误: {release_error}")
+                    time.sleep(1)
             else:
                 # 所有尝试都失败
                 logger.error(f"WebUI服务器启动失败: 端口 {self.port} 已被占用，尝试释放失败")
+                server_socket.close()
                 return
             
-            # 使用ThreadedWSGIServer启动服务器，以便能够控制关闭
+            # 开始监听
+            server_socket.listen(5)
+            
+            # 使用socket创建服务器
             from werkzeug.serving import make_server
-            self.server = make_server('0.0.0.0', self.port, self.app, threaded=True)
+            self.server = make_server('0.0.0.0', self.port, self.app, threaded=True, fd=server_socket)
             logger.info(f"WebUI服务器已启动，端口: {self.port}")
             
             # 运行服务器直到self.running为False
@@ -323,25 +335,23 @@ class WebUIServer:
             except Exception as e:
                 logger.debug(f"尝试通过服务器实例停止服务器时发生错误: {e}")
         
-        # 尝试通过shutdown路由优雅关闭服务器
-        try:
-            import requests
-            response = requests.post(f"http://localhost:{self.port}/shutdown", timeout=5)
-            logger.info(f"WebUI服务器已通过shutdown路由关闭: {response.text}")
-        except Exception as e:
-            # 忽略错误，因为在某些环境中可能不支持
-            logger.debug(f"尝试通过shutdown路由停止服务器时发生错误: {e}")
+        # 等待一段时间，确保服务器完全停止
+        time.sleep(1)
         
-        # 强制释放端口的逻辑
-        try:
-            # 创建一个临时socket来尝试释放端口
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            sock.bind(('localhost', self.port))
-            sock.close()
-            logger.info(f"端口 {self.port} 已成功释放")
-        except Exception as e:
-            logger.debug(f"尝试强制释放端口时发生错误: {e}")
+        # 强制释放端口的逻辑 - 多次尝试
+        max_release_attempts = 3
+        for attempt in range(max_release_attempts):
+            try:
+                # 创建一个临时socket来尝试释放端口
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                sock.bind(('0.0.0.0', self.port))
+                sock.close()
+                logger.info(f"端口 {self.port} 已成功释放 (尝试 {attempt + 1}/{max_release_attempts})")
+                break
+            except Exception as e:
+                logger.debug(f"尝试 {attempt + 1}/{max_release_attempts} 强制释放端口时发生错误: {e}")
+                time.sleep(0.5)
         
         # 等待一段时间，确保端口完全释放
         time.sleep(1)
@@ -350,15 +360,18 @@ class WebUIServer:
         if self.check_port(self.port):
             logger.info(f"端口 {self.port} 已完全释放")
         else:
-            logger.warning(f"端口 {self.port} 仍然被占用，尝试再次释放")
-            # 再次尝试强制释放
+            logger.warning(f"端口 {self.port} 仍然被占用，尝试使用更强制的方法")
+            
+            # 尝试使用更强制的方法释放端口
             try:
+                # 使用socket的SO_REUSEADDR选项并绑定到0.0.0.0
                 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                sock.bind(('localhost', self.port))
+                sock.bind(('0.0.0.0', self.port))
+                sock.listen(1)
                 sock.close()
-                logger.info(f"端口 {self.port} 已成功释放")
+                logger.info(f"端口 {self.port} 已通过强制绑定释放")
             except Exception as e:
-                logger.error(f"再次尝试强制释放端口时发生错误: {e}")
+                logger.error(f"使用强制方法释放端口时发生错误: {e}")
         
         logger.info("WebUI服务器已停止，端口已释放")
