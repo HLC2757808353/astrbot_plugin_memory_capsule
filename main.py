@@ -106,6 +106,12 @@ class MemoryCapsulePlugin(Star):
         Returns:
             更新结果
         """
+        # 类型注释确保参数类型正确
+        user_id: str = user_id
+        relation_type: str = relation_type
+        tags_update: str = tags_update
+        summary_update: str = summary_update
+        intimacy_change: int = intimacy_change
         try:
             import asyncio
             result = await asyncio.to_thread(self.db_manager.update_relationship, user_id, relation_type, tags_update, summary_update, intimacy_change)
@@ -129,6 +135,11 @@ class MemoryCapsulePlugin(Star):
         Returns:
             存储结果
         """
+        # 类型注释确保参数类型正确
+        content: str = content
+        category: str = category
+        tags: str = tags
+        target_user_id: str = target_user_id
         try:
             import asyncio
             result = await asyncio.to_thread(self.db_manager.write_memory, content, category, tags, target_user_id)
@@ -150,6 +161,9 @@ class MemoryCapsulePlugin(Star):
         Returns:
             搜索结果列表
         """
+        # 类型注释确保参数类型正确
+        query: str = query
+        target_user_id: str = target_user_id
         try:
             import asyncio
             results = await asyncio.to_thread(self.db_manager.search_memory, query, target_user_id)
@@ -170,6 +184,8 @@ class MemoryCapsulePlugin(Star):
         Returns:
             删除结果
         """
+        # 类型注释确保参数类型正确
+        memory_id: int = memory_id
         try:
             import asyncio
             result = await asyncio.to_thread(self.db_manager.delete_memory, memory_id)
@@ -190,6 +206,8 @@ class MemoryCapsulePlugin(Star):
         Returns:
             记忆列表
         """
+        # 类型注释确保参数类型正确
+        limit: int = limit
         try:
             import asyncio
             results = await asyncio.to_thread(self.db_manager.get_all_memories, limit)
@@ -227,6 +245,8 @@ class MemoryCapsulePlugin(Star):
         Returns:
             删除结果
         """
+        # 类型注释确保参数类型正确
+        user_id: str = user_id
         try:
             import asyncio
             result = await asyncio.to_thread(self.db_manager.delete_relationship, user_id)
