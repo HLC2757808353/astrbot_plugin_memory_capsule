@@ -92,26 +92,26 @@ class MemoryCapsulePlugin(Star):
         logger.info("记忆胶囊插件已关闭")
 
     @filter.llm_tool(name="update_relationship")
-    async def update_relationship(self, event: AstrMessageEvent, user_id: str, relation_type: str | None = None, tags_update: str | None = None, summary_update: str | None = None, intimacy_change: int = 0):
+    async def update_relationship(self, event, user_id, relation_type=None, tags_update=None, summary_update=None, intimacy_change=0):
         """
         更新对某人的印象或关系
         
         Args:
-            user_id: 目标用户 ID
-            relation_type: 新的关系定义
-            tags_update: 新的标签 (会覆盖旧的)
-            summary_update: 新的印象总结 (会覆盖旧的)
-            intimacy_change: 好感度变化值 (如 +5, -10)
+            user_id(str): 目标用户 ID
+            relation_type(str): 新的关系定义
+            tags_update(str): 新的标签 (会覆盖旧的)
+            summary_update(str): 新的印象总结 (会覆盖旧的)
+            intimacy_change(int): 好感度变化值 (如 +5, -10)
             
         Returns:
-            更新结果
+            str: 更新结果
         """
-        # 类型注释确保参数类型正确
-        user_id: str = user_id
-        relation_type: str = relation_type
-        tags_update: str = tags_update
-        summary_update: str = summary_update
-        intimacy_change: int = intimacy_change
+        # 类型转换确保参数类型正确
+        user_id = str(user_id)
+        relation_type = str(relation_type) if relation_type is not None else None
+        tags_update = str(tags_update) if tags_update is not None else None
+        summary_update = str(summary_update) if summary_update is not None else None
+        intimacy_change = int(intimacy_change)
         try:
             import asyncio
             result = await asyncio.to_thread(self.db_manager.update_relationship, user_id, relation_type, tags_update, summary_update, intimacy_change)
@@ -122,24 +122,24 @@ class MemoryCapsulePlugin(Star):
             return f"更新失败: {e}"
 
     @filter.llm_tool(name="write_memory")
-    async def write_memory(self, event: AstrMessageEvent, content: str, category: str = "日常", tags: str = "", target_user_id: str | None = None):
+    async def write_memory(self, event, content, category="日常", tags="", target_user_id=None):
         """
         记下一个永久知识点
         
         Args:
-            content: 要记住的内容
-            category: 分类 (默认 "日常")
-            tags: 标签 (逗号分隔)
-            target_user_id: 如果是关于特定人的记忆，填这里
+            content(str): 要记住的内容
+            category(str): 分类 (默认 "日常")
+            tags(str): 标签 (逗号分隔)
+            target_user_id(str): 如果是关于特定人的记忆，填这里
             
         Returns:
-            存储结果
+            str: 存储结果
         """
-        # 类型注释确保参数类型正确
-        content: str = content
-        category: str = category
-        tags: str = tags
-        target_user_id: str = target_user_id
+        # 类型转换确保参数类型正确
+        content = str(content)
+        category = str(category)
+        tags = str(tags)
+        target_user_id = str(target_user_id) if target_user_id is not None else None
         try:
             import asyncio
             result = await asyncio.to_thread(self.db_manager.write_memory, content, category, tags, target_user_id)
@@ -150,20 +150,20 @@ class MemoryCapsulePlugin(Star):
             return f"存储失败: {e}"
 
     @filter.llm_tool(name="search_memory")
-    async def search_memory(self, event: AstrMessageEvent, query: str, target_user_id: str | None = None):
+    async def search_memory(self, event, query, target_user_id=None):
         """
         搜索过去的记忆
         
         Args:
-            query: 搜索关键词或句子
-            target_user_id: 限定搜索某人的相关记忆
+            query(str): 搜索关键词或句子
+            target_user_id(str): 限定搜索某人的相关记忆
             
         Returns:
-            搜索结果列表
+            list: 搜索结果列表
         """
-        # 类型注释确保参数类型正确
-        query: str = query
-        target_user_id: str = target_user_id
+        # 类型转换确保参数类型正确
+        query = str(query)
+        target_user_id = str(target_user_id) if target_user_id is not None else None
         try:
             import asyncio
             results = await asyncio.to_thread(self.db_manager.search_memory, query, target_user_id)
@@ -174,18 +174,18 @@ class MemoryCapsulePlugin(Star):
             return []
 
     @filter.llm_tool(name="delete_memory")
-    async def delete_memory(self, event: AstrMessageEvent, memory_id: int):
+    async def delete_memory(self, event, memory_id):
         """
         遗忘某条记忆
         
         Args:
-            memory_id: 记忆的 ID (通常 AI 需要先搜到才能删)
+            memory_id(int): 记忆的 ID (通常 AI 需要先搜到才能删)
             
         Returns:
-            删除结果
+            str: 删除结果
         """
-        # 类型注释确保参数类型正确
-        memory_id: int = memory_id
+        # 类型转换确保参数类型正确
+        memory_id = int(memory_id)
         try:
             import asyncio
             result = await asyncio.to_thread(self.db_manager.delete_memory, memory_id)
@@ -196,18 +196,18 @@ class MemoryCapsulePlugin(Star):
             return f"删除失败: {e}"
 
     @filter.llm_tool(name="get_all_memories")
-    async def get_all_memories(self, event: AstrMessageEvent, limit: int = 100):
+    async def get_all_memories(self, event, limit=100):
         """
         获取所有记忆
         
         Args:
-            limit: 限制数量，默认为100
+            limit(int): 限制数量，默认为100
             
         Returns:
-            记忆列表
+            list: 记忆列表
         """
-        # 类型注释确保参数类型正确
-        limit: int = limit
+        # 类型转换确保参数类型正确
+        limit = int(limit)
         try:
             import asyncio
             results = await asyncio.to_thread(self.db_manager.get_all_memories, limit)
@@ -218,12 +218,12 @@ class MemoryCapsulePlugin(Star):
             return []
 
     @filter.llm_tool(name="get_all_relationships")
-    async def get_all_relationships(self, event: AstrMessageEvent):
+    async def get_all_relationships(self, event):
         """
         获取所有关系
         
         Returns:
-            关系列表
+            list: 关系列表
         """
         try:
             import asyncio
@@ -235,18 +235,18 @@ class MemoryCapsulePlugin(Star):
             return []
 
     @filter.llm_tool(name="delete_relationship")
-    async def delete_relationship(self, event: AstrMessageEvent, user_id: str):
+    async def delete_relationship(self, event, user_id):
         """
         删除关系
         
         Args:
-            user_id: 用户ID
+            user_id(str): 用户ID
             
         Returns:
-            删除结果
+            str: 删除结果
         """
-        # 类型注释确保参数类型正确
-        user_id: str = user_id
+        # 类型转换确保参数类型正确
+        user_id = str(user_id)
         try:
             import asyncio
             result = await asyncio.to_thread(self.db_manager.delete_relationship, user_id)
@@ -257,12 +257,12 @@ class MemoryCapsulePlugin(Star):
             return f"删除失败: {e}"
 
     @filter.llm_tool(name="backup_database")
-    async def backup_database(self, event: AstrMessageEvent):
+    async def backup_database(self, event):
         """
         备份数据库
         
         Returns:
-            备份结果
+            str: 备份结果
         """
         try:
             import asyncio
