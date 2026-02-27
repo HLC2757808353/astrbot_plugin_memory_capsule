@@ -97,14 +97,14 @@ class MemoryCapsulePlugin(Star):
         更新对某人的印象或关系
         
         Args:
-            user_id(string): 目标用户 ID
-            relation_type(string, 可选): 新的关系定义
-            tags_update(string, 可选): 新的标签 (会覆盖旧的)
-            summary_update(string, 可选): 新的印象总结 (会覆盖旧的)
-            intimacy_change(int, 可选): 好感度变化值 (如 +5, -10)
+            user_id: 目标用户 ID
+            relation_type: 新的关系定义
+            tags_update: 新的标签 (会覆盖旧的)
+            summary_update: 新的印象总结 (会覆盖旧的)
+            intimacy_change: 好感度变化值 (如 +5, -10)
             
         Returns:
-            string: 更新结果
+            更新结果
         """
         try:
             import asyncio
@@ -121,13 +121,13 @@ class MemoryCapsulePlugin(Star):
         记下一个永久知识点
         
         Args:
-            content(string): 要记住的内容
-            category(string): 分类 (默认 "日常")
-            tags(string): 标签 (逗号分隔)
-            target_user_id(string, 可选): 如果是关于特定人的记忆，填这里
+            content: 要记住的内容
+            category: 分类 (默认 "日常")
+            tags: 标签 (逗号分隔)
+            target_user_id: 如果是关于特定人的记忆，填这里
             
         Returns:
-            string: 存储结果
+            存储结果
         """
         try:
             import asyncio
@@ -144,11 +144,11 @@ class MemoryCapsulePlugin(Star):
         搜索过去的记忆
         
         Args:
-            query(string): 搜索关键词或句子
-            target_user_id(string, 可选): 限定搜索某人的相关记忆
+            query: 搜索关键词或句子
+            target_user_id: 限定搜索某人的相关记忆
             
         Returns:
-            list: 搜索结果列表
+            搜索结果列表
         """
         try:
             import asyncio
@@ -165,10 +165,10 @@ class MemoryCapsulePlugin(Star):
         遗忘某条记忆
         
         Args:
-            memory_id(int): 记忆的 ID (通常 AI 需要先搜到才能删)
+            memory_id: 记忆的 ID (通常 AI 需要先搜到才能删)
             
         Returns:
-            string: 删除结果
+            删除结果
         """
         try:
             import asyncio
@@ -185,10 +185,10 @@ class MemoryCapsulePlugin(Star):
         获取所有记忆
         
         Args:
-            limit(int): 限制数量，默认为100
+            limit: 限制数量，默认为100
             
         Returns:
-            list: 记忆列表
+            记忆列表
         """
         try:
             import asyncio
@@ -205,7 +205,7 @@ class MemoryCapsulePlugin(Star):
         获取所有关系
         
         Returns:
-            list: 关系列表
+            关系列表
         """
         try:
             import asyncio
@@ -222,10 +222,10 @@ class MemoryCapsulePlugin(Star):
         删除关系
         
         Args:
-            user_id(string): 用户ID
+            user_id: 用户ID
             
         Returns:
-            string: 删除结果
+            删除结果
         """
         try:
             import asyncio
@@ -242,7 +242,7 @@ class MemoryCapsulePlugin(Star):
         备份数据库
         
         Returns:
-            str: 备份结果
+            备份结果
         """
         try:
             import asyncio
