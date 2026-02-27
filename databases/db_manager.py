@@ -2,7 +2,15 @@ import sqlite3
 import os
 import json
 from datetime import datetime
-from astrbot import logger
+
+# 容错处理
+try:
+    from astrbot import logger
+except ImportError:
+    import logging
+    logger = logging.getLogger(__name__)
+    logging.basicConfig(level=logging.INFO)
+
 from .backup import BackupManager
 
 class DatabaseManager:
@@ -29,63 +37,79 @@ class DatabaseManager:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
             
-            # 创建插件数据表（笔记表），如果不存在
+            # 创建关系表 (relationships) —— 名片夹
             cursor.execute('''
-            CREATE TABLE IF NOT EXISTS plugin_data (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                note_id TEXT NOT NULL,
-                data_type TEXT NOT NULL DEFAULT 'string',
-                content TEXT NOT NULL,
-                metadata TEXT,
-                category TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            CREATE TABLE IF NOT EXISTS relationships (
+                user_id TEXT PRIMARY KEY,       -- 对方 QQ 号
+                nickname TEXT,                  -- AI 对 TA 的称呼
+                relation_type TEXT,             -- 关系 (如: 朋友, 损友)
+                intimacy INTEGER DEFAULT 50,    -- 好感度 (0-100)
+                tags TEXT,                      -- 印象标签 (如: "幽默,程序员")
+                summary TEXT,                   -- 核心印象 (覆盖式更新，不追加)
+                first_met_time TIMESTAMP,       -- 初次见面时间
+                first_met_location TEXT,        -- 初次见面地点 (如: "QQ群:12345")
+                known_contexts TEXT,            -- 遇到过的场景 (JSON列表)
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
             ''')
             
-            # 创建关系数据表，如果不存在
+            # 创建记忆表 (memories) —— 笔记本
             cursor.execute('''
-            CREATE TABLE IF NOT EXISTS relations (
+            CREATE TABLE IF NOT EXISTS memories (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id TEXT NOT NULL,
-                group_id TEXT NOT NULL,
-                platform TEXT DEFAULT 'qq',
-                nickname TEXT,
-                nicknames TEXT, -- 昵称数组，JSON格式
-                first_meet_group TEXT, -- 初次见面群组
-                first_meet_time TIMESTAMP, -- 初次见面时间
-                favor_level INTEGER DEFAULT 0,
-                relationship TEXT, -- 关系
-                remark TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(user_id, group_id, platform)
+                user_id TEXT,                   -- 关联对象 (如果是关于某人的记忆)
+                source_platform TEXT,           -- 来源 (QQ, Bilibili, Web)
+                source_context TEXT,            -- 场景 (群号, 视频ID)
+                category TEXT,                  -- 分类 (社交, 知识, 娱乐, 日记)
+                tags TEXT,                      -- 标签 (方便检索)
+                content TEXT NOT NULL,          -- 记忆正文
+                importance INTEGER DEFAULT 5,   -- 重要性 (1-10)
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
             ''')
             
-            # 添加缺失的列（如果需要）
+            # 建立索引加速搜索
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_mem_user ON memories(user_id)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_mem_cate ON memories(category)')
+            
+            # 全文搜索虚拟表 (SQLite FTS5)
             try:
-                cursor.execute('ALTER TABLE relations ADD COLUMN nicknames TEXT')
-            except:
-                pass
-            try:
-                cursor.execute('ALTER TABLE relations ADD COLUMN first_meet_group TEXT')
-            except:
-                pass
-            try:
-                cursor.execute('ALTER TABLE relations ADD COLUMN first_meet_time TIMESTAMP')
-            except:
-                pass
-            try:
-                cursor.execute('ALTER TABLE relations ADD COLUMN relationship TEXT')
+                cursor.execute('''
+                CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(content, tags, category)
+                ''')
             except:
                 pass
             
-            # 创建索引
-            cursor.execute('CREATE INDEX IF NOT EXISTS idx_plugin_data_category ON plugin_data(category)')
-            cursor.execute('CREATE INDEX IF NOT EXISTS idx_plugin_data_note ON plugin_data(note_id, data_type)')
-            cursor.execute('CREATE INDEX IF NOT EXISTS idx_relations_user ON relations(user_id)')
-            cursor.execute('CREATE INDEX IF NOT EXISTS idx_relations_platform ON relations(platform)')
-            cursor.execute('CREATE INDEX IF NOT EXISTS idx_relations_user_group_platform ON relations(user_id, group_id, platform)')
+            # 创建触发器，当memories表变化时更新全文搜索表
+            try:
+                cursor.execute('''
+                CREATE TRIGGER IF NOT EXISTS memories_fts_insert AFTER INSERT ON memories
+                BEGIN
+                    INSERT INTO memories_fts(rowid, content, tags, category) VALUES (new.id, new.content, new.tags, new.category);
+                END
+                ''')
+            except:
+                pass
+            
+            try:
+                cursor.execute('''
+                CREATE TRIGGER IF NOT EXISTS memories_fts_update AFTER UPDATE ON memories
+                BEGIN
+                    UPDATE memories_fts SET content = new.content, tags = new.tags, category = new.category WHERE rowid = old.id;
+                END
+                ''')
+            except:
+                pass
+            
+            try:
+                cursor.execute('''
+                CREATE TRIGGER IF NOT EXISTS memories_fts_delete AFTER DELETE ON memories
+                BEGIN
+                    DELETE FROM memories_fts WHERE rowid = old.id;
+                END
+                ''')
+            except:
+                pass
             
             conn.commit()
             logger.info(f"数据库结构初始化成功: {self.db_path}")
@@ -111,124 +135,181 @@ class DatabaseManager:
         conn.row_factory = sqlite3.Row
         return conn
 
-    def store_plugin_data(self, content, metadata=None, category=None):
-        """存储笔记数据
+    def write_memory(self, content, category="日常", tags="", target_user_id=None, source_platform="Web", source_context="", importance=5):
+        """存储记忆
         
         参数说明：
-        - content: 笔记内容，固定为字符串类型
-        - metadata: 元数据，用于存储笔记的额外信息，如标签、关键词等
-        - category: 分类名称
-        
-        笔记表字段功能说明：
-        - id: 主键ID
-        - note_id: 笔记编号，唯一标识笔记
-        - data_type: 数据类型，默认固定为'string'
-        - content: 笔记内容，字符串类型
-        - metadata: 元数据，用于存储额外信息
-        - category: 分类路径
-        - created_at: 笔记记录时间
-        - updated_at: 更新时间
+        - content: 记忆内容
+        - category: 分类 (默认 "日常")
+        - tags: 标签 (逗号分隔)
+        - target_user_id: 如果是关于特定人的记忆，填这里
+        - source_platform: 来源 (默认 "Web")
+        - source_context: 场景
+        - importance: 重要性 (1-10，默认 5)
         """
         try:
-            # 生成笔记编号（从1开始递增）
             conn = self._get_connection()
             cursor = conn.cursor()
-            cursor.execute('SELECT MAX(CAST(SUBSTR(note_id, 6) AS INTEGER)) FROM plugin_data WHERE note_id LIKE "NOTE_%"')
-            max_id = cursor.fetchone()[0]
-            next_id = (max_id if max_id else 0) + 1
-            note_id = f"NOTE_{next_id:06d}"
-            
-            # 生成分类路径
-            if category:
-                # 使用用户指定的分类，确保不包含日期路径
-                category_path = category.strip()
-                # 移除可能的日期路径格式
-                if '/' in category_path and ('/' in category_path.split('/')[1] if len(category_path.split('/')) > 1 else False):
-                    # 如果包含日期路径格式，提取最后一部分作为分类
-                    parts = category_path.split('/')
-                    category_path = parts[-1] if parts[-1] else "未分类"
-            else:
-                # 使用默认分类
-                category_path = "未分类"
-            
-            # 处理元数据
-            metadata_json = json.dumps(metadata) if metadata else None
             
             # 插入数据
             cursor.execute('''
-            INSERT INTO plugin_data (note_id, data_type, content, metadata, category, updated_at)
-            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            ''', (note_id, 'string', content, metadata_json, category_path))
+            INSERT INTO memories (user_id, source_platform, source_context, category, tags, content, importance)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (target_user_id, source_platform, source_context, category, tags, content, importance))
             
+            memory_id = cursor.lastrowid
             conn.commit()
             conn.close()
             
-            return f"笔记存储成功，编号: {note_id}"
+            return f"记忆存储成功，ID: {memory_id}"
         except Exception as e:
-            logger.error(f"存储笔记失败: {e}")
+            logger.error(f"存储记忆失败: {e}")
             return f"存储失败: {e}"
 
-    def query_plugin_data(self, query_keyword=None, data_type=None, category=None, tags=None):
-        """查询笔记数据
+    def search_memory(self, query, target_user_id=None):
+        """搜索记忆
         
         参数说明：
-        - query_keyword: 查询关键词，可用于搜索标题、内容、元数据等
-        - data_type: 数据类型，默认为None
-        - category: 分类名称，默认为None
-        - tags: 标签列表，默认为None
+        - query: 搜索关键词或句子
+        - target_user_id: 限定搜索某人的相关记忆
         """
         try:
-            # 构建查询语句
-            query = "SELECT id, note_id, data_type, content, metadata, category, created_at FROM plugin_data WHERE 1=1"
-            params = []
-            
-            if query_keyword:
-                # 宽松搜索，匹配内容、元数据、笔记编号或分类
-                query += " AND (content LIKE ? OR metadata LIKE ? OR note_id LIKE ? OR category LIKE ?)"
-                params.extend([f"%{query_keyword}%", f"%{query_keyword}%", f"%{query_keyword}%", f"%{query_keyword}%"])
-            
-            if data_type:
-                query += " AND data_type = ?"
-                params.append(data_type)
-            
-            if category:
-                query += " AND category = ?"
-                params.append(category)
-            
-            if tags and isinstance(tags, list):
-                for tag in tags:
-                    query += " AND metadata LIKE ?"
-                    params.append(f"%{tag}%")
-            
-            query += " ORDER BY created_at DESC LIMIT 50"
-            
-            # 使用独立连接
             conn = self._get_connection()
             cursor = conn.cursor()
             
-            # 执行查询
-            cursor.execute(query, params)
+            # 使用全文搜索
+            if query:
+                search_query = "SELECT m.* FROM memories m JOIN memories_fts f ON m.id = f.rowid WHERE f.memories_fts MATCH ?"
+                params = [f"{query}"]
+                
+                if target_user_id:
+                    search_query += " AND m.user_id = ?"
+                    params.append(target_user_id)
+                
+                search_query += " ORDER BY m.importance DESC, m.created_at DESC LIMIT 50"
+            else:
+                # 没有查询关键词，返回最新的记忆
+                search_query = "SELECT * FROM memories WHERE 1=1"
+                params = []
+                
+                if target_user_id:
+                    search_query += " AND user_id = ?"
+                    params.append(target_user_id)
+                
+                search_query += " ORDER BY importance DESC, created_at DESC LIMIT 50"
+            
+            cursor.execute(search_query, params)
             results = cursor.fetchall()
             conn.close()
             
             # 处理结果
-            data_list = []
+            memory_list = []
             for row in results:
-                data = {
+                memory = {
                     "id": row[0],
-                    "note_id": row[1],
-                    "data_type": row[2],
-                    "content": row[3],
-                    "metadata": json.loads(row[4]) if row[4] else None,
-                    "category": row[5],
-                    "created_at": row[6]
+                    "user_id": row[1],
+                    "source_platform": row[2],
+                    "source_context": row[3],
+                    "category": row[4],
+                    "tags": row[5],
+                    "content": row[6],
+                    "importance": row[7],
+                    "created_at": row[8]
                 }
-                data_list.append(data)
+                memory_list.append(memory)
             
-            return data_list
+            return memory_list
         except Exception as e:
-            logger.error(f"查询笔记失败: {e}")
+            logger.error(f"搜索记忆失败: {e}")
             return []
+
+    def delete_memory(self, memory_id):
+        """删除记忆
+        
+        参数说明：
+        - memory_id: 记忆的 ID
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute('DELETE FROM memories WHERE id = ?', (memory_id,))
+            conn.commit()
+            conn.close()
+            
+            return "删除成功"
+        except Exception as e:
+            logger.error(f"删除记忆失败: {e}")
+            return f"删除失败: {e}"
+
+    def update_relationship(self, user_id, relation_type=None, tags_update=None, summary_update=None, intimacy_change=0, nickname=None, first_met_time=None, first_met_location=None, known_contexts=None):
+        """更新关系
+        
+        参数说明：
+        - user_id: 目标用户 ID
+        - relation_type: 新的关系定义
+        - tags_update: 新的标签 (会覆盖旧的)
+        - summary_update: 新的印象总结 (会覆盖旧的)
+        - intimacy_change: 好感度变化值 (如 +5, -10)
+        - nickname: AI 对 TA 的称呼
+        - first_met_time: 初次见面时间
+        - first_met_location: 初次见面地点
+        - known_contexts: 遇到过的场景 (JSON列表)
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            
+            # 检查是否存在记录
+            cursor.execute('SELECT nickname, relation_type, intimacy, tags, summary, first_met_time, first_met_location, known_contexts FROM relationships WHERE user_id=?', (user_id,))
+            existing = cursor.fetchone()
+            
+            if existing:
+                # 更新现有记录
+                old_nickname, old_relation_type, old_intimacy, old_tags, old_summary, old_first_met_time, old_first_met_location, old_known_contexts = existing
+                
+                # 处理各字段
+                new_nickname = nickname or old_nickname
+                new_relation_type = relation_type or old_relation_type
+                new_intimacy = old_intimacy + intimacy_change
+                new_intimacy = max(0, min(100, new_intimacy))  # 限制在 0-100
+                new_tags = tags_update or old_tags
+                new_summary = summary_update or old_summary
+                new_first_met_time = first_met_time or old_first_met_time
+                new_first_met_location = first_met_location or old_first_met_location
+                new_known_contexts = known_contexts or old_known_contexts
+                
+                # 执行更新
+                cursor.execute('''
+                UPDATE relationships SET 
+                    nickname = ?, 
+                    relation_type = ?, 
+                    intimacy = ?, 
+                    tags = ?, 
+                    summary = ?, 
+                    first_met_time = ?, 
+                    first_met_location = ?, 
+                    known_contexts = ?, 
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE user_id = ?
+                ''', (new_nickname, new_relation_type, new_intimacy, new_tags, new_summary, new_first_met_time, new_first_met_location, new_known_contexts, user_id))
+            else:
+                # 创建新记录
+                new_intimacy = 50 + intimacy_change
+                new_intimacy = max(0, min(100, new_intimacy))  # 限制在 0-100
+                
+                cursor.execute('''
+                INSERT INTO relationships (user_id, nickname, relation_type, intimacy, tags, summary, first_met_time, first_met_location, known_contexts)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (user_id, nickname or "", relation_type or "", new_intimacy, tags_update or "", summary_update or "", first_met_time, first_met_location, known_contexts))
+            
+            conn.commit()
+            conn.close()
+            
+            return "关系更新成功"
+        except Exception as e:
+            logger.error(f"更新关系失败: {e}")
+            return f"更新失败: {e}"
     
     def get_all_tags(self):
         """获取所有标签"""
@@ -237,8 +318,8 @@ class DatabaseManager:
             conn = self._get_connection()
             cursor = conn.cursor()
             
-            # 获取所有包含metadata的记录
-            cursor.execute('SELECT metadata FROM plugin_data WHERE metadata IS NOT NULL')
+            # 获取所有标签
+            cursor.execute('SELECT tags FROM memories WHERE tags IS NOT NULL AND tags != ""')
             results = cursor.fetchall()
             conn.close()
             
@@ -246,10 +327,11 @@ class DatabaseManager:
             tags = set()
             for row in results:
                 try:
-                    metadata = json.loads(row[0])
-                    if isinstance(metadata, dict) and 'tags' in metadata:
-                        if isinstance(metadata['tags'], list):
-                            tags.update(metadata['tags'])
+                    tag_list = row[0].split(',')
+                    for tag in tag_list:
+                        tag = tag.strip()
+                        if tag:
+                            tags.add(tag)
                 except:
                     pass
             
@@ -266,7 +348,7 @@ class DatabaseManager:
             cursor = conn.cursor()
             
             # 获取所有分类
-            cursor.execute('SELECT DISTINCT category FROM plugin_data WHERE category IS NOT NULL')
+            cursor.execute('SELECT DISTINCT category FROM memories WHERE category IS NOT NULL')
             results = cursor.fetchall()
             conn.close()
             
@@ -276,257 +358,101 @@ class DatabaseManager:
             logger.error(f"获取分类失败: {e}")
             return []
 
-    def update_relation(self, user_id, group_id, platform='qq', nickname=None, nicknames=None, first_meet_group=None, first_meet_time=None, favor_change=0, relationship=None, remark=None):
-        """更新关系
-        
-        参数说明：
-        - user_id: 用户ID，唯一标识用户
-        - group_id: 群组ID，标识用户所在的群组
-        - platform: 平台字段，默认为'qq'，未来可能扩展其他平台
-        - nickname: 用户昵称
-        - nicknames: 昵称数组
-        - first_meet_group: 初次见面群组
-        - first_meet_time: 初次见面时间
-        - favor_change: 好感度变化值，会累加到当前好感度
-        - relationship: 关系
-        - remark: 备注字段，用于存储额外的备注信息
-        
-        关系表字段功能说明：
-        - id: 主键ID
-        - user_id: 用户ID，唯一标识用户
-        - group_id: 群组ID，标识用户所在的群组
-        - platform: 平台字段，默认为'qq'，未来可能扩展其他平台
-        - nickname: 用户昵称
-        - nicknames: 昵称数组，JSON格式
-        - first_meet_group: 初次见面群组
-        - first_meet_time: 初次见面时间
-        - favor_level: 好感度，默认值为0，范围0-100
-        - relationship: 关系
-        - remark: 备注字段，用于存储额外的备注信息
-        - created_at: 创建时间
-        """
-        try:
-            # 使用独立连接
-            conn = self._get_connection()
-            cursor = conn.cursor()
-            
-            # 检查是否存在记录
-            cursor.execute('SELECT id, nickname, nicknames, first_meet_group, first_meet_time, favor_level, relationship, remark FROM relations WHERE user_id=? AND group_id=? AND platform=?', (user_id, group_id, platform))
-            existing = cursor.fetchone()
-            
-            if existing:
-                # 更新现有记录
-                relation_id, old_nickname, old_nicknames, old_first_meet_group, old_first_meet_time, old_favor, old_relationship, old_remark = existing
-                
-                # 处理昵称
-                new_nickname = nickname or old_nickname
-                
-                # 处理昵称数组
-                new_nicknames = nicknames or []
-                if old_nicknames:
-                    try:
-                        import json
-                        existing_nicknames = json.loads(old_nicknames)
-                        if isinstance(existing_nicknames, list):
-                            new_nicknames = existing_nicknames
-                            if nickname and nickname not in new_nicknames:
-                                new_nicknames.append(nickname)
-                    except:
-                        pass
-                new_nicknames_json = json.dumps(new_nicknames) if new_nicknames else None
-                
-                # 处理初次见面信息
-                new_first_meet_group = first_meet_group or old_first_meet_group
-                new_first_meet_time = first_meet_time or old_first_meet_time
-                
-                # 处理好感度
-                new_favor = old_favor + favor_change
-                new_favor = max(0, min(100, new_favor))
-                
-                # 处理关系
-                new_relationship = relationship or old_relationship
-                
-                # 处理备注
-                new_remark = remark or old_remark
-                
-                # 执行更新
-                cursor.execute('''
-                UPDATE relations SET 
-                    nickname = ?, 
-                    nicknames = ?, 
-                    first_meet_group = ?, 
-                    first_meet_time = ?, 
-                    favor_level = ?, 
-                    relationship = ?, 
-                    remark = ?
-                WHERE id = ?
-                ''', (new_nickname, new_nicknames_json, new_first_meet_group, new_first_meet_time, new_favor, new_relationship, new_remark, relation_id))
-            else:
-                # 处理昵称数组
-                new_nicknames = nicknames or []
-                if nickname and nickname not in new_nicknames:
-                    new_nicknames.append(nickname)
-                new_nicknames_json = json.dumps(new_nicknames) if new_nicknames else None
-                
-                # 创建新记录
-                cursor.execute('''
-                INSERT INTO relations (user_id, group_id, platform, nickname, nicknames, first_meet_group, first_meet_time, favor_level, relationship, remark)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ''', (user_id, group_id, platform, nickname or "Unknown", new_nicknames_json, first_meet_group, first_meet_time, favor_change, relationship, remark or ""))
-            
-            conn.commit()
-            conn.close()
-            
-            return "关系更新成功"
-        except Exception as e:
-            logger.error(f"更新关系失败: {e}")
-            return f"更新失败: {e}"
-
-    def query_relation(self, query_keyword):
-        """查询关系"""
-        try:
-            # 使用独立连接
-            conn = self._get_connection()
-            cursor = conn.cursor()
-            
-            # 模糊搜索，增加 user_id 和 group_id 的搜索
-            cursor.execute('''
-            SELECT user_id, nickname, nicknames, group_id, platform, first_meet_group, first_meet_time, favor_level, relationship, remark, created_at 
-            FROM relations 
-            WHERE user_id LIKE ? OR nickname LIKE ? OR group_id LIKE ? OR platform LIKE ? OR first_meet_group LIKE ? OR relationship LIKE ? OR remark LIKE ?
-            ''', (f"%{query_keyword}%", f"%{query_keyword}%", f"%{query_keyword}%", f"%{query_keyword}%", f"%{query_keyword}%", f"%{query_keyword}%", f"%{query_keyword}%"))
-            
-            results = cursor.fetchall()
-            conn.close()
-            
-            # 处理结果
-            relation_list = []
-            for row in results:
-                try:
-                    nicknames = json.loads(row[2]) if row[2] else []
-                except:
-                    nicknames = []
-                
-                relation = {
-                    "user_id": row[0],
-                    "nickname": row[1],
-                    "nicknames": nicknames,
-                    "group_id": row[3],
-                    "platform": row[4],
-                    "first_meet_group": row[5],
-                    "first_meet_time": row[6],
-                    "favor_level": row[7],
-                    "relationship": row[8],
-                    "remark": row[9],
-                    "created_at": row[10]
-                }
-                relation_list.append(relation)
-            
-            return relation_list
-        except Exception as e:
-            logger.error(f"查询关系失败: {e}")
-            return []
-
-    def get_all_plugin_data(self, limit=100, offset=0, category=None):
-        """获取所有笔记数据"""
+    def get_all_memories(self, limit=100, offset=0, category=None):
+        """获取所有记忆"""
         try:
             # 使用独立连接
             conn = self._get_connection()
             cursor = conn.cursor()
             
             if category:
-                cursor.execute('SELECT id, note_id, data_type, content, metadata, category, created_at FROM plugin_data WHERE category=? ORDER BY created_at DESC LIMIT ? OFFSET ?', (category, limit, offset))
+                cursor.execute('SELECT * FROM memories WHERE category=? ORDER BY importance DESC, created_at DESC LIMIT ? OFFSET ?', (category, limit, offset))
             else:
-                cursor.execute('SELECT id, note_id, data_type, content, metadata, category, created_at FROM plugin_data ORDER BY created_at DESC LIMIT ? OFFSET ?', (limit, offset))
+                cursor.execute('SELECT * FROM memories ORDER BY importance DESC, created_at DESC LIMIT ? OFFSET ?', (limit, offset))
             
             results = cursor.fetchall()
             conn.close()
             
-            data_list = []
+            memory_list = []
             for row in results:
-                data = {
+                memory = {
                     "id": row[0],
-                    "note_id": row[1],
-                    "data_type": row[2],
-                    "content": row[3],
-                    "metadata": json.loads(row[4]) if row[4] else None,
-                    "category": row[5],
-                    "created_at": row[6]
+                    "user_id": row[1],
+                    "source_platform": row[2],
+                    "source_context": row[3],
+                    "category": row[4],
+                    "tags": row[5],
+                    "content": row[6],
+                    "importance": row[7],
+                    "created_at": row[8]
                 }
-                data_list.append(data)
+                memory_list.append(memory)
             
-            return data_list
+            return memory_list
         except Exception as e:
-            logger.error(f"获取笔记失败: {e}")
+            logger.error(f"获取记忆失败: {e}")
             return []
     
-    def get_plugin_data_count(self, category=None):
-        """获取笔记总数"""
+    def get_memories_count(self, category=None):
+        """获取记忆总数"""
         try:
             # 使用独立连接
             conn = self._get_connection()
             cursor = conn.cursor()
             
             if category:
-                cursor.execute('SELECT COUNT(*) FROM plugin_data WHERE category=?', (category,))
+                cursor.execute('SELECT COUNT(*) FROM memories WHERE category=?', (category,))
             else:
-                cursor.execute('SELECT COUNT(*) FROM plugin_data')
+                cursor.execute('SELECT COUNT(*) FROM memories')
             
             count = cursor.fetchone()[0]
             conn.close()
             
             return count
         except Exception as e:
-            logger.error(f"获取笔记总数失败: {e}")
+            logger.error(f"获取记忆总数失败: {e}")
             return 0
 
-    def get_all_relations(self, limit=100, offset=0):
+    def get_all_relationships(self, limit=100, offset=0):
         """获取所有关系"""
         try:
             # 使用独立连接
             conn = self._get_connection()
             cursor = conn.cursor()
             
-            cursor.execute('SELECT id, user_id, nickname, nicknames, group_id, platform, first_meet_group, first_meet_time, favor_level, relationship, remark, created_at FROM relations ORDER BY created_at DESC LIMIT ? OFFSET ?', (limit, offset))
+            cursor.execute('SELECT * FROM relationships ORDER BY updated_at DESC LIMIT ? OFFSET ?', (limit, offset))
             results = cursor.fetchall()
             conn.close()
             
-            relation_list = []
+            relationship_list = []
             for row in results:
-                try:
-                    nicknames = json.loads(row[3]) if row[3] else []
-                except:
-                    nicknames = []
-                
-                relation = {
-                    "id": row[0],
-                    "user_id": row[1],
-                    "nickname": row[2],
-                    "nicknames": nicknames,
-                    "group_id": row[4],
-                    "platform": row[5],
-                    "first_meet_group": row[6],
-                    "first_meet_time": row[7],
-                    "favor_level": row[8],
-                    "relationship": row[9],
-                    "remark": row[10],
-                    "created_at": row[11]
+                relationship = {
+                    "user_id": row[0],
+                    "nickname": row[1],
+                    "relation_type": row[2],
+                    "intimacy": row[3],
+                    "tags": row[4],
+                    "summary": row[5],
+                    "first_met_time": row[6],
+                    "first_met_location": row[7],
+                    "known_contexts": row[8],
+                    "updated_at": row[9]
                 }
-                relation_list.append(relation)
+                relationship_list.append(relationship)
             
-            return relation_list
+            return relationship_list
         except Exception as e:
             logger.error(f"获取关系失败: {e}")
             return []
     
-    def get_relations_count(self):
+    def get_relationships_count(self):
         """获取关系总数"""
         try:
             # 使用独立连接
             conn = self._get_connection()
             cursor = conn.cursor()
             
-            cursor.execute('SELECT COUNT(*) FROM relations')
+            cursor.execute('SELECT COUNT(*) FROM relationships')
             count = cursor.fetchone()[0]
             conn.close()
             
@@ -535,30 +461,14 @@ class DatabaseManager:
             logger.error(f"获取关系总数失败: {e}")
             return 0
 
-    def delete_plugin_data(self, data_id):
-        """删除插件数据"""
-        try:
-            # 使用独立连接
-            conn = self._get_connection()
-            cursor = conn.cursor()
-            
-            cursor.execute('DELETE FROM plugin_data WHERE id = ?', (data_id,))
-            conn.commit()
-            conn.close()
-            
-            return "删除成功"
-        except Exception as e:
-            logger.error(f"删除数据失败: {e}")
-            return f"删除失败: {e}"
-
-    def delete_relation(self, user_id, platform='qq'):
+    def delete_relationship(self, user_id):
         """删除关系"""
         try:
             # 使用独立连接
             conn = self._get_connection()
             cursor = conn.cursor()
             
-            cursor.execute('DELETE FROM relations WHERE user_id = ? AND platform = ?', (user_id, platform))
+            cursor.execute('DELETE FROM relationships WHERE user_id = ?', (user_id,))
             conn.commit()
             conn.close()
             

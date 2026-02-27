@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>记忆胶囊 - 系统设置</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #ffffff;
+            background-color: #0a0a0a;
+            background-image: 
+                radial-gradient(circle at 25% 25%, rgba(233, 30, 99, 0.1) 0%, transparent 50%),
+                radial-gradient(circle at 75% 75%, rgba(156, 39, 176, 0.1) 0%, transparent 50%);
+            min-height: 100vh;
+        }
+        
+        .container {
+            display: flex;
+            min-height: 100vh;
+        }
+        
+        /* 侧边栏 */
+        .sidebar {
+            width: 250px;
+            background: linear-gradient(135deg, #1a0a1e 0%, #2d1b36 100%);
+            border-right: 1px solid rgba(233, 30, 99, 0.3);
+            padding: 20px;
+            box-shadow: 2px 0 10px rgba(233, 30, 99, 0.2);
+            position: relative;
+        }
+        
+        .sidebar::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: linear-gradient(to bottom, #e91e63, #9c27b0);
+        }
+        
+        .sidebar-brand {
+            font-size: 1.8rem;
+            font-weight: bold;
+            color: #ffffff;
+            text-align: center;
+            margin-bottom: 40px;
+            text-shadow: 0 0 10px rgba(233, 30, 99, 0.7);
+        }
+        
+        .sidebar-nav {
+            list-style: none;
+        }
+        
+        .nav-item {
+            margin-bottom: 10px;
+        }
+        
+        .nav-link {
+            display: block;
+            padding: 12px 15px;
+            color: #b3b3b3;
+            text-decoration: none;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .nav-link::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(233, 30, 99, 0.2), transparent);
+            transition: left 0.5s ease;
+        }
+        
+        .nav-link:hover::before {
+            left: 100%;
+        }
+        
+        .nav-link:hover {
+            color: #ffffff;
+            background-color: rgba(233, 30, 99, 0.2);
+            transform: translateX(5px);
+        }
+        
+        .nav-link.active {
+            color: #ffffff;
+            background-color: rgba(233, 30, 99, 0.3);
+            box-shadow: 0 0 10px rgba(233, 30, 99, 0.5);
+        }
+        
+        /* 主内容区 */
+        .main-content {
+            flex: 1;
+            padding: 30px;
+            overflow-y: auto;
+        }
+        
+        /* 卡片 */
+        .card {
+            background: linear-gradient(135deg, rgba(26, 10, 30, 0.8) 0%, rgba(45, 27, 54, 0.8) 100%);
+            border-radius: 12px;
+            border: 1px solid rgba(233, 30, 99, 0.3);
+            box-shadow: 0 4px 15px rgba(233, 30, 99, 0.2);
+            margin-bottom: 30px;
+            overflow: hidden;
+            backdrop-filter: blur(10px);
+        }
+        
+        .card-header {
+            padding: 20px;
+            border-bottom: 1px solid rgba(233, 30, 99, 0.3);
+            background: linear-gradient(90deg, rgba(233, 30, 99, 0.1), rgba(156, 39, 176, 0.1));
+        }
+        
+        .card-title {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #ffffff;
+            margin: 0;
+        }
+        
+        .card-body {
+            padding: 20px;
+        }
+        
+        /* 表单 */
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        .form-label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+            color: #b3b3b3;
+        }
+        
+        .form-control {
+            width: 100%;
+            padding: 10px;
+            background-color: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(233, 30, 99, 0.3);
+            border-radius: 6px;
+            color: #ffffff;
+            font-size: 14px;
+        }
+        
+        .form-control:focus {
+            outline: none;
+            border-color: #e91e63;
+            box-shadow: 0 0 10px rgba(233, 30, 99, 0.3);
+        }
+        
+        /* 按钮 */
+        .btn {
+            display: inline-block;
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s ease;
+        }
+        
+        .btn-primary {
+            background-color: #e91e63;
+            color: #ffffff;
+        }
+        
+        .btn-primary:hover {
+            background-color: #c2185b;
+            box-shadow: 0 0 10px rgba(233, 30, 99, 0.5);
+        }
+        
+        .btn-outline {
+            background-color: transparent;
+            color: #e91e63;
+            border: 1px solid #e91e63;
+        }
+        
+        .btn-outline:hover {
+            background-color: #e91e63;
+            color: #ffffff;
+            box-shadow: 0 0 10px rgba(233, 30, 99, 0.5);
+        }
+        
+        /* 备份列表 */
+        .backup-list {
+            list-style: none;
+        }
+        
+        .backup-item {
+            padding: 15px;
+            border-bottom: 1px solid rgba(233, 30, 99, 0.2);
+            transition: all 0.3s ease;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .backup-item:hover {
+            background-color: rgba(233, 30, 99, 0.1);
+        }
+        
+        .backup-info {
+            flex: 1;
+        }
+        
+        .backup-time {
+            font-size: 12px;
+            color: #999;
+            margin-bottom: 5px;
+        }
+        
+        .backup-size {
+            font-size: 12px;
+            color: #b3b3b3;
+        }
+        
+        /* 响应式设计 */
+        @media (max-width: 768px) {
+            .container {
+                flex-direction: column;
+            }
+            
+            .sidebar {
+                width: 100%;
+                border-right: none;
+                border-bottom: 1px solid rgba(233, 30, 99, 0.3);
+            }
+            
+            .sidebar-nav {
+                display: flex;
+                overflow-x: auto;
+                gap: 10px;
+            }
+            
+            .nav-item {
+                margin-bottom: 0;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- 侧边栏 -->
+        <aside class="sidebar">
+            <div class="sidebar-brand">记忆胶囊</div>
+            <ul class="sidebar-nav">
+                <li class="nav-item">
+                    <a class="nav-link" href="/">仪表盘</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="/relationships">关系图谱</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="/memories">记忆宫殿</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link active" href="/settings">系统设置</a>
+                </li>
+            </ul>
+        </aside>
+        
+        <!-- 主内容区 -->
+        <main class="main-content">
+            <!-- 系统设置卡片 -->
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">系统设置</h2>
+                </div>
+                <div class="card-body">
+                    <form id="settings-form">
+                        <div class="form-group">
+                            <label class="form-label" for="webui-port">WebUI 端口</label>
+                            <input type="number" class="form-control" id="webui-port" value="5000" min="1024" max="65535">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="backup-interval">备份间隔 (小时)</label>
+                            <input type="number" class="form-control" id="backup-interval" value="24" min="1" max="168">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="backup-retention">备份保留数量</label>
+                            <input type="number" class="form-control" id="backup-retention" value="10" min="1" max="100">
+                        </div>
+                        <button type="submit" class="btn btn-primary">保存设置</button>
+                    </form>
+                </div>
+            </div>
+            
+            <!-- 备份管理卡片 -->
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">备份管理</h2>
+                </div>
+                <div class="card-body">
+                    <button class="btn btn-primary" onclick="createBackup()">创建备份</button>
+                    <ul class="backup-list" id="backup-list">
+                        <!-- 备份列表将通过JavaScript动态添加 -->
+                    </ul>
+                </div>
+            </div>
+        </main>
+    </div>
+    
+    <script>
+        // 加载设置
+        function loadSettings() {
+            // 这里可以从配置文件加载设置
+            // 暂时使用默认值
+        }
+        
+        // 保存设置
+        document.getElementById('settings-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const webuiPort = document.getElementById('webui-port').value;
+            const backupInterval = document.getElementById('backup-interval').value;
+            const backupRetention = document.getElementById('backup-retention').value;
+            
+            // 这里可以保存设置到配置文件
+            alert('设置已保存');
+        });
+        
+        // 创建备份
+        async function createBackup() {
+            try {
+                const response = await fetch('/api/backup');
+                const result = await response.json();
+                alert(result.result);
+                loadBackups();
+            } catch (error) {
+                console.error('创建备份失败:', error);
+                alert('创建备份失败');
+            }
+        }
+        
+        // 加载备份列表
+        async function loadBackups() {
+            try {
+                const response = await fetch('/api/backups');
+                const backups = await response.json();
+                
+                const backupList = document.getElementById('backup-list');
+                backupList.innerHTML = '';
+                
+                if (backups.length === 0) {
+                    backupList.innerHTML = '<li class="backup-item">暂无备份</li>';
+                    return;
+                }
+                
+                backups.forEach(backup => {
+                    const li = document.createElement('li');
+                    li.className = 'backup-item';
+                    li.innerHTML = `
+                        <div class="backup-info">
+                            <div class="backup-time">${backup.time}</div>
+                            <div class="backup-size">${backup.size}</div>
+                        </div>
+                        <button class="btn btn-outline" onclick="restoreBackup('${backup.filename}')">恢复</button>
+                        <button class="btn btn-outline" onclick="deleteBackup('${backup.filename}')">删除</button>
+                    `;
+                    backupList.appendChild(li);
+                });
+            } catch (error) {
+                console.error('加载备份列表失败:', error);
+            }
+        }
+        
+        // 恢复备份
+        async function restoreBackup(filename) {
+            if (!confirm('确定要从备份恢复吗？这将覆盖当前数据。')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/restore', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ filename: filename })
+                });
+                const result = await response.json();
+                alert(result.result);
+            } catch (error) {
+                console.error('恢复备份失败:', error);
+                alert('恢复备份失败');
+            }
+        }
+        
+        // 删除备份
+        async function deleteBackup(filename) {
+            if (!confirm('确定要删除这个备份吗？')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/backup/' + filename, {
+                    method: 'DELETE'
+                });
+                const result = await response.json();
+                alert(result.result);
+                loadBackups();
+            } catch (error) {
+                console.error('删除备份失败:', error);
+                alert('删除备份失败');
+            }
+        }
+        
+        // 页面加载时执行
+        window.onload = function() {
+            loadSettings();
+            loadBackups();
+        };
+    </script>
+</body>
+</html>

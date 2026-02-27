@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>记忆胶囊 - 关系图谱</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #ffffff;
+            background-color: #0a0a0a;
+            background-image: 
+                radial-gradient(circle at 25% 25%, rgba(233, 30, 99, 0.1) 0%, transparent 50%),
+                radial-gradient(circle at 75% 75%, rgba(156, 39, 176, 0.1) 0%, transparent 50%);
+            min-height: 100vh;
+        }
+        
+        .container {
+            display: flex;
+            min-height: 100vh;
+        }
+        
+        /* 侧边栏 */
+        .sidebar {
+            width: 250px;
+            background: linear-gradient(135deg, #1a0a1e 0%, #2d1b36 100%);
+            border-right: 1px solid rgba(233, 30, 99, 0.3);
+            padding: 20px;
+            box-shadow: 2px 0 10px rgba(233, 30, 99, 0.2);
+            position: relative;
+        }
+        
+        .sidebar::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: linear-gradient(to bottom, #e91e63, #9c27b0);
+        }
+        
+        .sidebar-brand {
+            font-size: 1.8rem;
+            font-weight: bold;
+            color: #ffffff;
+            text-align: center;
+            margin-bottom: 40px;
+            text-shadow: 0 0 10px rgba(233, 30, 99, 0.7);
+        }
+        
+        .sidebar-nav {
+            list-style: none;
+        }
+        
+        .nav-item {
+            margin-bottom: 10px;
+        }
+        
+        .nav-link {
+            display: block;
+            padding: 12px 15px;
+            color: #b3b3b3;
+            text-decoration: none;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .nav-link::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(233, 30, 99, 0.2), transparent);
+            transition: left 0.5s ease;
+        }
+        
+        .nav-link:hover::before {
+            left: 100%;
+        }
+        
+        .nav-link:hover {
+            color: #ffffff;
+            background-color: rgba(233, 30, 99, 0.2);
+            transform: translateX(5px);
+        }
+        
+        .nav-link.active {
+            color: #ffffff;
+            background-color: rgba(233, 30, 99, 0.3);
+            box-shadow: 0 0 10px rgba(233, 30, 99, 0.5);
+        }
+        
+        /* 主内容区 */
+        .main-content {
+            flex: 1;
+            padding: 30px;
+            overflow-y: auto;
+        }
+        
+        /* 卡片 */
+        .card {
+            background: linear-gradient(135deg, rgba(26, 10, 30, 0.8) 0%, rgba(45, 27, 54, 0.8) 100%);
+            border-radius: 12px;
+            border: 1px solid rgba(233, 30, 99, 0.3);
+            box-shadow: 0 4px 15px rgba(233, 30, 99, 0.2);
+            margin-bottom: 30px;
+            overflow: hidden;
+            backdrop-filter: blur(10px);
+        }
+        
+        .card-header {
+            padding: 20px;
+            border-bottom: 1px solid rgba(233, 30, 99, 0.3);
+            background: linear-gradient(90deg, rgba(233, 30, 99, 0.1), rgba(156, 39, 176, 0.1));
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .card-title {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #ffffff;
+            margin: 0;
+        }
+        
+        .card-body {
+            padding: 20px;
+        }
+        
+        /* 关系列表 */
+        .relationship-list {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        .relationship-list th,
+        .relationship-list td {
+            padding: 12px 15px;
+            text-align: left;
+            border-bottom: 1px solid rgba(233, 30, 99, 0.2);
+        }
+        
+        .relationship-list th {
+            background-color: rgba(233, 30, 99, 0.1);
+            font-weight: bold;
+            color: #ffffff;
+        }
+        
+        .relationship-list tr:hover {
+            background-color: rgba(233, 30, 99, 0.1);
+        }
+        
+        /* 好感度进度条 */
+        .intimacy-bar {
+            width: 100%;
+            height: 8px;
+            background-color: rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        
+        .intimacy-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #e91e63, #9c27b0);
+            border-radius: 4px;
+            transition: width 0.3s ease;
+        }
+        
+        /* 标签 */
+        .tag {
+            display: inline-block;
+            padding: 4px 12px;
+            margin-right: 8px;
+            margin-bottom: 8px;
+            background-color: rgba(233, 30, 99, 0.2);
+            border: 1px solid rgba(233, 30, 99, 0.3);
+            border-radius: 16px;
+            font-size: 12px;
+            color: #ffffff;
+        }
+        
+        /* 按钮 */
+        .btn {
+            display: inline-block;
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s ease;
+        }
+        
+        .btn-primary {
+            background-color: #e91e63;
+            color: #ffffff;
+        }
+        
+        .btn-primary:hover {
+            background-color: #c2185b;
+            box-shadow: 0 0 10px rgba(233, 30, 99, 0.5);
+        }
+        
+        .btn-outline {
+            background-color: transparent;
+            color: #e91e63;
+            border: 1px solid #e91e63;
+        }
+        
+        .btn-outline:hover {
+            background-color: #e91e63;
+            color: #ffffff;
+            box-shadow: 0 0 10px rgba(233, 30, 99, 0.5);
+        }
+        
+        /* 模态框 */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(5px);
+        }
+        
+        .modal-content {
+            background: linear-gradient(135deg, rgba(26, 10, 30, 0.95) 0%, rgba(45, 27, 54, 0.95) 100%);
+            margin: 15% auto;
+            padding: 30px;
+            border: 1px solid rgba(233, 30, 99, 0.3);
+            border-radius: 12px;
+            width: 80%;
+            max-width: 600px;
+            box-shadow: 0 0 30px rgba(233, 30, 99, 0.3);
+        }
+        
+        .modal-header {
+            padding-bottom: 20px;
+            border-bottom: 1px solid rgba(233, 30, 99, 0.3);
+            margin-bottom: 20px;
+        }
+        
+        .modal-title {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #ffffff;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        .form-label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+            color: #b3b3b3;
+        }
+        
+        .form-control {
+            width: 100%;
+            padding: 10px;
+            background-color: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(233, 30, 99, 0.3);
+            border-radius: 6px;
+            color: #ffffff;
+            font-size: 14px;
+        }
+        
+        .form-control:focus {
+            outline: none;
+            border-color: #e91e63;
+            box-shadow: 0 0 10px rgba(233, 30, 99, 0.3);
+        }
+        
+        textarea.form-control {
+            resize: vertical;
+            min-height: 120px;
+        }
+        
+        .modal-footer {
+            padding-top: 20px;
+            border-top: 1px solid rgba(233, 30, 99, 0.3);
+            margin-top: 20px;
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+        }
+        
+        /* 响应式设计 */
+        @media (max-width: 768px) {
+            .container {
+                flex-direction: column;
+            }
+            
+            .sidebar {
+                width: 100%;
+                border-right: none;
+                border-bottom: 1px solid rgba(233, 30, 99, 0.3);
+            }
+            
+            .sidebar-nav {
+                display: flex;
+                overflow-x: auto;
+                gap: 10px;
+            }
+            
+            .nav-item {
+                margin-bottom: 0;
+            }
+            
+            .relationship-list {
+                font-size: 14px;
+            }
+            
+            .relationship-list th,
+            .relationship-list td {
+                padding: 8px 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- 侧边栏 -->
+        <aside class="sidebar">
+            <div class="sidebar-brand">记忆胶囊</div>
+            <ul class="sidebar-nav">
+                <li class="nav-item">
+                    <a class="nav-link" href="/">仪表盘</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link active" href="/relationships">关系图谱</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="/memories">记忆宫殿</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="/settings">系统设置</a>
+                </li>
+            </ul>
+        </aside>
+        
+        <!-- 主内容区 -->
+        <main class="main-content">
+            <!-- 关系列表卡片 -->
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">关系图谱</h2>
+                    <button class="btn btn-primary" onclick="addRelationship()">添加关系</button>
+                </div>
+                <div class="card-body">
+                    <table class="relationship-list" id="relationship-list">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>昵称</th>
+                                <th>关系类型</th>
+                                <th>好感度</th>
+                                <th>印象标签</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- 关系数据将通过JavaScript动态添加 -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </main>
+    </div>
+    
+    <!-- 编辑模态框 -->
+    <div id="edit-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title">编辑关系</h3>
+            </div>
+            <form id="edit-form">
+                <input type="hidden" id="edit-user-id">
+                <div class="form-group">
+                    <label class="form-label" for="edit-nickname">昵称</label>
+                    <input type="text" class="form-control" id="edit-nickname">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="edit-relation-type">关系类型</label>
+                    <input type="text" class="form-control" id="edit-relation-type">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="edit-intimacy">好感度</label>
+                    <input type="number" class="form-control" id="edit-intimacy" min="0" max="100">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="edit-tags">印象标签 (逗号分隔)</label>
+                    <input type="text" class="form-control" id="edit-tags">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="edit-summary">核心印象</label>
+                    <textarea class="form-control" id="edit-summary"></textarea>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">初次见面信息</label>
+                    <div class="form-control" id="edit-first-met-info" style="background-color: rgba(255, 255, 255, 0.05); cursor: not-allowed;"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline" onclick="closeModal()">取消</button>
+                    <button type="submit" class="btn btn-primary">保存</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    <script>
+        let currentPage = 1;
+        const pageSize = 10;
+        
+        // 加载关系列表
+        async function loadRelationships(page = 1) {
+            try {
+                const response = await fetch(`/api/relationships?page=${page}&limit=${pageSize}`);
+                const data = await response.json();
+                const relationships = data.relationships;
+                
+                const tbody = document.querySelector('#relationship-list tbody');
+                tbody.innerHTML = '';
+                
+                if (relationships.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 20px;">暂无关系数据</td></tr>';
+                    return;
+                }
+                
+                relationships.forEach(relationship => {
+                    const tr = document.createElement('tr');
+                    
+                    // 处理标签
+                    let tagsHtml = '';
+                    if (relationship.tags) {
+                        const tags = relationship.tags.split(',');
+                        tags.forEach(tag => {
+                            tag = tag.trim();
+                            if (tag) {
+                                tagsHtml += `<span class="tag">${tag}</span>`;
+                            }
+                        });
+                    }
+                    
+                    // 处理初次见面信息
+                    let firstMetInfo = '';
+                    if (relationship.first_met_time) {
+                        firstMetInfo += `时间: ${relationship.first_met_time}<br>`;
+                    }
+                    if (relationship.first_met_location) {
+                        firstMetInfo += `地点: ${relationship.first_met_location}`;
+                    }
+                    
+                    tr.innerHTML = `
+                        <td>${relationship.user_id}</td>
+                        <td>${relationship.nickname || '未知'}</td>
+                        <td>${relationship.relation_type || '未知'}</td>
+                        <td>
+                            <div class="intimacy-bar">
+                                <div class="intimacy-fill" style="width: ${relationship.intimacy}%"></div>
+                            </div>
+                            <span style="font-size: 12px; color: #b3b3b3;">${relationship.intimacy}%</span>
+                        </td>
+                        <td>${tagsHtml || '无'}</td>
+                        <td>
+                            <button class="btn btn-outline" onclick="editRelationship('${relationship.user_id}')">编辑</button>
+                            <button class="btn btn-outline" onclick="deleteRelationship('${relationship.user_id}')">删除</button>
+                        </td>
+                    `;
+                    
+                    tbody.appendChild(tr);
+                });
+            } catch (error) {
+                console.error('加载关系列表失败:', error);
+            }
+        }
+        
+        // 编辑关系
+        async function editRelationship(userId) {
+            try {
+                const response = await fetch('/api/relationships/search?q=' + userId);
+                const relationships = await response.json();
+                
+                if (relationships.length > 0) {
+                    const relationship = relationships[0];
+                    
+                    // 填充表单
+                    document.getElementById('edit-user-id').value = relationship.user_id;
+                    document.getElementById('edit-nickname').value = relationship.nickname || '';
+                    document.getElementById('edit-relation-type').value = relationship.relation_type || '';
+                    document.getElementById('edit-intimacy').value = relationship.intimacy || 50;
+                    document.getElementById('edit-tags').value = relationship.tags || '';
+                    document.getElementById('edit-summary').value = relationship.summary || '';
+                    
+                    // 填充初次见面信息
+                    let firstMetInfo = '';
+                    if (relationship.first_met_time) {
+                        firstMetInfo += `时间: ${relationship.first_met_time}<br>`;
+                    }
+                    if (relationship.first_met_location) {
+                        firstMetInfo += `地点: ${relationship.first_met_location}`;
+                    }
+                    document.getElementById('edit-first-met-info').innerHTML = firstMetInfo || '无';
+                    
+                    // 显示模态框
+                    document.getElementById('edit-modal').style.display = 'block';
+                }
+            } catch (error) {
+                console.error('获取关系详情失败:', error);
+            }
+        }
+        
+        // 关闭模态框
+        function closeModal() {
+            document.getElementById('edit-modal').style.display = 'none';
+        }
+        
+        // 删除关系
+        async function deleteRelationship(userId) {
+            if (!confirm('确定要删除这条关系吗？')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/relationships/${userId}`, {
+                    method: 'DELETE'
+                });
+                const result = await response.json();
+                alert(result.result);
+                loadRelationships();
+            } catch (error) {
+                console.error('删除关系失败:', error);
+                alert('删除失败');
+            }
+        }
+        
+        // 添加关系
+        function addRelationship() {
+            // 清空表单
+            document.getElementById('edit-user-id').value = '';
+            document.getElementById('edit-nickname').value = '';
+            document.getElementById('edit-relation-type').value = '';
+            document.getElementById('edit-intimacy').value = 50;
+            document.getElementById('edit-tags').value = '';
+            document.getElementById('edit-summary').value = '';
+            document.getElementById('edit-first-met-info').innerHTML = '无';
+            
+            // 显示模态框
+            document.getElementById('edit-modal').style.display = 'block';
+        }
+        
+        // 提交编辑表单
+        document.getElementById('edit-form').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const userId = document.getElementById('edit-user-id').value;
+            const nickname = document.getElementById('edit-nickname').value;
+            const relationType = document.getElementById('edit-relation-type').value;
+            const intimacy = parseInt(document.getElementById('edit-intimacy').value);
+            const tags = document.getElementById('edit-tags').value;
+            const summary = document.getElementById('edit-summary').value;
+            
+            try {
+                const response = await fetch('/api/relationships', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        user_id: userId || prompt('请输入用户ID'),
+                        nickname: nickname,
+                        relation_type: relationType,
+                        tags_update: tags,
+                        summary_update: summary,
+                        intimacy_change: userId ? intimacy - (await getCurrentIntimacy(userId)) : intimacy - 50
+                    })
+                });
+                
+                const result = await response.json();
+                alert(result.result);
+                closeModal();
+                loadRelationships();
+            } catch (error) {
+                console.error('保存关系失败:', error);
+                alert('保存失败');
+            }
+        });
+        
+        // 获取当前好感度
+        async function getCurrentIntimacy(userId) {
+            try {
+                const response = await fetch('/api/relationships/search?q=' + userId);
+                const relationships = await response.json();
+                if (relationships.length > 0) {
+                    return relationships[0].intimacy || 50;
+                }
+                return 50;
+            } catch (error) {
+                console.error('获取好感度失败:', error);
+                return 50;
+            }
+        }
+        
+        // 点击模态框外部关闭
+        window.onclick = function(event) {
+            const modal = document.getElementById('edit-modal');
+            if (event.target === modal) {
+                closeModal();
+            }
+        }
+        
+        // 页面加载时执行
+        window.onload = function() {
+            loadRelationships();
+        };
+    </script>
+</body>
+</html>

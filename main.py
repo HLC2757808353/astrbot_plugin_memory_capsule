@@ -91,96 +91,93 @@ class MemoryCapsulePlugin(Star):
         
         logger.info("记忆胶囊插件已关闭")
 
-    @filter.llm_tool(name="store_memory")
-    async def store_memory(self, event: AstrMessageEvent, content: str, metadata: dict = None):
+    @filter.llm_tool(name="update_relationship")
+    async def update_relationship(self, event: AstrMessageEvent, user_id: str, relation_type: str = None, tags_update: str = None, summary_update: str = None, intimacy_change: int = 0):
         """
-        存储记忆到记忆胶囊
+        更新对某人的印象或关系
         
         Args:
-            content(string): 记忆内容，固定为字符串类型
-            metadata(dict): 元数据，用于存储额外信息，如标签、关键词等
-            
-        Returns:
-            string: 存储结果
-        """
-        try:
-            import asyncio
-            result = await asyncio.to_thread(self.db_manager.store_plugin_data, content, metadata)
-            logger.info("存储记忆成功")
-            return result
-        except Exception as e:
-            logger.error(f"存储记忆失败: {e}")
-            return f"存储失败: {e}"
-
-    @filter.llm_tool(name="query_memory")
-    async def query_memory(self, event: AstrMessageEvent, query_keyword: str, data_type: str = None):
-        """
-        查询记忆胶囊中的记忆
-        
-        Args:
-            query_keyword(string): 查询关键词
-            data_type(string): 数据类型，默认为None
-            
-        Returns:
-            list: 查询结果列表
-        """
-        try:
-            import asyncio
-            results = await asyncio.to_thread(self.db_manager.query_plugin_data, query_keyword, data_type)
-            logger.info(f"查询记忆成功，找到 {len(results)} 条结果")
-            return results
-        except Exception as e:
-            logger.error(f"查询记忆失败: {e}")
-            return []
-
-    @filter.llm_tool(name="update_relation")
-    async def update_relation(self, event: AstrMessageEvent, user_id: str, group_id: str, platform: str = "qq", nickname: str = None, nicknames: list = None, first_meet_group: str = None, first_meet_time: str = None, favor_change: int = 0, relationship: str = None, remark: str = None):
-        """
-        更新用户关系
-        
-        Args:
-            user_id(string): 用户ID
-            group_id(string): 群组ID
-            platform(string): 平台，默认为"qq"
-            nickname(string): 昵称，默认为None
-            nicknames(list): 昵称数组，默认为None
-            first_meet_group(string): 初次见面群组，默认为None
-            first_meet_time(string): 初次见面时间，默认为None
-            favor_change(int): 好感度变化，默认为0
-            relationship(string): 关系，默认为None
-            remark(string): 备注，默认为None
+            user_id(string): 目标用户 ID
+            relation_type(string, 可选): 新的关系定义
+            tags_update(string, 可选): 新的标签 (会覆盖旧的)
+            summary_update(string, 可选): 新的印象总结 (会覆盖旧的)
+            intimacy_change(int, 可选): 好感度变化值 (如 +5, -10)
             
         Returns:
             string: 更新结果
         """
         try:
             import asyncio
-            result = await asyncio.to_thread(self.db_manager.update_relation, user_id, group_id, platform, nickname, nicknames, first_meet_group, first_meet_time, favor_change, relationship, remark)
-            logger.info(f"更新关系成功: {user_id}@{group_id}@{platform}")
+            result = await asyncio.to_thread(self.db_manager.update_relationship, user_id, relation_type, tags_update, summary_update, intimacy_change)
+            logger.info(f"更新关系成功: {user_id}")
             return result
         except Exception as e:
             logger.error(f"更新关系失败: {e}")
             return f"更新失败: {e}"
 
-    @filter.llm_tool(name="query_relation")
-    async def query_relation(self, event: AstrMessageEvent, query_keyword: str):
+    @filter.llm_tool(name="write_memory")
+    async def write_memory(self, event: AstrMessageEvent, content: str, category: str = "日常", tags: str = "", target_user_id: str = None):
         """
-        查询用户关系
+        记下一个永久知识点
         
         Args:
-            query_keyword(string): 查询关键词
+            content(string): 要记住的内容
+            category(string): 分类 (默认 "日常")
+            tags(string): 标签 (逗号分隔)
+            target_user_id(string, 可选): 如果是关于特定人的记忆，填这里
             
         Returns:
-            list: 查询结果列表
+            string: 存储结果
         """
         try:
             import asyncio
-            results = await asyncio.to_thread(self.db_manager.query_relation, query_keyword)
-            logger.info(f"查询关系成功，找到 {len(results)} 条结果")
+            result = await asyncio.to_thread(self.db_manager.write_memory, content, category, tags, target_user_id)
+            logger.info("存储记忆成功")
+            return result
+        except Exception as e:
+            logger.error(f"存储记忆失败: {e}")
+            return f"存储失败: {e}"
+
+    @filter.llm_tool(name="search_memory")
+    async def search_memory(self, event: AstrMessageEvent, query: str, target_user_id: str = None):
+        """
+        搜索过去的记忆
+        
+        Args:
+            query(string): 搜索关键词或句子
+            target_user_id(string, 可选): 限定搜索某人的相关记忆
+            
+        Returns:
+            list: 搜索结果列表
+        """
+        try:
+            import asyncio
+            results = await asyncio.to_thread(self.db_manager.search_memory, query, target_user_id)
+            logger.info(f"搜索记忆成功，找到 {len(results)} 条结果")
             return results
         except Exception as e:
-            logger.error(f"查询关系失败: {e}")
+            logger.error(f"搜索记忆失败: {e}")
             return []
+
+    @filter.llm_tool(name="delete_memory")
+    async def delete_memory(self, event: AstrMessageEvent, memory_id: int):
+        """
+        遗忘某条记忆
+        
+        Args:
+            memory_id(int): 记忆的 ID (通常 AI 需要先搜到才能删)
+            
+        Returns:
+            string: 删除结果
+        """
+        try:
+            import asyncio
+            result = await asyncio.to_thread(self.db_manager.delete_memory, memory_id)
+            logger.info(f"删除记忆成功: ID={memory_id}")
+            return result
+        except Exception as e:
+            logger.error(f"删除记忆失败: {e}")
+            return f"删除失败: {e}"
 
     @filter.llm_tool(name="get_all_memories")
     async def get_all_memories(self, event: AstrMessageEvent, limit: int = 100):
@@ -195,15 +192,15 @@ class MemoryCapsulePlugin(Star):
         """
         try:
             import asyncio
-            results = await asyncio.to_thread(self.db_manager.get_all_plugin_data, limit)
+            results = await asyncio.to_thread(self.db_manager.get_all_memories, limit)
             logger.info(f"获取所有记忆成功，找到 {len(results)} 条结果")
             return results
         except Exception as e:
             logger.error(f"获取所有记忆失败: {e}")
             return []
 
-    @filter.llm_tool(name="get_all_relations")
-    async def get_all_relations(self, event: AstrMessageEvent):
+    @filter.llm_tool(name="get_all_relationships")
+    async def get_all_relationships(self, event: AstrMessageEvent):
         """
         获取所有关系
         
@@ -212,49 +209,28 @@ class MemoryCapsulePlugin(Star):
         """
         try:
             import asyncio
-            results = await asyncio.to_thread(self.db_manager.get_all_relations)
+            results = await asyncio.to_thread(self.db_manager.get_all_relationships)
             logger.info(f"获取所有关系成功，找到 {len(results)} 条结果")
             return results
         except Exception as e:
             logger.error(f"获取所有关系失败: {e}")
             return []
 
-    @filter.llm_tool(name="delete_memory")
-    async def delete_memory(self, event: AstrMessageEvent, data_id: int):
-        """
-        删除记忆
-        
-        Args:
-            data_id(int): 数据ID
-            
-        Returns:
-            string: 删除结果
-        """
-        try:
-            import asyncio
-            result = await asyncio.to_thread(self.db_manager.delete_plugin_data, data_id)
-            logger.info(f"删除记忆成功: ID={data_id}")
-            return result
-        except Exception as e:
-            logger.error(f"删除记忆失败: {e}")
-            return f"删除失败: {e}"
-
-    @filter.llm_tool(name="delete_relation")
-    async def delete_relation(self, event: AstrMessageEvent, user_id: str, platform: str = "qq"):
+    @filter.llm_tool(name="delete_relationship")
+    async def delete_relationship(self, event: AstrMessageEvent, user_id: str):
         """
         删除关系
         
         Args:
             user_id(string): 用户ID
-            platform(string): 平台，默认为"qq"
             
         Returns:
             string: 删除结果
         """
         try:
             import asyncio
-            result = await asyncio.to_thread(self.db_manager.delete_relation, user_id, platform)
-            logger.info(f"删除关系成功: {user_id}@{platform}")
+            result = await asyncio.to_thread(self.db_manager.delete_relationship, user_id)
+            logger.info(f"删除关系成功: {user_id}")
             return result
         except Exception as e:
             logger.error(f"删除关系失败: {e}")

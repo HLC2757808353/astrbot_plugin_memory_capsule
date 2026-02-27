@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>记忆胶囊 - 首页</title>
+    <title>记忆胶囊 - 主页</title>
     <style>
         * {
             box-sizing: border-box;
@@ -12,367 +12,325 @@
         }
         
         body {
-            font-family: Arial, sans-serif;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             line-height: 1.6;
-            color: #333;
-            background-color: #fdf5f7;
-            padding-top: 20px;
+            color: #ffffff;
+            background-color: #0a0a0a;
+            background-image: 
+                radial-gradient(circle at 25% 25%, rgba(233, 30, 99, 0.1) 0%, transparent 50%),
+                radial-gradient(circle at 75% 75%, rgba(156, 39, 176, 0.1) 0%, transparent 50%);
+            min-height: 100vh;
         }
         
         .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 0 20px;
-        }
-        
-        /* 导航栏 */
-        .navbar {
-            background-color: #ffffff;
-            border-radius: 12px;
-            box-shadow: 0 4px 8px rgba(255, 182, 193, 0.2);
-            margin-bottom: 20px;
-            padding: 15px;
-        }
-        
-        .navbar-brand {
-            font-size: 1.5rem;
-            font-weight: bold;
-            color: #e91e63;
-            text-decoration: none;
-        }
-        
-        .navbar-nav {
-            list-style: none;
             display: flex;
-            gap: 20px;
-            margin-top: 10px;
+            min-height: 100vh;
+        }
+        
+        /* 侧边栏 */
+        .sidebar {
+            width: 250px;
+            background: linear-gradient(135deg, #1a0a1e 0%, #2d1b36 100%);
+            border-right: 1px solid rgba(233, 30, 99, 0.3);
+            padding: 20px;
+            box-shadow: 2px 0 10px rgba(233, 30, 99, 0.2);
+            position: relative;
+        }
+        
+        .sidebar::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: linear-gradient(to bottom, #e91e63, #9c27b0);
+        }
+        
+        .sidebar-brand {
+            font-size: 1.8rem;
+            font-weight: bold;
+            color: #ffffff;
+            text-align: center;
+            margin-bottom: 40px;
+            text-shadow: 0 0 10px rgba(233, 30, 99, 0.7);
+        }
+        
+        .sidebar-nav {
+            list-style: none;
         }
         
         .nav-item {
-            display: inline;
+            margin-bottom: 10px;
         }
         
         .nav-link {
-            color: #666;
+            display: block;
+            padding: 12px 15px;
+            color: #b3b3b3;
             text-decoration: none;
-            font-weight: 500;
-            padding: 8px 15px;
-            border-radius: 20px;
+            border-radius: 8px;
             transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .nav-link::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(233, 30, 99, 0.2), transparent);
+            transition: left 0.5s ease;
+        }
+        
+        .nav-link:hover::before {
+            left: 100%;
         }
         
         .nav-link:hover {
-            color: #e91e63;
-            background-color: #fff0f5;
+            color: #ffffff;
+            background-color: rgba(233, 30, 99, 0.2);
+            transform: translateX(5px);
         }
         
         .nav-link.active {
-            color: #e91e63;
-            font-weight: bold;
-            background-color: #ffe6f0;
+            color: #ffffff;
+            background-color: rgba(233, 30, 99, 0.3);
+            box-shadow: 0 0 10px rgba(233, 30, 99, 0.5);
+        }
+        
+        /* 主内容区 */
+        .main-content {
+            flex: 1;
+            padding: 30px;
+            overflow-y: auto;
         }
         
         /* 卡片 */
         .card {
-            background-color: #ffffff;
+            background: linear-gradient(135deg, rgba(26, 10, 30, 0.8) 0%, rgba(45, 27, 54, 0.8) 100%);
             border-radius: 12px;
-            box-shadow: 0 4px 12px rgba(255, 182, 193, 0.2);
-            margin-bottom: 20px;
+            border: 1px solid rgba(233, 30, 99, 0.3);
+            box-shadow: 0 4px 15px rgba(233, 30, 99, 0.2);
+            margin-bottom: 30px;
             overflow: hidden;
+            backdrop-filter: blur(10px);
         }
         
         .card-header {
-            padding: 15px 20px;
-            color: #ffffff;
+            padding: 20px;
+            border-bottom: 1px solid rgba(233, 30, 99, 0.3);
+            background: linear-gradient(90deg, rgba(233, 30, 99, 0.1), rgba(156, 39, 176, 0.1));
+        }
+        
+        .card-title {
+            font-size: 1.5rem;
             font-weight: bold;
-            border-radius: 12px 12px 0 0;
-        }
-        
-        .card-header.bg-primary {
-            background-color: #e91e63;
-        }
-        
-        .card-header.bg-success {
-            background-color: #28a745;
-        }
-        
-        .card-header.bg-info {
-            background-color: #17a2b8;
+            color: #ffffff;
+            margin: 0;
         }
         
         .card-body {
             padding: 20px;
         }
         
-        /* 行和列 */
-        .row {
-            display: flex;
-            flex-wrap: wrap;
+        /* 仪表盘 */
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
             gap: 20px;
-            margin-bottom: 20px;
+            margin-bottom: 30px;
         }
         
-        .col-md-4,
-        .col-md-6 {
-            flex: 1;
-            min-width: 300px;
-        }
-        
-        /* 按钮 */
-        .btn {
-            display: inline-block;
-            padding: 10px 20px;
-            border: none;
-            border-radius: 25px;
-            cursor: pointer;
-            font-size: 14px;
-            font-weight: 500;
-            text-decoration: none;
-            transition: all 0.3s ease;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        
-        .btn-primary {
-            background-color: #e91e63;
-            color: #ffffff;
-        }
-        
-        .btn-primary:hover {
-            background-color: #c2185b;
-            transform: translateY(-2px);
-            box-shadow: 0 4px 8px rgba(233, 30, 99, 0.3);
-        }
-        
-        .btn-success {
-            background-color: #4caf50;
-            color: #ffffff;
-        }
-        
-        .btn-success:hover {
-            background-color: #388e3c;
-            transform: translateY(-2px);
-            box-shadow: 0 4px 8px rgba(76, 175, 80, 0.3);
-        }
-        
-        .btn-info {
-            background-color: #00bcd4;
-            color: #ffffff;
-        }
-        
-        .btn-info:hover {
-            background-color: #00acc1;
-            transform: translateY(-2px);
-            box-shadow: 0 4px 8px rgba(0, 188, 212, 0.3);
-        }
-        
-        .btn-danger {
-            background-color: #f44336;
-            color: #ffffff;
-        }
-        
-        .btn-danger:hover {
-            background-color: #d32f2f;
-            transform: translateY(-2px);
-            box-shadow: 0 4px 8px rgba(244, 67, 54, 0.3);
-        }
-        
-        /* 表单 */
-        .form-group {
-            margin-bottom: 15px;
-        }
-        
-        .form-label {
-            display: block;
-            margin-bottom: 8px;
-            font-weight: 500;
-            color: #666;
-        }
-        
-        .form-control {
-            width: 100%;
-            padding: 12px 16px;
-            border: 2px solid #f0c8d2;
+        .stat-card {
+            background: linear-gradient(135deg, rgba(233, 30, 99, 0.1) 0%, rgba(156, 39, 176, 0.1) 100%);
             border-radius: 12px;
-            font-size: 14px;
+            border: 1px solid rgba(233, 30, 99, 0.3);
+            padding: 20px;
+            text-align: center;
             transition: all 0.3s ease;
-            background-color: #ffffff;
         }
         
-        .form-control:focus {
-            outline: none;
-            border-color: #e91e63;
-            box-shadow: 0 0 0 3px rgba(233, 30, 99, 0.1);
+        .stat-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 20px rgba(233, 30, 99, 0.3);
         }
         
-        textarea.form-control {
-            resize: vertical;
-            min-height: 100px;
+        .stat-value {
+            font-size: 2.5rem;
+            font-weight: bold;
+            color: #e91e63;
+            margin-bottom: 10px;
+            text-shadow: 0 0 10px rgba(233, 30, 99, 0.7);
         }
         
-        /* 代码块 */
-        pre {
-            background-color: #f8f9fa;
-            border: 1px solid #e9ecef;
-            border-radius: 4px;
+        .stat-label {
+            font-size: 1rem;
+            color: #b3b3b3;
+        }
+        
+        /* 最近活动 */
+        .activity-list {
+            list-style: none;
+        }
+        
+        .activity-item {
             padding: 15px;
-            overflow-x: auto;
-            font-family: 'Courier New', Courier, monospace;
-            font-size: 14px;
+            border-bottom: 1px solid rgba(233, 30, 99, 0.2);
+            transition: all 0.3s ease;
         }
         
-        /* 统计信息 */
-        #storage-stats {
-            background-color: #f8f9fa;
-            padding: 15px;
-            border-radius: 4px;
+        .activity-item:hover {
+            background-color: rgba(233, 30, 99, 0.1);
+        }
+        
+        .activity-time {
+            font-size: 0.9rem;
+            color: #999;
+            margin-bottom: 5px;
+        }
+        
+        .activity-content {
+            color: #ffffff;
         }
         
         /* 响应式设计 */
         @media (max-width: 768px) {
-            .row {
+            .container {
                 flex-direction: column;
             }
             
-            .col-md-4,
-            .col-md-6 {
+            .sidebar {
                 width: 100%;
+                border-right: none;
+                border-bottom: 1px solid rgba(233, 30, 99, 0.3);
+            }
+            
+            .sidebar-nav {
+                display: flex;
+                overflow-x: auto;
+                gap: 10px;
+            }
+            
+            .nav-item {
+                margin-bottom: 0;
+            }
+            
+            .dashboard-grid {
+                grid-template-columns: 1fr;
             }
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <nav class="navbar">
-            <a class="navbar-brand" href="/">记忆胶囊</a>
-            <ul class="navbar-nav">
+        <!-- 侧边栏 -->
+        <aside class="sidebar">
+            <div class="sidebar-brand">记忆胶囊</div>
+            <ul class="sidebar-nav">
                 <li class="nav-item">
-                    <a class="nav-link active" href="/">首页</a>
+                    <a class="nav-link active" href="/">仪表盘</a>
                 </li>
                 <li class="nav-item">
-                    <a class="nav-link" href="/notes">本本管理</a>
+                    <a class="nav-link" href="/relationships">关系图谱</a>
                 </li>
                 <li class="nav-item">
-                    <a class="nav-link" href="/relations">关系管理</a>
+                    <a class="nav-link" href="/memories">记忆宫殿</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="/settings">系统设置</a>
                 </li>
             </ul>
-        </nav>
-
-        <div class="card">
-            <div class="card-header bg-primary">
-                <h3>系统状态</h3>
-            </div>
-            <div class="card-body">
-                <div class="row">
-                    <div class="col-md-6">
-                        <h5>记忆胶囊插件</h5>
-                        <p>版本: {{ version }}</p>
-                        <p>状态: 运行中</p>
-                    </div>
-                    <div class="col-md-6">
-                        <h5>存储统计</h5>
-                        <div id="storage-stats">
-                            <p>加载中...</p>
+        </aside>
+        
+        <!-- 主内容区 -->
+        <main class="main-content">
+            <!-- 仪表盘卡片 -->
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">数据概览</h2>
+                </div>
+                <div class="card-body">
+                    <div class="dashboard-grid">
+                        <div class="stat-card">
+                            <div class="stat-value" id="total-memories">0</div>
+                            <div class="stat-label">总记忆数</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value" id="total-relationships">0</div>
+                            <div class="stat-label">总关系数</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value" id="total-categories">0</div>
+                            <div class="stat-label">分类数</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value" id="total-tags">0</div>
+                            <div class="stat-label">标签数</div>
                         </div>
                     </div>
                 </div>
             </div>
-        </div>
-
-        <div class="card">
-            <div class="card-header bg-success">
-                <h3>快速操作</h3>
-            </div>
-            <div class="card-body">
-                <div class="row">
-                    <div class="col-md-4">
-                        <div class="card">
-                            <div class="card-body">
-                                <h5>添加本本</h5>
-                        <p>快速添加一条新本本到记忆胶囊</p>
-                        <a href="/notes" class="btn btn-primary">前往</a>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-md-4">
-                        <div class="card">
-                            <div class="card-body">
-                                <h5>查看关系</h5>
-                                <p>查看和管理所有关系记录</p>
-                                <a href="/relations" class="btn btn-success">前往</a>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-md-4">
-                        <div class="card">
-                            <div class="card-body">
-                                <h5>插件接口</h5>
-                                <p>查看其他插件如何使用记忆胶囊</p>
-                                <button class="btn btn-info" onclick="showApiInfo()">查看</button>
-                            </div>
-                        </div>
-                    </div>
+            
+            <!-- 最近活动卡片 -->
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">最近活动</h2>
+                </div>
+                <div class="card-body">
+                    <ul class="activity-list" id="activity-list">
+                        <li class="activity-item">
+                            <div class="activity-time">2026-02-27 10:30</div>
+                            <div class="activity-content">添加了新的记忆</div>
+                        </li>
+                        <li class="activity-item">
+                            <div class="activity-time">2026-02-27 09:15</div>
+                            <div class="activity-content">更新了用户关系</div>
+                        </li>
+                        <li class="activity-item">
+                            <div class="activity-time">2026-02-26 18:45</div>
+                            <div class="activity-content">删除了一条记忆</div>
+                        </li>
+                    </ul>
                 </div>
             </div>
-        </div>
-
-        <div class="card">
-            <div class="card-header bg-info">
-                <h3>使用说明</h3>
-            </div>
-            <div class="card-body">
-                <h5>其他插件如何使用记忆胶囊</h5>
-                <pre># 导入记忆胶囊接口
-from astrbot_plugin_memory_capsule import store_plugin_data
-
-# 存储数据
-result = store_plugin_data(
-    content="数据内容",
-    metadata={"key": "value"}
-)
-print(result)</pre>
-                
-                <h5 style="margin-top: 20px;">用户如何测试记忆胶囊</h5>
-                <pre># 在聊天中发送
-/memory test
-
-# 查看状态
-/memory status</pre>
-            </div>
-        </div>
+        </main>
     </div>
-
+    
     <script>
-        // 加载存储统计
-        async function loadStorageStats() {
+        // 加载数据
+        async function loadDashboardData() {
             try {
-                const response = await fetch('/api/notes');
-                const notesData = await response.json();
-                const notesCount = notesData.notes ? notesData.notes.length : 0;
+                // 获取记忆总数
+                const memoriesResponse = await fetch('/api/memories');
+                const memoriesData = await memoriesResponse.json();
+                document.getElementById('total-memories').textContent = memoriesData.total;
                 
-                const response2 = await fetch('/api/relations');
-                const relationsData = await response2.json();
-                const relationsCount = relationsData.relations ? relationsData.relations.length : 0;
+                // 获取关系总数
+                const relationshipsResponse = await fetch('/api/relationships');
+                const relationshipsData = await relationshipsResponse.json();
+                document.getElementById('total-relationships').textContent = relationshipsData.total;
                 
-                const statsHtml = `
-                    <p>笔记数量: ${notesCount}</p>
-                    <p>关系数量: ${relationsCount}</p>
-                    <p>总存储记录: ${notesCount + relationsCount}</p>
-                `;
-                document.getElementById('storage-stats').innerHTML = statsHtml;
+                // 获取分类数
+                const categoriesResponse = await fetch('/api/categories');
+                const categories = await categoriesResponse.json();
+                document.getElementById('total-categories').textContent = categories.length;
+                
+                // 获取标签数
+                const tagsResponse = await fetch('/api/tags');
+                const tags = await tagsResponse.json();
+                document.getElementById('total-tags').textContent = tags.length;
             } catch (error) {
-                console.error('加载统计失败:', error);
-                document.getElementById('storage-stats').innerHTML = '<p>加载失败</p>';
+                console.error('加载仪表盘数据失败:', error);
             }
         }
-
-        // 显示API信息
-        function showApiInfo() {
-            alert(`记忆胶囊API接口:\n\n1. store_plugin_data(content, metadata) - 存储笔记数据\n2. query_plugin_data(query_keyword, data_type) - 查询笔记数据\n3. get_memory_manager() - 获取记忆管理器实例`);
-        }
-
+        
         // 页面加载时执行
         window.onload = function() {
-            loadStorageStats();
+            loadDashboardData();
         };
     </script>
 </body>

@@ -3,7 +3,14 @@ import shutil
 import datetime
 import time
 import threading
-from astrbot.api import logger
+
+# 容错处理
+try:
+    from astrbot.api import logger
+except ImportError:
+    import logging
+    logger = logging.getLogger(__name__)
+    logging.basicConfig(level=logging.INFO)
 
 class BackupManager:
     def __init__(self, db_path, config=None):
