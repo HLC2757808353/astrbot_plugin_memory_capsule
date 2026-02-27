@@ -92,7 +92,7 @@ class MemoryCapsulePlugin(Star):
         logger.info("记忆胶囊插件已关闭")
 
     @filter.llm_tool(name="update_relationship")
-    async def update_relationship(self, event: AstrMessageEvent, user_id: str, relation_type: str = None, tags_update: str = None, summary_update: str = None, intimacy_change: int = 0):
+    async def update_relationship(self, event: AstrMessageEvent, user_id: str, relation_type: str | None = None, tags_update: str | None = None, summary_update: str | None = None, intimacy_change: int = 0):
         """
         更新对某人的印象或关系
         
@@ -122,7 +122,7 @@ class MemoryCapsulePlugin(Star):
             return f"更新失败: {e}"
 
     @filter.llm_tool(name="write_memory")
-    async def write_memory(self, event: AstrMessageEvent, content: str, category: str = "日常", tags: str = "", target_user_id: str = None):
+    async def write_memory(self, event: AstrMessageEvent, content: str, category: str = "日常", tags: str = "", target_user_id: str | None = None):
         """
         记下一个永久知识点
         
@@ -150,7 +150,7 @@ class MemoryCapsulePlugin(Star):
             return f"存储失败: {e}"
 
     @filter.llm_tool(name="search_memory")
-    async def search_memory(self, event: AstrMessageEvent, query: str, target_user_id: str = None):
+    async def search_memory(self, event: AstrMessageEvent, query: str, target_user_id: str | None = None):
         """
         搜索过去的记忆
         
