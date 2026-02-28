@@ -15,6 +15,14 @@
     "editable": true,
     "display_name": "备份最大数量"
   },
+  "webui_port": {
+    "description": "WebUI服务端口",
+    "type": "int",
+    "default": 5000,
+    "hint": "设置WebUI服务的端口号，默认5000",
+    "editable": true,
+    "display_name": "WebUI端口"
+  },
   "context_inject_position": {
     "description": "关系信息注入位置",
     "type": "string",
