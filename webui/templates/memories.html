@@ -550,17 +550,6 @@
                                 <option value="Web">Web</option>
                             </select>
                         </div>
-                        <div class="filter-group">
-                            <label class="filter-label">分类</label>
-                            <select class="filter-control" id="category-filter">
-                                <option value="">全部</option>
-                                <option value="社交">社交</option>
-                                <option value="知识">知识</option>
-                                <option value="娱乐">娱乐</option>
-                                <option value="日记">日记</option>
-                                <option value="日常">日常</option>
-                            </select>
-                        </div>
                         <div class="filter-group search-box">
                             <label class="filter-label">搜索</label>
                             <div style="display: flex; align-items: center; gap: 10px;">
@@ -627,12 +616,8 @@
         async function loadMemories(page = 1) {
             try {
                 const source = document.getElementById('source-filter').value;
-                const category = document.getElementById('category-filter').value;
                 
                 let url = `/api/memories?page=${page}&limit=${pageSize}`;
-                if (category) {
-                    url += `&category=${encodeURIComponent(category)}`;
-                }
                 
                 const response = await fetch(url);
                 const data = await response.json();
@@ -900,7 +885,6 @@
         async function searchMemories() {
             const query = document.getElementById('search-box').value;
             const source = document.getElementById('source-filter').value;
-            const category = document.getElementById('category-filter').value;
             
             try {
                 let url = `/api/memories`;
@@ -921,9 +905,6 @@
                 // 如果没有搜索结果或没有搜索词，使用分页接口
                 params.append('page', 1);
                 params.append('limit', 100); // 显示更多结果
-                if (category) {
-                    params.append('category', category);
-                }
                 
                 const response = await fetch(`${url}?${params.toString()}`);
                 const data = await response.json();

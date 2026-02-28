@@ -1,20 +1,4 @@
 {
-  "webui_port": {
-    "description": "WebUI服务端口号",
-    "type": "int",
-    "default": 5000,
-    "hint": "请输入WebUI服务的端口号，默认5000",
-    "editable": true,
-    "display_name": "WebUI端口"
-  },
-  "backup_enabled": {
-    "description": "是否启用自动备份",
-    "type": "bool",
-    "default": true,
-    "hint": "启用后会自动定期备份数据库",
-    "editable": true,
-    "display_name": "启用自动备份"
-  },
   "backup_interval": {
     "description": "自动备份间隔（小时）",
     "type": "int",
@@ -23,37 +7,13 @@
     "editable": true,
     "display_name": "备份间隔"
   },
-  "backup_hourly": {
-    "description": "保留最近几小时的备份",
+  "backup_max_count": {
+    "description": "备份最大数量",
     "type": "int",
-    "default": 24,
-    "hint": "保留最近多少小时的每小时备份",
+    "default": 10,
+    "hint": "设置备份文件的最大数量，超过后会自动清理旧备份",
     "editable": true,
-    "display_name": "小时备份保留数"
-  },
-  "backup_daily": {
-    "description": "保留最近几天的备份",
-    "type": "int",
-    "default": 7,
-    "hint": "保留最近多少天的每天备份",
-    "editable": true,
-    "display_name": "天备份保留数"
-  },
-  "backup_weekly": {
-    "description": "保留最近几周的备份",
-    "type": "int",
-    "default": 4,
-    "hint": "保留最近多少周的每周备份",
-    "editable": true,
-    "display_name": "周备份保留数"
-  },
-  "backup_monthly": {
-    "description": "保留最近几个月的备份",
-    "type": "int",
-    "default": 12,
-    "hint": "保留最近多少个月的每月备份",
-    "editable": true,
-    "display_name": "月备份保留数"
+    "display_name": "备份最大数量"
   },
   "context_inject_position": {
     "description": "关系信息注入位置",

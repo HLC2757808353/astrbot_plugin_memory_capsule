@@ -388,21 +388,8 @@ class MemoryCapsulePlugin(Star):
                 relation_type = user_relation['relation_type'] or '未知'
                 summary = user_relation['summary'] or '无'
                 
-                # 构建对象数据格式
-                relation_data = {
-                    "user_id": user_relation['user_id'],
-                    "nickname": nickname,
-                    "relation_type": relation_type,
-                    "intimacy": user_relation['intimacy'],
-                    "first_met_time": first_met_time,
-                    "first_met_location": first_met_location,
-                    "known_contexts": known_contexts,
-                    "summary": summary
-                }
-                
-                # 注入到系统提示词
-                import json
-                relation_context = f"\n\n[关系信息]\n{json.dumps(relation_data, ensure_ascii=False)}\n[关系信息]"
+                # 构建关系信息格式
+                relation_context = f"\n\n<Relationship> 当前关系状态：\n- 用户ID: {user_relation['user_id']}\n- 昵称: {nickname}\n- 关系类型: {relation_type}\n- 好感度: {user_relation['intimacy']}\n- 初次见面时间: {first_met_time}\n- 初次见面地点: {first_met_location}\n- 认识群组: {known_contexts}\n- 核心印象: {summary}\n</Relationship>\n"
                 
                 # 检查配置，确定注入位置
                 inject_to = self.config.get('context_inject_position', 'system')
