@@ -68,8 +68,9 @@ class MemoryCapsulePlugin(Star):
             
             from .webui.server import WebUIServer
             self.webui_server = WebUIServer(self.db_manager, port=self.webui_port)
-            self.webui_thread = threading.Thread(target=self.webui_server.run, daemon=True, name='WebUI Server')
-            self.webui_thread.start()
+            # 设置 server_thread 属性，确保 stop 方法能够正确识别线程
+            self.webui_server.server_thread = threading.Thread(target=self.webui_server.run, daemon=True, name='WebUI Server')
+            self.webui_server.server_thread.start()
             logger.info(f"WebUI服务已启动，端口: {self.webui_port}")
         except Exception as e:
             logger.error(f"启动WebUI服务失败: {e}")
@@ -309,7 +310,8 @@ class MemoryCapsulePlugin(Star):
             user_id = event.get_sender_id()
             user_name = event.get_sender_name()
             group_id = event.get_group_id() or "private"
-            platform = event.get_platform() or "qq"
+            # 为平台信息设置默认值，因为某些事件对象可能没有 get_platform() 方法
+            platform = "qq"
             
             # 查找用户关系信息
             import asyncio

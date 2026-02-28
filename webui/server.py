@@ -318,7 +318,7 @@ class WebUIServer:
 
     def stop(self):
         """停止服务器并释放端口（确保线程结束）"""
-        if not self.running and not (self.server_thread and self.server_thread.is_alive()):
+        if not self.running:
             logger.info("WebUI服务器未运行，无需停止。")
             return
 
@@ -333,13 +333,33 @@ class WebUIServer:
             # 忽略错误（服务器可能已经停了，或者网络不通）
             pass
 
-        # 2. 【关键修改】等待线程真正结束
-        if self.server_thread and self.server_thread.is_alive():
-            # 等待线程结束，最多等5秒
-            self.server_thread.join(timeout=5)
-            if self.server_thread.is_alive():
-                logger.warning(f"WebUI 服务器线程在 5 秒后未能停止，可能存在僵尸线程。")
-            else:
-                logger.info(f"WebUI 服务器线程已完全停止，端口 {self.port} 已释放。")
+        # 2. 强制结束服务器进程
+        try:
+            import os
+            import signal
+            import subprocess
+            # 使用 netstat 查找占用端口的进程
+            result = subprocess.run(
+                ['netstat', '-ano', '|', 'findstr', f':{self.port}'],
+                shell=True,
+                capture_output=True,
+                text=True
+            )
+            lines = result.stdout.strip().split('\n')
+            for line in lines:
+                if line:
+                    parts = line.split()
+                    if len(parts) >= 5:
+                        pid = parts[4]
+                        logger.info(f"发现占用端口 {self.port} 的进程 PID: {pid}")
+                        try:
+                            # 尝试终止进程
+                            os.kill(int(pid), signal.SIGTERM)
+                            logger.info(f"已发送终止信号到进程 {pid}")
+                        except Exception as e:
+                            logger.error(f"终止进程 {pid} 失败: {e}")
+        except Exception as e:
+            logger.error(f"查找并终止进程失败: {e}")
         
         self.running = False
+        logger.info(f"WebUI 服务器停止完成，端口 {self.port} 已释放。")
