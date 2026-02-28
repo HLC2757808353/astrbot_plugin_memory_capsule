@@ -286,16 +286,8 @@ class WebUIServer:
         @self.app.route('/shutdown', methods=['POST'])
         def shutdown():
             """关闭服务器的内部接口"""
-            func = request.environ.get('werkzeug.server.shutdown')
-            if func is None:
-                # 尝试兼容旧版本或其他WSGI服务器
-                try:
-                    from werkzeug.server import shutdown_server
-                    shutdown_server()
-                except:
-                    logger.error("无法关闭服务器：缺少 shutdown 函数")
-            else:
-                func()
+            # 对于现代 Flask 版本，直接返回成功消息
+            # 实际的关闭操作由 stop 方法中的进程终止来处理
             return 'Server shutting down...'
 
     def run(self):
@@ -324,40 +316,43 @@ class WebUIServer:
 
         logger.info(f"正在停止 WebUI 服务器 (端口 {self.port})...")
         
-        # 1. 尝试通过 HTTP 请求触发内部关闭
+        # 1. 强制结束服务器进程（Windows 系统使用 taskkill 命令）
         try:
-            import requests
-            # 设置超时时间短一点，防止卡死
-            requests.post(f"http://localhost:{self.port}/shutdown", timeout=2)
-        except Exception:
-            # 忽略错误（服务器可能已经停了，或者网络不通）
-            pass
-
-        # 2. 强制结束服务器进程
-        try:
-            import os
-            import signal
             import subprocess
             # 使用 netstat 查找占用端口的进程
             result = subprocess.run(
-                ['netstat', '-ano', '|', 'findstr', f':{self.port}'],
+                f'netstat -ano | findstr :{self.port}',
                 shell=True,
                 capture_output=True,
                 text=True
             )
             lines = result.stdout.strip().split('\n')
+            pids = set()
             for line in lines:
                 if line:
                     parts = line.split()
                     if len(parts) >= 5:
                         pid = parts[4]
-                        logger.info(f"发现占用端口 {self.port} 的进程 PID: {pid}")
-                        try:
-                            # 尝试终止进程
-                            os.kill(int(pid), signal.SIGTERM)
-                            logger.info(f"已发送终止信号到进程 {pid}")
-                        except Exception as e:
-                            logger.error(f"终止进程 {pid} 失败: {e}")
+                        pids.add(pid)
+            
+            # 终止找到的进程
+            for pid in pids:
+                if pid != '0':  # 排除 TIME_WAIT 状态的连接
+                    logger.info(f"发现占用端口 {self.port} 的进程 PID: {pid}")
+                    try:
+                        # 使用 taskkill 命令终止进程
+                        kill_result = subprocess.run(
+                            f'taskkill /PID {pid} /F',
+                            shell=True,
+                            capture_output=True,
+                            text=True
+                        )
+                        if kill_result.returncode == 0:
+                            logger.info(f"已成功终止进程 {pid}")
+                        else:
+                            logger.error(f"终止进程 {pid} 失败: {kill_result.stderr}")
+                    except Exception as e:
+                        logger.error(f"终止进程 {pid} 失败: {e}")
         except Exception as e:
             logger.error(f"查找并终止进程失败: {e}")
         
