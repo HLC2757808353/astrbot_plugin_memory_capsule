@@ -54,5 +54,23 @@
     "hint": "保留最近多少个月的每月备份",
     "editable": true,
     "display_name": "月备份保留数"
+  },
+  "context_inject_position": {
+    "description": "关系信息注入位置",
+    "type": "string",
+    "default": "system",
+    "hint": "选择将关系信息注入到系统上下文还是用户上下文",
+    "editable": true,
+    "display_name": "上下文注入位置",
+    "options": [
+      {
+        "label": "系统上下文",
+        "value": "system"
+      },
+      {
+        "label": "用户上下文",
+        "value": "user"
+      }
+    ]
   }
 }
