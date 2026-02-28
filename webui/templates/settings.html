@@ -319,21 +319,44 @@
     
     <script>
         // 加载设置
-        function loadSettings() {
-            // 这里可以从配置文件加载设置
-            // 暂时使用默认值
+        async function loadSettings() {
+            try {
+                const response = await fetch('/api/settings');
+                const settings = await response.json();
+                document.getElementById('webui-port').value = settings.webui_port || 5000;
+                document.getElementById('backup-interval').value = settings.backup_interval || 24;
+                document.getElementById('backup-retention').value = settings.backup_retention || 10;
+            } catch (error) {
+                console.error('加载设置失败:', error);
+            }
         }
         
         // 保存设置
-        document.getElementById('settings-form').addEventListener('submit', function(e) {
+        document.getElementById('settings-form').addEventListener('submit', async function(e) {
             e.preventDefault();
             
-            const webuiPort = document.getElementById('webui-port').value;
-            const backupInterval = document.getElementById('backup-interval').value;
-            const backupRetention = document.getElementById('backup-retention').value;
+            const webuiPort = parseInt(document.getElementById('webui-port').value);
+            const backupInterval = parseInt(document.getElementById('backup-interval').value);
+            const backupRetention = parseInt(document.getElementById('backup-retention').value);
             
-            // 这里可以保存设置到配置文件
-            alert('设置已保存');
+            try {
+                const response = await fetch('/api/settings', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        webui_port: webuiPort,
+                        backup_interval: backupInterval,
+                        backup_retention: backupRetention
+                    })
+                });
+                const result = await response.json();
+                alert(result.result);
+            } catch (error) {
+                console.error('保存设置失败:', error);
+                alert('保存失败');
+            }
         });
         
         // 创建备份

@@ -49,9 +49,23 @@ class WebUIServer:
             response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
             return response
 
-        @self.app.route('/relations')
-        def relations():
-            response = make_response(render_template('relations.html'))
+
+
+        @self.app.route('/memories')
+        def memories():
+            response = make_response(render_template('memories.html'))
+            response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+            return response
+
+        @self.app.route('/relationships')
+        def relationships():
+            response = make_response(render_template('relationships.html'))
+            response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+            return response
+
+        @self.app.route('/settings')
+        def settings():
+            response = make_response(render_template('settings.html'))
             response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
             return response
 
@@ -94,7 +108,7 @@ class WebUIServer:
             )
             return jsonify({'result': result})
 
-        @self.app.route('/api/memories/<int:memory_id>', methods=['DELETE'])
+        @self.app.route('/api/memories/<memory_id>', methods=['DELETE'])
         def api_delete_memory(memory_id):
             result = self.db_manager.delete_memory(memory_id)
             return jsonify({'result': result})
@@ -145,9 +159,16 @@ class WebUIServer:
             query = request.args.get('q', '')
             conn = self.db_manager._get_connection()
             cursor = conn.cursor()
-            cursor.execute('SELECT * FROM relationships WHERE user_id LIKE ? OR nickname LIKE ? OR relation_type LIKE ? OR tags LIKE ? OR summary LIKE ?', 
-                          (f"%{query}%", f"%{query}%", f"%{query}%", f"%{query}%", f"%{query}%"))
+            # 首先尝试精确匹配用户ID
+            cursor.execute('SELECT * FROM relationships WHERE user_id = ?', (query,))
             results = cursor.fetchall()
+            
+            # 如果没有精确匹配，再进行模糊搜索
+            if not results:
+                cursor.execute('SELECT * FROM relationships WHERE nickname LIKE ? OR relation_type LIKE ? OR tags LIKE ? OR summary LIKE ? OR first_met_location LIKE ? OR known_contexts LIKE ?', 
+                              (f"%{query}%", f"%{query}%", f"%{query}%", f"%{query}%", f"%{query}%", f"%{query}%"))
+                results = cursor.fetchall()
+            
             conn.close()
             relationship_list = []
             for r in results:
@@ -165,6 +186,102 @@ class WebUIServer:
                 }
                 relationship_list.append(relationship)
             return jsonify(relationship_list)
+
+        @self.app.route('/api/settings', methods=['GET'])
+        def api_get_settings():
+            """获取系统设置"""
+            try:
+                # 读取配置文件
+                config_path = os.path.join(os.path.dirname(__file__), "..", "_conf_schema.json")
+                if os.path.exists(config_path):
+                    with open(config_path, 'r', encoding='utf-8') as f:
+                        import json
+                        config = json.load(f)
+                        return jsonify(config)
+                else:
+                    # 返回默认配置
+                    return jsonify({
+                        'webui_port': 5000,
+                        'backup_interval': 24,
+                        'backup_retention': 10
+                    })
+            except Exception as e:
+                logger.error(f"获取设置失败: {e}")
+                return jsonify({
+                    'webui_port': 5000,
+                    'backup_interval': 24,
+                    'backup_retention': 10
+                })
+
+        @self.app.route('/api/settings', methods=['POST'])
+        def api_save_settings():
+            """保存系统设置"""
+            try:
+                data = request.json
+                # 保存配置文件
+                config_path = os.path.join(os.path.dirname(__file__), "..", "_conf_schema.json")
+                import json
+                with open(config_path, 'w', encoding='utf-8') as f:
+                    json.dump(data, f, indent=2, ensure_ascii=False)
+                return jsonify({'result': '设置保存成功'})
+            except Exception as e:
+                logger.error(f"保存设置失败: {e}")
+                return jsonify({'result': f'保存失败: {e}'})
+
+        @self.app.route('/api/backup')
+        def api_create_backup():
+            """创建备份"""
+            try:
+                result = self.db_manager.backup()
+                return jsonify({'result': result})
+            except Exception as e:
+                logger.error(f"创建备份失败: {e}")
+                return jsonify({'result': f'创建备份失败: {e}'})
+
+        @self.app.route('/api/backups')
+        def api_get_backups():
+            """获取备份列表"""
+            try:
+                backups = self.db_manager.get_backup_list()
+                return jsonify(backups)
+            except Exception as e:
+                logger.error(f"获取备份列表失败: {e}")
+                return jsonify([])
+
+        @self.app.route('/api/restore', methods=['POST'])
+        def api_restore_backup():
+            """从备份恢复"""
+            try:
+                data = request.json
+                filename = data.get('filename')
+                result = self.db_manager.restore_from_backup(filename)
+                return jsonify({'result': result})
+            except Exception as e:
+                logger.error(f"恢复备份失败: {e}")
+                return jsonify({'result': f'恢复失败: {e}'})
+
+        @self.app.route('/api/backup/<string:filename>', methods=['DELETE'])
+        def api_delete_backup(filename):
+            """删除备份"""
+            try:
+                # 这里需要实现删除备份的逻辑
+                backup_dir = os.path.join(os.path.dirname(self.db_manager.db_path), "memory_capsule_backups")
+                backup_path = os.path.join(backup_dir, filename)
+                if os.path.exists(backup_path):
+                    os.remove(backup_path)
+                    return jsonify({'result': '删除成功'})
+                else:
+                    return jsonify({'result': '备份文件不存在'})
+            except Exception as e:
+                logger.error(f"删除备份失败: {e}")
+                return jsonify({'result': f'删除失败: {e}'})
+
+        @self.app.route('/api/activities')
+        def api_get_activities():
+            """获取最近活动"""
+            limit = int(request.args.get('limit', 30))
+            activities = self.db_manager.get_recent_activities(limit=limit)
+            return jsonify(activities)
 
         @self.app.route('/shutdown', methods=['POST'])
         def shutdown():

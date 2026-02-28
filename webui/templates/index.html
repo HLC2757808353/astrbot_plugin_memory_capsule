@@ -267,10 +267,6 @@
                             <div class="stat-value" id="total-categories">0</div>
                             <div class="stat-label">分类数</div>
                         </div>
-                        <div class="stat-card">
-                            <div class="stat-value" id="total-tags">0</div>
-                            <div class="stat-label">标签数</div>
-                        </div>
                     </div>
                 </div>
             </div>
@@ -278,7 +274,7 @@
             <!-- 最近活动卡片 -->
             <div class="card">
                 <div class="card-header">
-                    <h2 class="card-title">最近活动</h2>
+                    <h2 class="card-title">最近活动 <span style="font-size: 12px; font-weight: normal; color: #b3b3b3;">(只显示最新30条活动)</span></h2>
                 </div>
                 <div class="card-body">
                     <ul class="activity-list" id="activity-list">
@@ -319,10 +315,25 @@
                 const categories = await categoriesResponse.json();
                 document.getElementById('total-categories').textContent = categories.length;
                 
-                // 获取标签数
-                const tagsResponse = await fetch('/api/tags');
-                const tags = await tagsResponse.json();
-                document.getElementById('total-tags').textContent = tags.length;
+                // 获取最近活动（限制30条）
+                const activitiesResponse = await fetch('/api/activities?limit=30');
+                const activities = await activitiesResponse.json();
+                const activityList = document.getElementById('activity-list');
+                activityList.innerHTML = '';
+                
+                if (activities.length === 0) {
+                    activityList.innerHTML = '<li class="activity-item"><div class="activity-time">暂无活动记录</div><div class="activity-content">开始使用记忆胶囊，添加第一条记忆吧！</div></li>';
+                } else {
+                    activities.forEach(activity => {
+                        const li = document.createElement('li');
+                        li.className = 'activity-item';
+                        li.innerHTML = `
+                            <div class="activity-time">${activity.created_at}</div>
+                            <div class="activity-content">${activity.action} ${activity.details ? `- ${activity.details}` : ''}</div>
+                        `;
+                        activityList.appendChild(li);
+                    });
+                }
             } catch (error) {
                 console.error('加载仪表盘数据失败:', error);
             }

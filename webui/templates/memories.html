@@ -172,6 +172,68 @@
             box-shadow: 0 0 10px rgba(233, 30, 99, 0.3);
         }
         
+        /* 下拉菜单样式 */
+        select.filter-control, select.form-control {
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            appearance: none;
+            background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 12 12"><path fill="%23ffffff" d="M6 9L1 4h10L6 9z"/></svg>');
+            background-repeat: no-repeat;
+            background-position: right 10px center;
+            padding-right: 30px;
+        }
+        
+        select.filter-control option, select.form-control option {
+            background-color: #1a0a1e;
+            color: #ffffff;
+            border: none;
+        }
+        
+        /* 分页样式 */
+        .pagination {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+            margin-top: 30px;
+        }
+        
+        .pagination button {
+            padding: 8px 12px;
+            background-color: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(233, 30, 99, 0.3);
+            border-radius: 6px;
+            color: #ffffff;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .pagination button:hover {
+            background-color: rgba(233, 30, 99, 0.2);
+            border-color: #e91e63;
+        }
+        
+        .pagination button.active {
+            background-color: #e91e63;
+            border-color: #e91e63;
+        }
+        
+        .pagination input {
+            width: 60px;
+            padding: 8px;
+            background-color: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(233, 30, 99, 0.3);
+            border-radius: 6px;
+            color: #ffffff;
+            text-align: center;
+        }
+        
+        .pagination input:focus {
+            outline: none;
+            border-color: #e91e63;
+            box-shadow: 0 0 10px rgba(233, 30, 99, 0.3);
+        }
+        
         .search-box {
             flex: 1;
             min-width: 300px;
@@ -255,6 +317,11 @@
             border-left: 4px solid #e91e63;
         }
         
+        /* 确保默认记忆卡片没有左边框 */
+        .memory-card {
+            border-left: 4px solid transparent;
+        }
+        
         .memory-header {
             display: flex;
             justify-content: space-between;
@@ -276,6 +343,13 @@
         .memory-content {
             margin-bottom: 15px;
             line-height: 1.5;
+        }
+        
+        .memory-category {
+            font-size: 12px;
+            color: #e91e63;
+            margin-bottom: 10px;
+            font-weight: bold;
         }
         
         .memory-tags {
@@ -489,9 +563,11 @@
                         </div>
                         <div class="filter-group search-box">
                             <label class="filter-label">搜索</label>
-                            <input type="text" class="filter-control" id="search-box" placeholder="输入关键词搜索...">
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <input type="text" class="filter-control" id="search-box" placeholder="输入关键词搜索..." style="flex: 1;">
+                                <button class="btn btn-primary" onclick="searchMemories()">搜索</button>
+                            </div>
                         </div>
-                        <button class="btn btn-primary" onclick="searchMemories()">搜索</button>
                     </div>
                     
                     <!-- 记忆卡片流 -->
@@ -543,7 +619,8 @@
     
     <script>
         let currentPage = 1;
-        const pageSize = 20;
+        const pageSize = 15; // 限制每次最多15条记忆卡片
+        let totalPages = 1;
         let selectedMemories = [];
         
         // 加载记忆列表
@@ -560,16 +637,15 @@
                 const response = await fetch(url);
                 const data = await response.json();
                 const memories = data.memories;
+                totalPages = data.total_pages || 1;
                 
                 const grid = document.getElementById('memories-grid');
                 grid.innerHTML = '';
                 
                 if (memories.length === 0) {
                     grid.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; padding: 40px; color: #999;">暂无记忆数据</div>';
-                    return;
-                }
-                
-                memories.forEach(memory => {
+                } else {
+                    memories.forEach(memory => {
                     const card = document.createElement('div');
                     card.className = `memory-card ${memory.category}`;
                     
@@ -590,13 +666,14 @@
                             <div class="memory-time">${memory.created_at}</div>
                             <div class="memory-importance">重要性: ${memory.importance}</div>
                         </div>
+                        <div class="memory-category">分类: ${memory.category}</div>
                         <div class="memory-content">${memory.content}</div>
                         <div class="memory-tags">${tagsHtml || '无'}</div>
                         <div class="memory-actions">
                             <input type="checkbox" class="memory-checkbox" data-id="${memory.id}">
-                            <button class="btn btn-outline" onclick="editMemory(${memory.id})">修改</button>
-                            <button class="btn btn-outline" onclick="deleteMemory(${memory.id})">删除</button>
-                            <button class="btn btn-outline" onclick="increaseImportance(${memory.id})">加权</button>
+                            <button class="btn btn-outline" onclick="editMemory('${memory.id}')">修改</button>
+                            <button class="btn btn-outline" onclick="deleteMemory('${memory.id}')">删除</button>
+                            <button class="btn btn-outline" onclick="increaseImportance('${memory.id}')">加权</button>
                         </div>
                     `;
                     
@@ -617,9 +694,174 @@
                 checkboxes.forEach(checkbox => {
                     checkbox.addEventListener('change', updateSelectedMemories);
                 });
+                }
+                
+                // 更新分页控件
+                updatePagination();
             } catch (error) {
                 console.error('加载记忆列表失败:', error);
             }
+        }
+        
+        // 更新分页控件
+        function updatePagination() {
+            const paginationContainer = document.getElementById('pagination');
+            if (!paginationContainer) {
+                // 创建分页控件
+                const container = document.createElement('div');
+                container.id = 'pagination';
+                container.className = 'pagination';
+                document.querySelector('.card-body').appendChild(container);
+            }
+            
+            const pagination = document.getElementById('pagination');
+            pagination.innerHTML = '';
+            
+            // 上一页按钮
+            const prevBtn = document.createElement('button');
+            prevBtn.textContent = '上一页';
+            prevBtn.disabled = currentPage === 1;
+            prevBtn.onclick = () => {
+                if (currentPage > 1) {
+                    currentPage--;
+                    loadMemories(currentPage);
+                }
+            };
+            pagination.appendChild(prevBtn);
+            
+            // 页码按钮
+            const maxPagesToShow = 5;
+            let startPage = Math.max(1, currentPage - Math.floor(maxPagesToShow / 2));
+            let endPage = Math.min(totalPages, startPage + maxPagesToShow - 1);
+            startPage = Math.max(1, endPage - maxPagesToShow + 1);
+            
+            for (let i = startPage; i <= endPage; i++) {
+                const pageBtn = document.createElement('button');
+                pageBtn.textContent = i;
+                pageBtn.className = i === currentPage ? 'active' : '';
+                pageBtn.onclick = () => {
+                    currentPage = i;
+                    loadMemories(currentPage);
+                };
+                pagination.appendChild(pageBtn);
+            }
+            
+            // 下一页按钮
+            const nextBtn = document.createElement('button');
+            nextBtn.textContent = '下一页';
+            nextBtn.disabled = currentPage === totalPages;
+            nextBtn.onclick = () => {
+                if (currentPage < totalPages) {
+                    currentPage++;
+                    loadMemories(currentPage);
+                }
+            };
+            pagination.appendChild(nextBtn);
+            
+            // 页码跳转
+            const jumpContainer = document.createElement('div');
+            jumpContainer.style.display = 'flex';
+            jumpContainer.style.alignItems = 'center';
+            jumpContainer.style.gap = '10px';
+            
+            const jumpText = document.createElement('span');
+            jumpText.textContent = '前往';
+            jumpText.style.color = '#b3b3b3';
+            
+            // 页码输入框容器
+            const inputContainer = document.createElement('div');
+            inputContainer.style.display = 'flex';
+            inputContainer.style.alignItems = 'center';
+            
+            // 减号按钮
+            const minusBtn = document.createElement('button');
+            minusBtn.textContent = '-';
+            minusBtn.style.padding = '8px';
+            minusBtn.style.background = 'rgba(255, 255, 255, 0.1)';
+            minusBtn.style.border = '1px solid rgba(233, 30, 99, 0.3)';
+            minusBtn.style.borderRadius = '6px 0 0 6px';
+            minusBtn.style.color = '#ffffff';
+            minusBtn.style.cursor = 'pointer';
+            minusBtn.onclick = () => {
+                let page = parseInt(jumpInput.value);
+                if (page > 1) {
+                    jumpInput.value = page - 1;
+                }
+            };
+            
+            const jumpInput = document.createElement('input');
+            jumpInput.type = 'number';
+            jumpInput.min = 1;
+            jumpInput.max = totalPages;
+            jumpInput.value = currentPage;
+            jumpInput.style.width = '60px';
+            jumpInput.style.padding = '8px';
+            jumpInput.style.background = 'rgba(255, 255, 255, 0.1)';
+            jumpInput.style.border = '1px solid rgba(233, 30, 99, 0.3)';
+            jumpInput.style.borderLeft = 'none';
+            jumpInput.style.borderRight = 'none';
+            jumpInput.style.borderRadius = '0';
+            jumpInput.style.color = '#ffffff';
+            jumpInput.style.textAlign = 'center';
+            
+            // 加号按钮
+            const plusBtn = document.createElement('button');
+            plusBtn.textContent = '+';
+            plusBtn.style.padding = '8px';
+            plusBtn.style.background = 'rgba(255, 255, 255, 0.1)';
+            plusBtn.style.border = '1px solid rgba(233, 30, 99, 0.3)';
+            plusBtn.style.borderRadius = '0 6px 6px 0';
+            plusBtn.style.color = '#ffffff';
+            plusBtn.style.cursor = 'pointer';
+            plusBtn.onclick = () => {
+                let page = parseInt(jumpInput.value);
+                if (page < totalPages) {
+                    jumpInput.value = page + 1;
+                }
+            };
+            
+            inputContainer.appendChild(minusBtn);
+            inputContainer.appendChild(jumpInput);
+            inputContainer.appendChild(plusBtn);
+            
+            const jumpBtn = document.createElement('button');
+            jumpBtn.textContent = '确定';
+            jumpBtn.style.padding = '8px 16px';
+            jumpBtn.style.background = 'rgba(255, 255, 255, 0.1)';
+            jumpBtn.style.border = '1px solid rgba(233, 30, 99, 0.3)';
+            jumpBtn.style.borderRadius = '6px';
+            jumpBtn.style.color = '#ffffff';
+            jumpBtn.style.cursor = 'pointer';
+            jumpBtn.style.transition = 'all 0.3s ease';
+            jumpBtn.onclick = () => {
+                const page = parseInt(jumpInput.value);
+                if (page >= 1 && page <= totalPages) {
+                    currentPage = page;
+                    loadMemories(currentPage);
+                }
+            };
+            
+            jumpBtn.onmouseover = () => {
+                jumpBtn.style.background = 'rgba(233, 30, 99, 0.2)';
+                jumpBtn.style.borderColor = '#e91e63';
+            };
+            
+            jumpBtn.onmouseout = () => {
+                jumpBtn.style.background = 'rgba(255, 255, 255, 0.1)';
+                jumpBtn.style.borderColor = 'rgba(233, 30, 99, 0.3)';
+            };
+            
+            jumpContainer.appendChild(jumpText);
+            jumpContainer.appendChild(inputContainer);
+            jumpContainer.appendChild(jumpBtn);
+            pagination.appendChild(jumpContainer);
+            
+            // 显示总页数
+            const totalText = document.createElement('span');
+            totalText.textContent = `共 ${totalPages} 页`;
+            totalText.style.color = '#b3b3b3';
+            totalText.style.marginLeft = '10px';
+            pagination.appendChild(totalText);
         }
         
         // 更新选中的记忆
@@ -638,21 +880,19 @@
                 return;
             }
             
-            if (!confirm(`确定要删除 ${selectedMemories.length} 条记忆吗？`)) {
-                return;
-            }
-            
-            try {
-                for (const memoryId of selectedMemories) {
-                    await fetch(`/api/memories/${memoryId}`, {
-                        method: 'DELETE'
-                    });
+            if (confirm(`确定要删除 ${selectedMemories.length} 条记忆吗？`)) {
+                try {
+                    for (const memoryId of selectedMemories) {
+                        await fetch(`/api/memories/${memoryId}`, {
+                            method: 'DELETE'
+                        });
+                    }
+                    alert('删除成功');
+                    loadMemories();
+                } catch (error) {
+                    console.error('批量删除失败:', error);
+                    alert('删除失败');
                 }
-                alert('删除成功');
-                loadMemories();
-            } catch (error) {
-                console.error('批量删除失败:', error);
-                alert('删除失败');
             }
         }
         
@@ -663,76 +903,138 @@
             const category = document.getElementById('category-filter').value;
             
             try {
-                let url = `/api/memories/search?q=${encodeURIComponent(query)}`;
-                if (category) {
-                    url += `&category=${encodeURIComponent(category)}`;
-                }
+                let url = `/api/memories`;
+                let params = new URLSearchParams();
                 
-                const response = await fetch(url);
-                const memories = await response.json();
-                
-                const grid = document.getElementById('memories-grid');
-                grid.innerHTML = '';
-                
-                if (memories.length === 0) {
-                    grid.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; padding: 40px; color: #999;">没有找到匹配的记忆</div>';
-                    return;
-                }
-                
-                memories.forEach(memory => {
-                    const card = document.createElement('div');
-                    card.className = `memory-card ${memory.category}`;
+                if (query) {
+                    // 先尝试精确搜索
+                    let searchUrl = `/api/memories/search?q=${encodeURIComponent(query)}`;
+                    const searchResponse = await fetch(searchUrl);
+                    const searchMemories = await searchResponse.json();
                     
-                    // 处理标签
-                    let tagsHtml = '';
-                    if (memory.tags) {
-                        const tags = memory.tags.split(',');
-                        tags.forEach(tag => {
-                            tag = tag.trim();
-                            if (tag) {
-                                tagsHtml += `<span class="tag">${tag}</span>`;
-                            }
-                        });
+                    if (searchMemories.length > 0) {
+                        displayMemories(searchMemories);
+                        return;
                     }
-                    
-                    card.innerHTML = `
-                        <div class="memory-header">
-                            <div class="memory-time">${memory.created_at}</div>
-                            <div class="memory-importance">重要性: ${memory.importance}</div>
-                        </div>
-                        <div class="memory-content">${memory.content}</div>
-                        <div class="memory-tags">${tagsHtml || '无'}</div>
-                        <div class="memory-actions">
-                            <input type="checkbox" class="memory-checkbox" data-id="${memory.id}">
-                            <button class="btn btn-outline" onclick="editMemory(${memory.id})">修改</button>
-                            <button class="btn btn-outline" onclick="deleteMemory(${memory.id})">删除</button>
-                            <button class="btn btn-outline" onclick="increaseImportance(${memory.id})">加权</button>
-                        </div>
-                    `;
-                    
-                    grid.appendChild(card);
-                });
+                }
                 
-                // 绑定复选框事件
-                const checkboxes = document.querySelectorAll('.memory-checkbox');
-                checkboxes.forEach(checkbox => {
-                    checkbox.addEventListener('change', updateSelectedMemories);
-                });
+                // 如果没有搜索结果或没有搜索词，使用分页接口
+                params.append('page', 1);
+                params.append('limit', 100); // 显示更多结果
+                if (category) {
+                    params.append('category', category);
+                }
+                
+                const response = await fetch(`${url}?${params.toString()}`);
+                const data = await response.json();
+                let memories = data.memories;
+                
+                // 如果有搜索词，进行客户端过滤（模糊查询）
+                if (query) {
+                    const lowerQuery = query.toLowerCase();
+                    memories = memories.filter(memory => 
+                        memory.content.toLowerCase().includes(lowerQuery) ||
+                        memory.category.toLowerCase().includes(lowerQuery) ||
+                        (memory.tags && memory.tags.toLowerCase().includes(lowerQuery))
+                    );
+                }
+                
+                // 如果有来源过滤
+                if (source) {
+                    memories = memories.filter(memory => memory.source_platform === source);
+                }
+                
+                displayMemories(memories);
             } catch (error) {
                 console.error('搜索记忆失败:', error);
+                alert('搜索失败');
             }
+        }
+        
+        // 显示记忆列表
+        function displayMemories(memories) {
+            const grid = document.getElementById('memories-grid');
+            grid.innerHTML = '';
+            
+            if (memories.length === 0) {
+                grid.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; padding: 40px; color: #999;">没有找到匹配的记忆</div>';
+                return;
+            }
+            
+            memories.forEach(memory => {
+                const card = document.createElement('div');
+                card.className = `memory-card ${memory.category}`;
+                
+                // 处理标签
+                let tagsHtml = '';
+                if (memory.tags) {
+                    const tags = memory.tags.split(',');
+                    tags.forEach(tag => {
+                        tag = tag.trim();
+                        if (tag) {
+                            tagsHtml += `<span class="tag">${tag}</span>`;
+                        }
+                    });
+                }
+                
+                card.innerHTML = `
+                    <div class="memory-header">
+                        <div class="memory-time">${memory.created_at}</div>
+                        <div class="memory-importance">重要性: ${memory.importance}</div>
+                    </div>
+                    <div class="memory-category">分类: ${memory.category}</div>
+                    <div class="memory-content">${memory.content}</div>
+                    <div class="memory-tags">${tagsHtml || '无'}</div>
+                    <div class="memory-actions">
+                        <input type="checkbox" class="memory-checkbox" data-id="${memory.id}">
+                        <button class="btn btn-outline" onclick="editMemory('${memory.id}')">修改</button>
+                        <button class="btn btn-outline" onclick="deleteMemory('${memory.id}')">删除</button>
+                        <button class="btn btn-outline" onclick="increaseImportance('${memory.id}')">加权</button>
+                    </div>
+                `;
+                
+                grid.appendChild(card);
+            });
+            
+            // 绑定复选框事件
+            const checkboxes = document.querySelectorAll('.memory-checkbox');
+            checkboxes.forEach(checkbox => {
+                checkbox.addEventListener('change', updateSelectedMemories);
+            });
         }
         
         // 编辑记忆
         async function editMemory(memoryId) {
             try {
-                // 这里需要先获取记忆详情，暂时使用搜索接口
-                const response = await fetch(`/api/memories/search?q=${memoryId}`);
-                const memories = await response.json();
+                // 从当前页面的卡片中获取记忆详情
+                const cards = document.querySelectorAll('.memory-card');
+                let memory = null;
                 
-                if (memories.length > 0) {
-                    const memory = memories[0];
-                    
+                for (const card of cards) {
+                    const checkboxes = card.querySelectorAll('.memory-checkbox');
+                    for (const checkbox of checkboxes) {
+                        if (checkbox.dataset.id === memoryId) {
+                            // 从卡片中提取信息
+                            memory = {
+                                id: memoryId,
+                                content: card.querySelector('.memory-content').textContent,
+                                category: card.querySelector('.memory-category').textContent.replace('分类: ', ''),
+                                tags: '',
+                                importance: parseInt(card.querySelector('.memory-importance').textContent.replace('重要性: ', ''))
+                            };
+                            
+                            // 提取标签
+                            const tagElements = card.querySelectorAll('.tag');
+                            if (tagElements.length > 0) {
+                                memory.tags = Array.from(tagElements).map(tag => tag.textContent).join(',');
+                            }
+                            break;
+                        }
+                    }
+                    if (memory) break;
+                }
+                
+                if (memory) {
                     // 填充表单
                     document.getElementById('edit-memory-id').value = memory.id;
                     document.getElementById('edit-content').value = memory.content;
@@ -742,9 +1044,12 @@
                     
                     // 显示模态框
                     document.getElementById('edit-modal').style.display = 'block';
+                } else {
+                    alert('未找到记忆详情');
                 }
             } catch (error) {
                 console.error('获取记忆详情失败:', error);
+                alert('获取记忆详情失败');
             }
         }
         
@@ -754,36 +1059,70 @@
         }
         
         // 删除记忆
-        async function deleteMemory(memoryId) {
-            if (!confirm('确定要删除这条记忆吗？')) {
-                return;
-            }
-            
-            try {
-                const response = await fetch(`/api/memories/${memoryId}`, {
+        function deleteMemory(memoryId) {
+            // 使用更明确的确认对话框
+            var result = confirm('确定要删除这条记忆吗？');
+            console.log('删除确认结果:', result);
+            if (result) {
+                console.log('执行删除操作:', memoryId);
+                fetch(`/api/memories/${memoryId}`, {
                     method: 'DELETE'
+                })
+                .then(response => response.json())
+                .then(result => {
+                    console.log('删除结果:', result);
+                    alert(result.result);
+                    loadMemories(currentPage);
+                })
+                .catch(error => {
+                    console.error('删除记忆失败:', error);
+                    alert('删除失败');
                 });
-                const result = await response.json();
-                alert(result.result);
-                loadMemories();
-            } catch (error) {
-                console.error('删除记忆失败:', error);
-                alert('删除失败');
+            } else {
+                console.log('取消删除操作');
             }
         }
         
         // 增加重要性
         async function increaseImportance(memoryId) {
             try {
-                // 这里需要先获取记忆详情，然后更新重要性
-                const response = await fetch(`/api/memories/search?q=${memoryId}`);
-                const memories = await response.json();
+                // 从当前页面的卡片中获取记忆详情
+                const cards = document.querySelectorAll('.memory-card');
+                let memory = null;
                 
-                if (memories.length > 0) {
-                    const memory = memories[0];
+                for (const card of cards) {
+                    const checkboxes = card.querySelectorAll('.memory-checkbox');
+                    for (const checkbox of checkboxes) {
+                        if (checkbox.dataset.id === memoryId) {
+                            // 从卡片中提取信息
+                            memory = {
+                                id: memoryId,
+                                content: card.querySelector('.memory-content').textContent,
+                                category: card.querySelector('.memory-category').textContent.replace('分类: ', ''),
+                                tags: '',
+                                importance: parseInt(card.querySelector('.memory-importance').textContent.replace('重要性: ', ''))
+                            };
+                            
+                            // 提取标签
+                            const tagElements = card.querySelectorAll('.tag');
+                            if (tagElements.length > 0) {
+                                memory.tags = Array.from(tagElements).map(tag => tag.textContent).join(',');
+                            }
+                            break;
+                        }
+                    }
+                    if (memory) break;
+                }
+                
+                if (memory) {
+                    if (memory.importance >= 10) {
+                        alert('重要性已经达到最大值');
+                        return;
+                    }
+                    
                     const newImportance = Math.min(10, memory.importance + 1);
                     
-                    // 这里需要调用更新接口，暂时使用重新创建的方式
+                    // 调用更新接口，使用重新创建的方式
                     const createResponse = await fetch('/api/memories', {
                         method: 'POST',
                         headers: {
@@ -793,9 +1132,6 @@
                             content: memory.content,
                             category: memory.category,
                             tags: memory.tags,
-                            target_user_id: memory.user_id,
-                            source_platform: memory.source_platform,
-                            source_context: memory.source_context,
                             importance: newImportance
                         })
                     });
@@ -805,7 +1141,9 @@
                     });
                     
                     alert('重要性已提升');
-                    loadMemories();
+                    loadMemories(currentPage);
+                } else {
+                    alert('未找到记忆详情');
                 }
             } catch (error) {
                 console.error('提升重要性失败:', error);

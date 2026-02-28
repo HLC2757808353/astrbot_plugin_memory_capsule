@@ -303,6 +303,51 @@
             gap: 10px;
         }
         
+        /* 分页样式 */
+        .pagination {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+            margin-top: 30px;
+        }
+        
+        .pagination button {
+            padding: 8px 12px;
+            background-color: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(233, 30, 99, 0.3);
+            border-radius: 6px;
+            color: #ffffff;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .pagination button:hover {
+            background-color: rgba(233, 30, 99, 0.2);
+            border-color: #e91e63;
+        }
+        
+        .pagination button.active {
+            background-color: #e91e63;
+            border-color: #e91e63;
+        }
+        
+        .pagination input {
+            width: 60px;
+            padding: 8px;
+            background-color: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(233, 30, 99, 0.3);
+            border-radius: 6px;
+            color: #ffffff;
+            text-align: center;
+        }
+        
+        .pagination input:focus {
+            outline: none;
+            border-color: #e91e63;
+            box-shadow: 0 0 10px rgba(233, 30, 99, 0.3);
+        }
+        
         /* 响应式设计 */
         @media (max-width: 768px) {
             .container {
@@ -363,17 +408,22 @@
             <div class="card">
                 <div class="card-header">
                     <h2 class="card-title">关系图谱</h2>
-                    <button class="btn btn-primary" onclick="addRelationship()">添加关系</button>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <input type="text" id="search-input" placeholder="输入ID或群号查询..." style="padding: 8px; background-color: rgba(255, 255, 255, 0.1); border: 1px solid rgba(233, 30, 99, 0.3); border-radius: 6px; color: #ffffff;">
+                        <button class="btn btn-primary" onclick="searchRelationships()">查询</button>
+                        <button class="btn btn-primary" onclick="addRelationship()">添加关系</button>
+                    </div>
                 </div>
                 <div class="card-body">
                     <table class="relationship-list" id="relationship-list">
                         <thead>
                             <tr>
                                 <th>ID</th>
-                                <th>昵称</th>
-                                <th>关系类型</th>
+                                <th>初次见面地点</th>
+                                <th>认识群组</th>
                                 <th>好感度</th>
-                                <th>印象标签</th>
+                                <th>关系类型</th>
+                                <th>核心印象</th>
                                 <th>操作</th>
                             </tr>
                         </thead>
@@ -395,28 +445,28 @@
             <form id="edit-form">
                 <input type="hidden" id="edit-user-id">
                 <div class="form-group">
-                    <label class="form-label" for="edit-nickname">昵称</label>
-                    <input type="text" class="form-control" id="edit-nickname">
+                    <label class="form-label" for="edit-user-id-input">ID</label>
+                    <input type="text" class="form-control" id="edit-user-id-input" placeholder="请输入用户ID">
                 </div>
                 <div class="form-group">
-                    <label class="form-label" for="edit-relation-type">关系类型</label>
-                    <input type="text" class="form-control" id="edit-relation-type">
+                    <label class="form-label" for="edit-first-met-location">初次见面地点 (id+群名称)</label>
+                    <input type="text" class="form-control" id="edit-first-met-location" placeholder="例如: 123456+群组名称">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="edit-known-groups">认识群组 (数组id+群名称，逗号分隔)</label>
+                    <input type="text" class="form-control" id="edit-known-groups" placeholder="例如: 123456+群组1,789012+群组2">
                 </div>
                 <div class="form-group">
                     <label class="form-label" for="edit-intimacy">好感度</label>
                     <input type="number" class="form-control" id="edit-intimacy" min="0" max="100">
                 </div>
                 <div class="form-group">
-                    <label class="form-label" for="edit-tags">印象标签 (逗号分隔)</label>
-                    <input type="text" class="form-control" id="edit-tags">
+                    <label class="form-label" for="edit-relation-type">关系类型</label>
+                    <input type="text" class="form-control" id="edit-relation-type">
                 </div>
                 <div class="form-group">
                     <label class="form-label" for="edit-summary">核心印象</label>
                     <textarea class="form-control" id="edit-summary"></textarea>
-                </div>
-                <div class="form-group">
-                    <label class="form-label">初次见面信息</label>
-                    <div class="form-control" id="edit-first-met-info" style="background-color: rgba(255, 255, 255, 0.05); cursor: not-allowed;"></div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-outline" onclick="closeModal()">取消</button>
@@ -428,7 +478,7 @@
     
     <script>
         let currentPage = 1;
-        const pageSize = 10;
+        const pageSize = 20;
         
         // 加载关系列表
         async function loadRelationships(page = 1) {
@@ -441,45 +491,37 @@
                 tbody.innerHTML = '';
                 
                 if (relationships.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 20px;">暂无关系数据</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 20px;">暂无关系数据</td></tr>';
                     return;
                 }
                 
                 relationships.forEach(relationship => {
                     const tr = document.createElement('tr');
                     
-                    // 处理标签
-                    let tagsHtml = '';
-                    if (relationship.tags) {
-                        const tags = relationship.tags.split(',');
-                        tags.forEach(tag => {
-                            tag = tag.trim();
-                            if (tag) {
-                                tagsHtml += `<span class="tag">${tag}</span>`;
+                    // 处理认识群组
+                    let knownGroupsHtml = '';
+                    if (relationship.known_contexts) {
+                        const groups = relationship.known_contexts.split(',');
+                        groups.forEach(group => {
+                            group = group.trim();
+                            if (group) {
+                                knownGroupsHtml += `<span class="tag">${group}</span>`;
                             }
                         });
                     }
                     
-                    // 处理初次见面信息
-                    let firstMetInfo = '';
-                    if (relationship.first_met_time) {
-                        firstMetInfo += `时间: ${relationship.first_met_time}<br>`;
-                    }
-                    if (relationship.first_met_location) {
-                        firstMetInfo += `地点: ${relationship.first_met_location}`;
-                    }
-                    
                     tr.innerHTML = `
                         <td>${relationship.user_id}</td>
-                        <td>${relationship.nickname || '未知'}</td>
-                        <td>${relationship.relation_type || '未知'}</td>
+                        <td>${relationship.first_met_location || '未知'}</td>
+                        <td>${knownGroupsHtml || '无'}</td>
                         <td>
                             <div class="intimacy-bar">
                                 <div class="intimacy-fill" style="width: ${relationship.intimacy}%"></div>
                             </div>
                             <span style="font-size: 12px; color: #b3b3b3;">${relationship.intimacy}%</span>
                         </td>
-                        <td>${tagsHtml || '无'}</td>
+                        <td>${relationship.relation_type || '未知'}</td>
+                        <td>${relationship.summary || '无'}</td>
                         <td>
                             <button class="btn btn-outline" onclick="editRelationship('${relationship.user_id}')">编辑</button>
                             <button class="btn btn-outline" onclick="deleteRelationship('${relationship.user_id}')">删除</button>
@@ -488,9 +530,108 @@
                     
                     tbody.appendChild(tr);
                 });
+                
+                // 更新分页控件
+                updatePagination(data.total);
             } catch (error) {
                 console.error('加载关系列表失败:', error);
             }
+        }
+        
+        // 更新分页控件
+        function updatePagination(totalItems) {
+            const totalPages = Math.ceil(totalItems / pageSize);
+            const paginationContainer = document.getElementById('pagination');
+            
+            if (!paginationContainer) {
+                // 创建分页控件
+                const container = document.createElement('div');
+                container.id = 'pagination';
+                container.className = 'pagination';
+                document.querySelector('.card-body').appendChild(container);
+            }
+            
+            const pagination = document.getElementById('pagination');
+            pagination.innerHTML = '';
+            
+            // 上一页按钮
+            const prevBtn = document.createElement('button');
+            prevBtn.textContent = '上一页';
+            prevBtn.disabled = currentPage === 1;
+            prevBtn.onclick = () => {
+                if (currentPage > 1) {
+                    currentPage--;
+                    loadRelationships(currentPage);
+                }
+            };
+            pagination.appendChild(prevBtn);
+            
+            // 页码按钮
+            const maxPagesToShow = 5;
+            let startPage = Math.max(1, currentPage - Math.floor(maxPagesToShow / 2));
+            let endPage = Math.min(totalPages, startPage + maxPagesToShow - 1);
+            startPage = Math.max(1, endPage - maxPagesToShow + 1);
+            
+            for (let i = startPage; i <= endPage; i++) {
+                const pageBtn = document.createElement('button');
+                pageBtn.textContent = i;
+                pageBtn.className = i === currentPage ? 'active' : '';
+                pageBtn.onclick = () => {
+                    currentPage = i;
+                    loadRelationships(currentPage);
+                };
+                pagination.appendChild(pageBtn);
+            }
+            
+            // 下一页按钮
+            const nextBtn = document.createElement('button');
+            nextBtn.textContent = '下一页';
+            nextBtn.disabled = currentPage === totalPages;
+            nextBtn.onclick = () => {
+                if (currentPage < totalPages) {
+                    currentPage++;
+                    loadRelationships(currentPage);
+                }
+            };
+            pagination.appendChild(nextBtn);
+            
+            // 页码跳转
+            const jumpContainer = document.createElement('div');
+            jumpContainer.style.display = 'flex';
+            jumpContainer.style.alignItems = 'center';
+            jumpContainer.style.gap = '10px';
+            
+            const jumpText = document.createElement('span');
+            jumpText.textContent = '前往';
+            jumpText.style.color = '#b3b3b3';
+            
+            const jumpInput = document.createElement('input');
+            jumpInput.type = 'number';
+            jumpInput.min = 1;
+            jumpInput.max = totalPages;
+            jumpInput.value = currentPage;
+            
+            const jumpBtn = document.createElement('button');
+            jumpBtn.textContent = '确定';
+            jumpBtn.onclick = () => {
+                const page = parseInt(jumpInput.value);
+                if (page >= 1 && page <= totalPages) {
+                    currentPage = page;
+                    loadRelationships(currentPage);
+                }
+            };
+            
+            jumpContainer.appendChild(jumpText);
+            jumpContainer.appendChild(jumpInput);
+            jumpContainer.appendChild(jumpBtn);
+            pagination.appendChild(jumpContainer);
+            
+            // 显示总页数
+            const totalText = document.createElement('span');
+            totalText.textContent = `共 ${totalPages} 页`;
+            totalText.style.color = '#b3b3b3';
+            totalText.style.marginLeft = '10px';
+            pagination.appendChild(totalText);
         }
         
         // 编辑关系
@@ -504,21 +645,12 @@
                     
                     // 填充表单
                     document.getElementById('edit-user-id').value = relationship.user_id;
-                    document.getElementById('edit-nickname').value = relationship.nickname || '';
-                    document.getElementById('edit-relation-type').value = relationship.relation_type || '';
+                    document.getElementById('edit-user-id-input').value = relationship.user_id;
+                    document.getElementById('edit-first-met-location').value = relationship.first_met_location || '';
+                    document.getElementById('edit-known-groups').value = relationship.known_contexts || '';
                     document.getElementById('edit-intimacy').value = relationship.intimacy || 50;
-                    document.getElementById('edit-tags').value = relationship.tags || '';
+                    document.getElementById('edit-relation-type').value = relationship.relation_type || '';
                     document.getElementById('edit-summary').value = relationship.summary || '';
-                    
-                    // 填充初次见面信息
-                    let firstMetInfo = '';
-                    if (relationship.first_met_time) {
-                        firstMetInfo += `时间: ${relationship.first_met_time}<br>`;
-                    }
-                    if (relationship.first_met_location) {
-                        firstMetInfo += `地点: ${relationship.first_met_location}`;
-                    }
-                    document.getElementById('edit-first-met-info').innerHTML = firstMetInfo || '无';
                     
                     // 显示模态框
                     document.getElementById('edit-modal').style.display = 'block';
@@ -535,20 +667,18 @@
         
         // 删除关系
         async function deleteRelationship(userId) {
-            if (!confirm('确定要删除这条关系吗？')) {
-                return;
-            }
-            
-            try {
-                const response = await fetch(`/api/relationships/${userId}`, {
-                    method: 'DELETE'
-                });
-                const result = await response.json();
-                alert(result.result);
-                loadRelationships();
-            } catch (error) {
-                console.error('删除关系失败:', error);
-                alert('删除失败');
+            if (confirm('确定要删除这条关系吗？')) {
+                try {
+                    const response = await fetch(`/api/relationships/${userId}`, {
+                        method: 'DELETE'
+                    });
+                    const result = await response.json();
+                    alert(result.result);
+                    loadRelationships();
+                } catch (error) {
+                    console.error('删除关系失败:', error);
+                    alert('删除失败');
+                }
             }
         }
         
@@ -556,12 +686,12 @@
         function addRelationship() {
             // 清空表单
             document.getElementById('edit-user-id').value = '';
-            document.getElementById('edit-nickname').value = '';
-            document.getElementById('edit-relation-type').value = '';
+            document.getElementById('edit-user-id-input').value = '';
+            document.getElementById('edit-first-met-location').value = '';
+            document.getElementById('edit-known-groups').value = '';
             document.getElementById('edit-intimacy').value = 50;
-            document.getElementById('edit-tags').value = '';
+            document.getElementById('edit-relation-type').value = '';
             document.getElementById('edit-summary').value = '';
-            document.getElementById('edit-first-met-info').innerHTML = '无';
             
             // 显示模态框
             document.getElementById('edit-modal').style.display = 'block';
@@ -571,12 +701,17 @@
         document.getElementById('edit-form').addEventListener('submit', async function(e) {
             e.preventDefault();
             
-            const userId = document.getElementById('edit-user-id').value;
-            const nickname = document.getElementById('edit-nickname').value;
-            const relationType = document.getElementById('edit-relation-type').value;
+            const userId = document.getElementById('edit-user-id').value || document.getElementById('edit-user-id-input').value;
+            const firstMetLocation = document.getElementById('edit-first-met-location').value;
+            const knownGroups = document.getElementById('edit-known-groups').value;
             const intimacy = parseInt(document.getElementById('edit-intimacy').value);
-            const tags = document.getElementById('edit-tags').value;
+            const relationType = document.getElementById('edit-relation-type').value;
             const summary = document.getElementById('edit-summary').value;
+            
+            if (!userId) {
+                alert('请输入用户ID');
+                return;
+            }
             
             try {
                 const response = await fetch('/api/relationships', {
@@ -585,12 +720,12 @@
                         'Content-Type': 'application/json'
                     },
                     body: JSON.stringify({
-                        user_id: userId || prompt('请输入用户ID'),
-                        nickname: nickname,
+                        user_id: userId,
                         relation_type: relationType,
-                        tags_update: tags,
                         summary_update: summary,
-                        intimacy_change: userId ? intimacy - (await getCurrentIntimacy(userId)) : intimacy - 50
+                        intimacy_change: userId ? intimacy - (await getCurrentIntimacy(userId)) : intimacy - 50,
+                        first_met_location: firstMetLocation,
+                        known_contexts: knownGroups
                     })
                 });
                 
@@ -624,6 +759,74 @@
             const modal = document.getElementById('edit-modal');
             if (event.target === modal) {
                 closeModal();
+            }
+        }
+        
+        // 搜索关系
+        async function searchRelationships() {
+            const query = document.getElementById('search-input').value;
+            if (!query) {
+                // 如果没有查询词，加载所有关系
+                loadRelationships();
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/relationships/search?q=${encodeURIComponent(query)}`);
+                const relationships = await response.json();
+                
+                const tbody = document.querySelector('#relationship-list tbody');
+                tbody.innerHTML = '';
+                
+                if (relationships.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 20px;">没有找到匹配的关系</td></tr>';
+                    return;
+                }
+                
+                relationships.forEach(relationship => {
+                    const tr = document.createElement('tr');
+                    
+                    // 处理认识群组
+                    let knownGroupsHtml = '';
+                    if (relationship.known_contexts) {
+                        const groups = relationship.known_contexts.split(',');
+                        groups.forEach(group => {
+                            group = group.trim();
+                            if (group) {
+                                knownGroupsHtml += `<span class="tag">${group}</span>`;
+                            }
+                        });
+                    }
+                    
+                    tr.innerHTML = `
+                        <td>${relationship.user_id}</td>
+                        <td>${relationship.first_met_location || '未知'}</td>
+                        <td>${knownGroupsHtml || '无'}</td>
+                        <td>
+                            <div class="intimacy-bar">
+                                <div class="intimacy-fill" style="width: ${relationship.intimacy}%"></div>
+                            </div>
+                            <span style="font-size: 12px; color: #b3b3b3;">${relationship.intimacy}%</span>
+                        </td>
+                        <td>${relationship.relation_type || '未知'}</td>
+                        <td>${relationship.summary || '无'}</td>
+                        <td>
+                            <button class="btn btn-outline" onclick="editRelationship('${relationship.user_id}')">编辑</button>
+                            <button class="btn btn-outline" onclick="deleteRelationship('${relationship.user_id}')">删除</button>
+                        </td>
+                    `;
+                    
+                    tbody.appendChild(tr);
+                });
+                
+                // 显示分页控件
+                const pagination = document.getElementById('pagination');
+                if (pagination) {
+                    pagination.style.display = 'flex';
+                }
+            } catch (error) {
+                console.error('搜索关系失败:', error);
+                alert('搜索失败');
             }
         }
         

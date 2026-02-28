@@ -68,6 +68,16 @@ class DatabaseManager:
             )
             ''')
             
+            # 创建活动记录表 (activities)
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS activities (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                action TEXT NOT NULL,           -- 操作类型 (添加记忆, 更新关系, 删除记忆等)
+                details TEXT,                   -- 操作详情
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            ''')
+            
             # 建立索引加速搜索
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_mem_user ON memories(user_id)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_mem_cate ON memories(category)')
@@ -135,6 +145,22 @@ class DatabaseManager:
         conn.row_factory = sqlite3.Row
         return conn
 
+    def _record_activity(self, action, details):
+        """记录活动
+        
+        参数说明：
+        - action: 操作类型
+        - details: 操作详情
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            cursor.execute('INSERT INTO activities (action, details) VALUES (?, ?)', (action, details))
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            logger.error(f"记录活动失败: {e}")
+
     def write_memory(self, content, category="日常", tags="", target_user_id=None, source_platform="Web", source_context="", importance=5):
         """存储记忆
         
@@ -160,6 +186,9 @@ class DatabaseManager:
             memory_id = cursor.lastrowid
             conn.commit()
             conn.close()
+            
+            # 记录活动
+            self._record_activity("添加记忆", f"ID: {memory_id}, 分类: {category}")
             
             return f"记忆存储成功，ID: {memory_id}"
         except Exception as e:
@@ -237,6 +266,9 @@ class DatabaseManager:
             conn.commit()
             conn.close()
             
+            # 记录活动
+            self._record_activity("删除记忆", f"ID: {memory_id}")
+            
             return "删除成功"
         except Exception as e:
             logger.error(f"删除记忆失败: {e}")
@@ -305,6 +337,9 @@ class DatabaseManager:
             
             conn.commit()
             conn.close()
+            
+            # 记录活动
+            self._record_activity("更新关系", f"用户ID: {user_id}, 关系类型: {relation_type or '未知'}")
             
             return "关系更新成功"
         except Exception as e:
@@ -496,3 +531,31 @@ class DatabaseManager:
         result = self.backup_manager.restore_from_backup(backup_filename)
         # 恢复后不需要重新连接数据库，因为我们使用的是每个操作独立的连接
         return result
+
+    def get_recent_activities(self, limit=10):
+        """获取最近活动
+        
+        参数说明：
+        - limit: 返回的活动数量
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute('SELECT action, details, created_at FROM activities ORDER BY created_at DESC LIMIT ?', (limit,))
+            results = cursor.fetchall()
+            conn.close()
+            
+            activities = []
+            for row in results:
+                activity = {
+                    "action": row[0],
+                    "details": row[1],
+                    "created_at": row[2]
+                }
+                activities.append(activity)
+            
+            return activities
+        except Exception as e:
+            logger.error(f"获取最近活动失败: {e}")
+            return []

@@ -55,6 +55,17 @@ class MemoryCapsulePlugin(Star):
     def _start_webui(self):
         """启动WebUI服务"""
         try:
+            # 检查端口是否被占用
+            import socket
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            result = sock.connect_ex(('localhost', self.webui_port))
+            if result == 0:
+                logger.warning(f"端口 {self.webui_port} 已被占用，尝试释放...")
+                # 尝试释放端口（这里简化处理，实际可能需要更复杂的逻辑）
+                sock.close()
+            else:
+                sock.close()
+            
             from .webui.server import WebUIServer
             self.webui_server = WebUIServer(self.db_manager, port=self.webui_port)
             self.webui_thread = threading.Thread(target=self.webui_server.run, daemon=True, name='WebUI Server')
@@ -92,7 +103,7 @@ class MemoryCapsulePlugin(Star):
         logger.info("记忆胶囊插件已关闭")
 
     @filter.llm_tool(name="update_relationship")
-    async def update_relationship(self, event, user_id, relation_type=None, tags_update=None, summary_update=None, intimacy_change=0):
+    async def update_relationship(self, event, user_id, relation_type=None, tags_update=None, summary_update=None, intimacy_change=0, nickname=None, first_met_time=None, first_met_location=None, known_contexts=None):
         """
         更新对某人的印象或关系
         
@@ -102,6 +113,10 @@ class MemoryCapsulePlugin(Star):
             tags_update(str): 新的标签 (会覆盖旧的)
             summary_update(str): 新的印象总结 (会覆盖旧的)
             intimacy_change(int): 好感度变化值 (如 +5, -10)
+            nickname(str): AI 对 TA 的称呼
+            first_met_time(str): 初次见面时间
+            first_met_location(str): 初次见面地点
+            known_contexts(str): 遇到过的场景
             
         Returns:
             str: 更新结果
@@ -112,9 +127,12 @@ class MemoryCapsulePlugin(Star):
         tags_update = str(tags_update) if tags_update is not None else None
         summary_update = str(summary_update) if summary_update is not None else None
         intimacy_change = int(intimacy_change)
+        nickname = str(nickname) if nickname is not None else None
+        first_met_time = str(first_met_time) if first_met_time is not None else None
+        first_met_location = str(first_met_location) if first_met_location is not None else None
+        known_contexts = str(known_contexts) if known_contexts is not None else None
         try:
-            import asyncio
-            result = await asyncio.to_thread(self.db_manager.update_relationship, user_id, relation_type, tags_update, summary_update, intimacy_change)
+            result = await asyncio.to_thread(self.db_manager.update_relationship, user_id, relation_type, tags_update, summary_update, intimacy_change, nickname, first_met_time, first_met_location, known_contexts)
             logger.info(f"更新关系成功: {user_id}")
             return result
         except Exception as e:
@@ -122,7 +140,7 @@ class MemoryCapsulePlugin(Star):
             return f"更新失败: {e}"
 
     @filter.llm_tool(name="write_memory")
-    async def write_memory(self, event, content, category="日常", tags="", target_user_id=None):
+    async def write_memory(self, event, content, category="日常", tags="", target_user_id=None, source_platform="Web", source_context="", importance=5):
         """
         记下一个永久知识点
         
@@ -131,6 +149,9 @@ class MemoryCapsulePlugin(Star):
             category(str): 分类 (默认 "日常")
             tags(str): 标签 (逗号分隔)
             target_user_id(str): 如果是关于特定人的记忆，填这里
+            source_platform(str): 来源 (默认 "Web")
+            source_context(str): 场景
+            importance(int): 重要性 (1-10，默认 5)
             
         Returns:
             str: 存储结果
@@ -140,9 +161,11 @@ class MemoryCapsulePlugin(Star):
         category = str(category)
         tags = str(tags)
         target_user_id = str(target_user_id) if target_user_id is not None else None
+        source_platform = str(source_platform)
+        source_context = str(source_context)
+        importance = int(importance)
         try:
-            import asyncio
-            result = await asyncio.to_thread(self.db_manager.write_memory, content, category, tags, target_user_id)
+            result = await asyncio.to_thread(self.db_manager.write_memory, content, category, tags, target_user_id, source_platform, source_context, importance)
             logger.info("存储记忆成功")
             return result
         except Exception as e:
@@ -196,12 +219,12 @@ class MemoryCapsulePlugin(Star):
             return f"删除失败: {e}"
 
     @filter.llm_tool(name="get_all_memories")
-    async def get_all_memories(self, event, limit=100):
+    async def get_all_memories(self, event, limit=20):
         """
         获取所有记忆
         
         Args:
-            limit(int): 限制数量，默认为100
+            limit(int): 限制数量，默认为20
             
         Returns:
             list: 记忆列表
@@ -290,41 +313,45 @@ class MemoryCapsulePlugin(Star):
             
             # 查找用户关系信息
             import asyncio
-            relations = await asyncio.to_thread(self.db_manager.query_relation, user_id)
+            relationships = await asyncio.to_thread(self.db_manager.get_all_relationships)
+            user_relation = None
+            
+            for relation in relationships:
+                if relation['user_id'] == user_id:
+                    user_relation = relation
+                    break
             
             # 如果没有关系信息，自动添加
-            if not relations:
+            if not user_relation:
                 logger.info(f"用户 {user_id} 首次对话，自动添加关系记录")
-                await self.update_relation(
+                await self.update_relationship(
                     event=event,
                     user_id=user_id,
-                    group_id=group_id,
-                    platform=platform,
-                    nickname=user_name,
-                    first_meet_group=group_id,
-                    first_meet_time=event.get_timestamp()
+                    relation_type="朋友",
+                    summary_update=f"与 {user_name} 的关系",
+                    intimacy_change=50
                 )
                 # 重新获取关系信息
-                relations = await asyncio.to_thread(self.db_manager.query_relation, user_id)
+                relationships = await asyncio.to_thread(self.db_manager.get_all_relationships)
+                for relation in relationships:
+                    if relation['user_id'] == user_id:
+                        user_relation = relation
+                        break
             
             # 构建关系信息上下文
-            if relations:
-                relation = relations[0]
+            if user_relation:
                 relation_context = f"\n\n用户关系信息:\n"
-                relation_context += f"- 用户ID: {relation['user_id']}\n"
-                relation_context += f"- 昵称: {relation['nickname']}\n"
-                if relation['nicknames']:
-                    relation_context += f"- 昵称列表: {', '.join(relation['nicknames'])}\n"
-                if relation['first_meet_group']:
-                    relation_context += f"- 初次见面群组: {relation['first_meet_group']}\n"
-                if relation['first_meet_time']:
-                    relation_context += f"- 初次见面时间: {relation['first_meet_time']}\n"
-                relation_context += f"- 平台: {relation['platform']}\n"
-                relation_context += f"- 好感度: {relation['favor_level']}\n"
-                if relation['relationship']:
-                    relation_context += f"- 关系: {relation['relationship']}\n"
-                if relation['remark']:
-                    relation_context += f"- 备注: {relation['remark']}\n"
+                relation_context += f"- 用户ID: {user_relation['user_id']}\n"
+                if user_relation['nickname']:
+                    relation_context += f"- 昵称: {user_relation['nickname']}\n"
+                relation_context += f"- 关系类型: {user_relation['relation_type'] or '未知'}\n"
+                relation_context += f"- 好感度: {user_relation['intimacy']}\n"
+                if user_relation['first_met_location']:
+                    relation_context += f"- 初次见面地点: {user_relation['first_met_location']}\n"
+                if user_relation['known_contexts']:
+                    relation_context += f"- 认识群组: {user_relation['known_contexts']}\n"
+                if user_relation['summary']:
+                    relation_context += f"- 核心印象: {user_relation['summary']}\n"
                 
                 # 注入到系统提示词
                 # 注意：具体的注入方式可能需要根据AstrBot的API调整
@@ -337,6 +364,17 @@ class MemoryCapsulePlugin(Star):
                     event.context.system_prompt = (event.context.system_prompt or "") + relation_context
                 
                 logger.info(f"成功注入用户 {user_id} 的关系信息到上下文")
+            else:
+                # 注入暂无关系提醒
+                no_relation_context = f"\n\n用户关系信息:\n- 暂无该用户的关系记录\n"
+                if hasattr(event, 'set_system_prompt'):
+                    current_prompt = event.get_system_prompt() or ""
+                    new_prompt = current_prompt + no_relation_context
+                    event.set_system_prompt(new_prompt)
+                elif hasattr(event, 'context') and hasattr(event.context, 'system_prompt'):
+                    event.context.system_prompt = (event.context.system_prompt or "") + no_relation_context
+                
+                logger.info(f"用户 {user_id} 暂无关系记录，注入提醒信息")
         except Exception as e:
             logger.error(f"注入关系信息失败: {e}")
         
