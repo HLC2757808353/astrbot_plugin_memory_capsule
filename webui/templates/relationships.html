@@ -419,6 +419,7 @@
                         <thead>
                             <tr>
                                 <th>ID</th>
+                                <th>昵称</th>
                                 <th>初次见面地点</th>
                                 <th>认识群组</th>
                                 <th>好感度</th>
@@ -447,6 +448,10 @@
                 <div class="form-group">
                     <label class="form-label" for="edit-user-id-input">ID</label>
                     <input type="text" class="form-control" id="edit-user-id-input" placeholder="请输入用户ID">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="edit-nickname">昵称</label>
+                    <input type="text" class="form-control" id="edit-nickname" placeholder="请输入用户昵称">
                 </div>
                 <div class="form-group">
                     <label class="form-label" for="edit-first-met-location">初次见面地点 (id+群名称)</label>
@@ -512,6 +517,7 @@
                     
                     tr.innerHTML = `
                         <td>${relationship.user_id}</td>
+                        <td>${relationship.nickname || '无'}</td>
                         <td>${relationship.first_met_location || '未知'}</td>
                         <td>${knownGroupsHtml || '无'}</td>
                         <td>
@@ -646,6 +652,7 @@
                     // 填充表单
                     document.getElementById('edit-user-id').value = relationship.user_id;
                     document.getElementById('edit-user-id-input').value = relationship.user_id;
+                    document.getElementById('edit-nickname').value = relationship.nickname || '';
                     document.getElementById('edit-first-met-location').value = relationship.first_met_location || '';
                     document.getElementById('edit-known-groups').value = relationship.known_contexts || '';
                     document.getElementById('edit-intimacy').value = relationship.intimacy || 50;
@@ -687,6 +694,7 @@
             // 清空表单
             document.getElementById('edit-user-id').value = '';
             document.getElementById('edit-user-id-input').value = '';
+            document.getElementById('edit-nickname').value = '';
             document.getElementById('edit-first-met-location').value = '';
             document.getElementById('edit-known-groups').value = '';
             document.getElementById('edit-intimacy').value = 50;
@@ -702,6 +710,7 @@
             e.preventDefault();
             
             const userId = document.getElementById('edit-user-id').value || document.getElementById('edit-user-id-input').value;
+            const nickname = document.getElementById('edit-nickname').value;
             const firstMetLocation = document.getElementById('edit-first-met-location').value;
             const knownGroups = document.getElementById('edit-known-groups').value;
             const intimacy = parseInt(document.getElementById('edit-intimacy').value);
@@ -721,6 +730,7 @@
                     },
                     body: JSON.stringify({
                         user_id: userId,
+                        nickname: nickname,
                         relation_type: relationType,
                         summary_update: summary,
                         intimacy_change: userId ? intimacy - (await getCurrentIntimacy(userId)) : intimacy - 50,
@@ -800,6 +810,7 @@
                     
                     tr.innerHTML = `
                         <td>${relationship.user_id}</td>
+                        <td>${relationship.nickname || '无'}</td>
                         <td>${relationship.first_met_location || '未知'}</td>
                         <td>${knownGroupsHtml || '无'}</td>
                         <td>
