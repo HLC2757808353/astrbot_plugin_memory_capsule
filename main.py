@@ -1,4 +1,4 @@
-from astrbot.api.event import filter, AstrMessageEvent, MessageEventResult
+from astrbot.api.event import filter, AstrMessageEvent, MessageEventResult, ProviderRequest
 from astrbot.api.star import Context, Star, register
 from astrbot.api import logger
 import os
@@ -297,7 +297,7 @@ class MemoryCapsulePlugin(Star):
             return f"备份失败: {e}"
 
     @filter.on_llm_request()
-    async def inject_relation_context(self, event: AstrMessageEvent, *args, **kwargs):
+    async def inject_relation_context(self, event: AstrMessageEvent, req: ProviderRequest):
         """
         注入用户关系信息到AI上下文
         
