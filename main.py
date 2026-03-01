@@ -1,4 +1,5 @@
-from astrbot.api.event import filter, AstrMessageEvent, MessageEventResult, ProviderRequest
+from astrbot.api.event import filter, AstrMessageEvent, MessageEventResult
+from astrbot.api.provider import ProviderRequest
 from astrbot.api.star import Context, Star, register
 from astrbot.api import logger
 import os
@@ -335,19 +336,35 @@ class MemoryCapsulePlugin(Star):
                 relation_context = f"\n\n<Relationship>当前对象未被记录在关系图谱里</Relationship>\n"
                 logger.info(f"用户 {user_id} 暂无关系信息")
             
-            # 检查配置，确定注入位置
-            inject_to = self.config.get('context_inject_position', 'system')
-            if inject_to == 'system':
-                # 注入到系统提示词
-                if hasattr(event, 'system_prompt'):
-                    event.system_prompt += relation_context
-                elif hasattr(event, 'context') and hasattr(event.context, 'system_prompt'):
-                    event.context.system_prompt = (event.context.system_prompt or "") + relation_context
-            else:
-                # 注入到用户上下文
-                event.message_str = relation_context + '\n' + event.message_str
+            # 检查配置，确定注入方式
+            injection_method = self.config.get('context_inject_position', 'user_prompt')
             
-            logger.info(f"成功注入用户 {user_id} 的关系信息到上下文")
+            if injection_method == 'system_prompt':
+                # 注入到系统提示词
+                req.system_prompt = (req.system_prompt or "") + relation_context
+                logger.info(f"成功注入用户 {user_id} 的关系信息到系统提示词")
+            elif injection_method == 'user_prompt':
+                # 注入到用户消息
+                req.prompt = relation_context + '\n' + (req.prompt or "")
+                logger.info(f"成功注入用户 {user_id} 的关系信息到用户提示词")
+            elif injection_method == 'insert_system_prompt':
+                # 向上下文列表中添加一条新的系统消息
+                if hasattr(req, 'messages'):
+                    # 检查messages是否存在
+                    req.messages.insert(0, {
+                        'role': 'system',
+                        'content': relation_context
+                    })
+                    logger.info(f"成功向上下文列表添加用户 {user_id} 的关系信息系统消息")
+                else:
+                    # 如果messages不存在，默认注入到系统提示词
+                    req.system_prompt = (req.system_prompt or "") + relation_context
+                    logger.info(f"成功注入用户 {user_id} 的关系信息到系统提示词")
+            else:
+                # 默认注入到用户消息
+                req.prompt = relation_context + '\n' + (req.prompt or "")
+                logger.info(f"成功注入用户 {user_id} 的关系信息到用户提示词")
+            
         except Exception as e:
             logger.error(f"注入关系信息失败: {e}")
         return event
