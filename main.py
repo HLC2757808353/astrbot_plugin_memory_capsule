@@ -297,7 +297,7 @@ class MemoryCapsulePlugin(Star):
             return f"备份失败: {e}"
 
     @filter.on_llm_request()
-    async def inject_relation_context(self, event: AstrMessageEvent):
+    async def inject_relation_context(self, event: AstrMessageEvent, *args, **kwargs):
         """
         注入用户关系信息到AI上下文
         
