@@ -296,21 +296,17 @@ class MemoryCapsulePlugin(Star):
             logger.error(f"数据库备份失败: {e}")
             return f"备份失败: {e}"
 
-    @filter.on_decorating_result()
+    @filter.on_llm_request()
     async def inject_relation_context(self, event: AstrMessageEvent):
         """
         注入用户关系信息到AI上下文
         
         每次对话时，自动获取用户的关系信息并注入到系统提示词中
-        如果用户没有关系信息，自动添加一个新的关系记录
+        无关系时提醒LLM
         """
         try:
             # 获取用户信息
             user_id = event.get_sender_id()
-            user_name = event.get_sender_name()
-            group_id = event.get_group_id() or "private"
-            # 为平台信息设置默认值，因为某些事件对象可能没有 get_platform() 方法
-            platform = "qq"
             
             # 查找用户关系信息
             import asyncio
@@ -322,91 +318,36 @@ class MemoryCapsulePlugin(Star):
                     user_relation = relation
                     break
             
-            # 如果没有关系信息，自动添加
-            if not user_relation:
-                logger.info(f"用户 {user_id} 首次对话，自动添加关系记录")
-                # 获取当前时间戳
-                import time
-                current_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
-                await self.update_relationship(
-                    event=event,
-                    user_id=user_id,
-                    relation_type="群友",
-                    summary_update=f"首次记录",
-                    intimacy_change=0,
-                    nickname=user_name,
-                    first_met_time=current_time,
-                    first_met_location=group_id,
-                    known_contexts=group_id
-                )
-                # 重新获取关系信息
-                relationships = await asyncio.to_thread(self.db_manager.get_all_relationships)
-                for relation in relationships:
-                    if relation['user_id'] == user_id:
-                        user_relation = relation
-                        break
-            else:
-                # 如果已有关系信息，但某些字段为 None，更新这些字段
-                import time
-                current_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
-                update_needed = False
-                if not user_relation['nickname']:
-                    update_needed = True
-                if not user_relation['first_met_time']:
-                    update_needed = True
-                if not user_relation['first_met_location']:
-                    update_needed = True
-                if not user_relation['known_contexts']:
-                    update_needed = True
-                
-                if update_needed:
-                    await self.update_relationship(
-                        event=event,
-                        user_id=user_id,
-                        relation_type=user_relation['relation_type'],
-                        summary_update=user_relation['summary'],
-                        intimacy_change=0,
-                        nickname=user_relation['nickname'] or user_name,
-                        first_met_time=user_relation['first_met_time'] or current_time,
-                        first_met_location=user_relation['first_met_location'] or group_id,
-                        known_contexts=user_relation['known_contexts'] or group_id
-                    )
-                    # 重新获取关系信息
-                    relationships = await asyncio.to_thread(self.db_manager.get_all_relationships)
-                    for relation in relationships:
-                        if relation['user_id'] == user_id:
-                            user_relation = relation
-                            break
-            
             # 构建关系信息上下文
             if user_relation:
                 # 确保所有字段都有值
-                nickname = user_relation['nickname'] or user_name
-                first_met_time = user_relation['first_met_time'] or time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
-                first_met_location = user_relation['first_met_location'] or group_id
-                known_contexts = user_relation['known_contexts'] or group_id
+                nickname = user_relation['nickname'] or '未知'
+                first_met_time = user_relation['first_met_time'] or '未知'
+                first_met_location = user_relation['first_met_location'] or '未知'
+                known_contexts = user_relation['known_contexts'] or '未知'
                 relation_type = user_relation['relation_type'] or '未知'
                 summary = user_relation['summary'] or '无'
                 
                 # 构建关系信息格式
                 relation_context = f"\n\n<Relationship> 当前关系状态：\n- 用户ID: {user_relation['user_id']}\n- 昵称: {nickname}\n- 关系类型: {relation_type}\n- 好感度: {user_relation['intimacy']}\n- 初次见面时间: {first_met_time}\n- 初次见面地点: {first_met_location}\n- 认识群组: {known_contexts}\n- 核心印象: {summary}\n</Relationship>\n"
-                
-                # 检查配置，确定注入位置
-                inject_to = self.config.get('context_inject_position', 'system')
-                if inject_to == 'system':
-                    # 注入到系统提示词
-                    if hasattr(event, 'system_prompt'):
-                        event.system_prompt += relation_context
-                    elif hasattr(event, 'context') and hasattr(event.context, 'system_prompt'):
-                        event.context.system_prompt = (event.context.system_prompt or "") + relation_context
-                else:
-                    # 注入到用户上下文
-                    event.message_str = relation_context + '\n' + event.message_str
-                
-                logger.info(f"成功注入用户 {user_id} 的关系信息到上下文")
             else:
-                # 注入暂无关系提醒
+                # 如果查询为空，返回指定格式
+                relation_context = f"\n\n<Relationship>当前对象未被记录在关系图谱里</Relationship>\n"
                 logger.info(f"用户 {user_id} 暂无关系信息")
+            
+            # 检查配置，确定注入位置
+            inject_to = self.config.get('context_inject_position', 'system')
+            if inject_to == 'system':
+                # 注入到系统提示词
+                if hasattr(event, 'system_prompt'):
+                    event.system_prompt += relation_context
+                elif hasattr(event, 'context') and hasattr(event.context, 'system_prompt'):
+                    event.context.system_prompt = (event.context.system_prompt or "") + relation_context
+            else:
+                # 注入到用户上下文
+                event.message_str = relation_context + '\n' + event.message_str
+            
+            logger.info(f"成功注入用户 {user_id} 的关系信息到上下文")
         except Exception as e:
             logger.error(f"注入关系信息失败: {e}")
         return event
