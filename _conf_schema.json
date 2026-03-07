@@ -1,7 +1,7 @@
 {
   "memory_palace": {
     "description": "记忆宫殿模块",
-    "type": "bool",
+    "type": "boolean",
     "default": true,
     "hint": "启用或禁用记忆宫殿模块",
     "editable": true,
@@ -15,14 +15,14 @@
     "properties": {
       "enabled": {
         "description": "启用自动清理",
-        "type": "bool",
+        "type": "boolean",
         "default": true,
         "editable": true,
         "display_name": "启用清理"
       },
       "days_old": {
         "description": "清理多少天前的记忆",
-        "type": "int",
+        "type": "integer",
         "default": 365,
         "hint": "设置为0表示永不按时间清理",
         "editable": true,
@@ -30,7 +30,7 @@
       },
       "max_count": {
         "description": "最大记忆数量",
-        "type": "int",
+        "type": "integer",
         "default": 10000,
         "hint": "设置为0表示永不按数量清理",
         "editable": true,
@@ -55,7 +55,7 @@
     "properties": {
       "max_results": {
         "description": "最大搜索结果数",
-        "type": "int",
+        "type": "integer",
         "default": 50,
         "editable": true,
         "display_name": "最大结果数"
@@ -79,7 +79,7 @@
     "properties": {
       "interval": {
         "description": "自动备份间隔（小时）",
-        "type": "int",
+        "type": "integer",
         "default": 24,
         "hint": "设置自动备份的时间间隔，单位为小时",
         "editable": true,
@@ -87,7 +87,7 @@
       },
       "max_count": {
         "description": "备份最大数量",
-        "type": "int",
+        "type": "integer",
         "default": 10,
         "hint": "设置备份文件的最大数量，超过后会自动清理旧备份",
         "editable": true,
@@ -103,7 +103,7 @@
     "properties": {
       "port": {
         "description": "WebUI服务端口",
-        "type": "int",
+        "type": "integer",
         "default": 5000,
         "hint": "设置WebUI服务的端口号，默认5000",
         "editable": true,
