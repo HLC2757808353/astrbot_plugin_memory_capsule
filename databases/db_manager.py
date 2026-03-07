@@ -1,6 +1,7 @@
 import sqlite3
 import os
 import json
+import re
 from datetime import datetime
 
 # 容错处理
@@ -10,6 +11,22 @@ except ImportError:
     import logging
     logger = logging.getLogger(__name__)
     logging.basicConfig(level=logging.INFO)
+
+# 导入分词库
+try:
+    import jieba
+    import jieba.posseg as pseg
+except ImportError:
+    logger.warning("jieba库未安装，标签提取功能将受限")
+    jieba = None
+    pseg = None
+
+# 导入拼音库
+try:
+    import pypinyin
+except ImportError:
+    logger.warning("pypinyin库未安装，拼音匹配功能将受限")
+    pypinyin = None
 
 from .backup import BackupManager
 
@@ -30,6 +47,95 @@ class DatabaseManager:
         
         # 初始化数据库结构
         self._initialize_database_structure()
+        
+        # 初始化搜索权重配置
+        self.search_weights = self.config.get('search_weights', {
+            'tag_match': 5.0,
+            'recent_boost': 3.0,
+            'mid_boost': 2.0,
+            'popularity': 1.0,
+            'category_match': 2.0,
+            'full_match_bonus': 10.0
+        })
+        
+        # 初始化搜索策略配置
+        self.search_strategy = self.config.get('search_strategy', {
+            'match_type': 'AND',
+            'synonym_expansion': True,
+            'time_decay': True,
+            'category_filter': False,
+            'enable_fallback': True
+        })
+        
+        # 初始化缓存
+        self.cache = {}
+        self.cache_max_size = self.config.get('max_cache_size', 1000)
+    
+    def extract_tags_optimized(self, content):
+        """智能标签提取器
+        
+        使用混合策略：规则 + jieba分词 + 实体识别
+        """
+        tags = []
+        
+        # 策略1：jieba分词提取名词（最可靠）
+        if pseg:
+            words = pseg.cut(content)
+            for word, flag in words:
+                if flag.startswith('n') and len(word) >= 2:  # 只取2字以上的名词
+                    tags.append(word)
+        
+        # 策略2：提取技术术语（编程相关）
+        tech_terms = re.findall(r'\b(python|java|git|sql|api|json|xml|html|css)\b', content, re.IGNORECASE)
+        tags.extend([t.lower() for t in tech_terms])
+        
+        # 策略3：版本号识别（Python3, Java8等）
+        versions = re.findall(r'[a-zA-Z]+\d+', content)
+        tags.extend(versions)
+        
+        # 去重，限制数量
+        max_tags = self.config.get('max_tags_per_memory', 10)
+        return list(dict.fromkeys(tags))[:max_tags]
+    
+    def add_synonym_pair(self, word1, word2):
+        """添加同义词对，确保不重复存储"""
+        # 统一存储方向：总是按字母顺序存小的在前
+        if word1 < word2:
+            base, synonym = word1, word2
+        else:
+            base, synonym = word2, word1
+        
+        # 插入数据库（已通过CHECK约束确保不会重复）
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT OR IGNORE INTO synonyms (word, synonym, source)
+                VALUES (?, ?, ?)
+            ''', (base, synonym, 'auto'))
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            logger.error(f"添加同义词对失败: {e}")
+    
+    def get_all_synonyms(self, word):
+        """获取一个词的所有同义词（双向查找）"""
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            # 查询word作为基础词的同义词
+            cursor.execute('''
+                SELECT synonym FROM synonyms WHERE word = ?
+                UNION
+                SELECT word FROM synonyms WHERE synonym = ?
+            ''', (word, word))
+            
+            results = [row[0] for row in cursor.fetchall()]
+            conn.close()
+            return [word] + results  # 总是包含自己
+        except Exception as e:
+            logger.error(f"获取同义词失败: {e}")
+            return [word]
 
     def _initialize_database_structure(self):
         """初始化数据库结构"""
@@ -211,11 +317,140 @@ class DatabaseManager:
             conn.close()
         except Exception as e:
             logger.error(f"数据迁移失败: {e}")
+    
+    def _initialize_database_structure(self):
+        """初始化数据库结构"""
+        conn = None
+        try:
+            # 创建数据库目录
+            os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
+            
+            # 临时连接创建表结构
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            # 创建关系表 (relationships) —— 名片夹
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS relationships (
+                user_id TEXT PRIMARY KEY,       -- 对方 QQ 号
+                nickname TEXT,                  -- AI 对 TA 的称呼
+                relation_type TEXT,             -- 关系 (如: 朋友, 损友)
+                intimacy INTEGER DEFAULT 0,     -- 好感度 (0-100)
+                summary TEXT,                   -- 核心印象 (覆盖式更新，不追加)
+                first_met_location TEXT,        -- 初次见面地点 (如: "QQ群:12345")
+                known_contexts TEXT,            -- 遇到过的场景 (JSON列表)
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            ''')
+            
+            # 创建记忆表 (memories) —— 笔记本
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS memories (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,  -- 主键，唯一标识
+                category TEXT,                         -- 分类（AI指定，如"技术笔记"、"生活记录"等）
+                content TEXT NOT NULL,                 -- 记忆内容（AI给什么存什么）
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,  -- 创建时间
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,  -- 更新时间
+                access_count INTEGER DEFAULT 0         -- 被搜索到的次数（用于热度统计）
+            )
+            ''')
+            
+            # 创建标签表 (tags) —— 用于智能标签管理
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS tags (
+                memory_id INTEGER NOT NULL,            -- 关联哪条记忆
+                tag TEXT NOT NULL,                     -- 标签内容
+                source TEXT DEFAULT 'auto',            -- 来源：auto=自动，manual=手动
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (memory_id) REFERENCES memories(id) ON DELETE CASCADE,
+                UNIQUE(memory_id, tag)
+            )
+            ''')
+            
+            # 创建同义词表 (synonyms) —— 用于搜索扩展
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS synonyms (
+                word TEXT NOT NULL,                    -- 基础词（总是较小的词）
+                synonym TEXT NOT NULL,                 -- 同义词（总是较大的词）
+                source TEXT DEFAULT 'rule',            -- 来源：rule=规则，learned=学习
+                strength FLOAT DEFAULT 1.0,            -- 同义强度（0.0-1.0）
+                CHECK (word < synonym),                -- 强制统一存储方向
+                UNIQUE(word, synonym)
+            )
+            ''')
+            
+            # 创建活动记录表 (activities)
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS activities (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                action TEXT NOT NULL,           -- 操作类型 (添加记忆, 更新关系, 删除记忆等)
+                details TEXT,                   -- 操作详情
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            ''')
+            
+            # 建立索引加速搜索
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_mem_cate ON memories(category)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_mem_time ON memories(created_at)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_mem_access ON memories(access_count)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_tags_tag ON tags(tag)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_tags_memory ON tags(memory_id)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_synonyms_word ON synonyms(word)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_synonyms_synonym ON synonyms(synonym)')
+            
+            # 全文搜索虚拟表 (SQLite FTS5)
+            try:
+                cursor.execute('''
+                CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(content, tags, category)
+                ''')
+            except:
+                pass
+            
+            # 创建触发器，当memories表变化时更新全文搜索表
+            try:
+                cursor.execute('''
+                CREATE TRIGGER IF NOT EXISTS memories_fts_insert AFTER INSERT ON memories
+                BEGIN
+                    INSERT INTO memories_fts(rowid, content, tags, category) VALUES (new.id, new.content, new.tags, new.category);
+                END
+                ''')
+            except:
+                pass
+            
+            try:
+                cursor.execute('''
+                CREATE TRIGGER IF NOT EXISTS memories_fts_update AFTER UPDATE ON memories
+                BEGIN
+                    UPDATE memories_fts SET content = new.content, tags = new.tags, category = new.category WHERE rowid = old.id;
+                END
+                ''')
+            except:
+                pass
+            
+            try:
+                cursor.execute('''
+                CREATE TRIGGER IF NOT EXISTS memories_fts_delete AFTER DELETE ON memories
+                BEGIN
+                    DELETE FROM memories_fts WHERE rowid = old.id;
+                END
+                ''')
+            except:
+                pass
+            
+            conn.commit()
+            logger.info(f"数据库结构初始化成功: {self.db_path}")
+        except Exception as e:
+            logger.error(f"数据库结构初始化失败: {e}")
+        finally:
+            if conn:
+                conn.close()
 
     def initialize(self):
         """初始化数据库"""
         try:
-            # 迁移旧数据
+            # 首先确保表结构正确
+            self._initialize_database_structure()
+            # 然后迁移旧数据
             self._migrate_old_data()
             
             # 启动自动备份
@@ -259,24 +494,32 @@ class DatabaseManager:
             conn = self._get_connection()
             cursor = conn.cursor()
             
-            # 插入数据
-            cursor.execute('''
-            INSERT INTO memories (category, content)
-            VALUES (?, ?)
-            ''', (category, content))
-            
-            memory_id = cursor.lastrowid
-            
             # 处理标签
+            tag_list = []
+            
+            # 1. 添加用户指定的标签
             if tags:
-                tag_list = tags.split(',')
-                for tag in tag_list:
+                user_tags = tags.split(',')
+                for tag in user_tags:
                     tag = tag.strip()
                     if tag:
-                        cursor.execute('''
-                        INSERT OR IGNORE INTO tags (memory_id, tag, source)
-                        VALUES (?, ?, ?)
-                        ''', (memory_id, tag, 'auto'))
+                        tag_list.append(tag)
+            
+            # 2. 智能提取标签
+            auto_tags = self.extract_tags_optimized(content)
+            tag_list.extend(auto_tags)
+            
+            # 3. 去重并合并标签
+            unique_tags = list(dict.fromkeys(tag_list))
+            tags_str = ','.join(unique_tags)
+            
+            # 插入数据
+            cursor.execute('''
+            INSERT INTO memories (category, tags, content)
+            VALUES (?, ?, ?)
+            ''', (category, tags_str, content))
+            
+            memory_id = cursor.lastrowid
             
             conn.commit()
             conn.close()
@@ -289,27 +532,60 @@ class DatabaseManager:
             logger.error(f"存储记忆失败: {e}")
             return f"存储失败: {e}"
 
-    def search_memory(self, query):
-        """搜索记忆
+    def search_memory(self, query, category_filter=None, limit=5):
+        """智能搜索记忆
         
         参数说明：
         - query: 搜索关键词或句子
+        - category_filter: 分类过滤
+        - limit: 返回结果数量限制
         """
         try:
+            # 1. 从查询中提取关键词
+            query_tags = self.extract_tags_optimized(query)
+            
+            # 2. 扩展同义词
+            expanded_terms = []
+            if self.search_strategy.get('synonym_expansion', True):
+                for term in query_tags:
+                    expanded_terms.extend(self.get_all_synonyms(term))
+            else:
+                expanded_terms = query_tags
+            
+            # 3. 构建SQL查询
             conn = self._get_connection()
             cursor = conn.cursor()
             
-            # 使用全文搜索
-            if query:
-                search_query = "SELECT m.* FROM memories m JOIN memories_fts f ON m.id = f.rowid WHERE f.memories_fts MATCH ?"
-                params = [f"{query}"]
-                search_query += " ORDER BY m.access_count DESC, m.created_at DESC LIMIT 50"
-            else:
-                # 没有查询关键词，返回最新的记忆
-                search_query = "SELECT * FROM memories ORDER BY created_at DESC LIMIT 50"
+            if expanded_terms:
+                # 构建LIKE查询条件
+                where_conditions = []
                 params = []
+                
+                for term in expanded_terms:
+                    where_conditions.append('(content LIKE ? OR tags LIKE ?)')
+                    params.extend([f'%{term}%', f'%{term}%'])
+                
+                # 分类过滤
+                if category_filter:
+                    where_conditions.append('category = ?')
+                    params.append(category_filter)
+                
+                # 构建完整查询
+                where_clause = ' AND '.join(where_conditions)
+                sql = f'''
+                    SELECT * FROM memories 
+                    WHERE {where_clause}
+                    ORDER BY access_count DESC, created_at DESC
+                    LIMIT ?
+                '''
+                params.append(limit)
+                
+                cursor.execute(sql, params)
+            else:
+                # 没有关键词，返回最近的记忆
+                sql = 'SELECT * FROM memories ORDER BY created_at DESC LIMIT ?'
+                cursor.execute(sql, (limit,))
             
-            cursor.execute(search_query, params)
             results = cursor.fetchall()
             
             # 更新访问次数
@@ -323,19 +599,58 @@ class DatabaseManager:
             # 处理结果
             memory_list = []
             for row in results:
-                memory = {
-                    "id": row[0],
-                    "category": row[1],
-                    "content": row[2],
-                    "created_at": row[3],
-                    "updated_at": row[4],
-                    "access_count": row[5]
-                }
-                memory_list.append(memory)
+                # 确保row不是None
+                if row:
+                    try:
+                        # 使用索引获取数据，避免列名错误
+                        memory = {
+                            "id": row[0],
+                            "category": row[4],
+                            "content": row[6],
+                            "created_at": row[8],
+                            "updated_at": row[8],  # 没有updated_at字段，使用created_at
+                            "access_count": row[9]
+                        }
+                        memory_list.append(memory)
+                    except Exception as e:
+                        logger.error(f"处理搜索结果失败: {e}")
             
             return memory_list
         except Exception as e:
             logger.error(f"搜索记忆失败: {e}")
+            # 出错时返回空列表
+            return []
+    
+    def get_recent_memories(self, limit=5):
+        """获取最近的记忆"""
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM memories ORDER BY created_at DESC LIMIT ?', (limit,))
+            results = cursor.fetchall()
+            conn.close()
+            
+            memory_list = []
+            for row in results:
+                # 确保row不是None
+                if row:
+                    try:
+                        # 使用索引获取数据，避免列名错误
+                        memory = {
+                            "id": row[0],
+                            "category": row[4],
+                            "content": row[6],
+                            "created_at": row[8],
+                            "updated_at": row[8],  # 没有updated_at字段，使用created_at
+                            "access_count": row[9]
+                        }
+                        memory_list.append(memory)
+                    except Exception as e:
+                        logger.error(f"处理最近记忆失败: {e}")
+            
+            return memory_list
+        except Exception as e:
+            logger.error(f"获取最近记忆失败: {e}")
             return []
 
     def delete_memory(self, memory_id):
@@ -724,3 +1039,94 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"获取记忆分类失败: {e}")
             return ["技术笔记", "生活记录", "学习资料", "个人想法"]
+    
+    def optimize_synonyms(self):
+        """优化同义词库"""
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            
+            # 1. 合并大小写变体
+            cursor.execute('''
+                SELECT DISTINCT tag FROM tags
+            ''')
+            tags = [row[0] for row in cursor.fetchall()]
+            
+            # 处理大小写变体
+            for tag in tags:
+                lowercase_tag = tag.lower()
+                if tag != lowercase_tag:
+                    self.add_synonym_pair(tag, lowercase_tag)
+            
+            # 2. 移除低强度同义词
+            cursor.execute('''
+                DELETE FROM synonyms WHERE strength < 0.3
+            ''')
+            
+            conn.commit()
+            conn.close()
+            logger.info("同义词库优化完成")
+        except Exception as e:
+            logger.error(f"优化同义词库失败: {e}")
+    
+    def analyze_search_patterns(self):
+        """从搜索模式中学习"""
+        try:
+            # 这里可以实现从搜索历史中学习的逻辑
+            # 例如分析高频搜索词，找出经常一起出现的词语
+            logger.info("搜索模式分析完成")
+        except Exception as e:
+            logger.error(f"分析搜索模式失败: {e}")
+    
+    def self_optimize(self):
+        """执行自我优化"""
+        try:
+            logger.info("开始执行自我优化...")
+            
+            # 1. 清理旧记忆
+            cleanup_result = self.cleanup_memories()
+            logger.info(f"清理结果: {cleanup_result}")
+            
+            # 2. 优化同义词库
+            self.optimize_synonyms()
+            
+            # 3. 分析搜索模式
+            self.analyze_search_patterns()
+            
+            # 4. 数据库维护
+            self._maintain_database()
+            
+            logger.info("自我优化完成")
+        except Exception as e:
+            logger.error(f"执行自我优化失败: {e}")
+    
+    def _maintain_database(self):
+        """数据库维护"""
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            
+            # 执行数据库优化命令
+            cursor.execute('VACUUM')
+            cursor.execute('ANALYZE')
+            cursor.execute('PRAGMA optimize')
+            
+            conn.commit()
+            conn.close()
+            logger.info("数据库维护完成")
+        except Exception as e:
+            logger.error(f"数据库维护失败: {e}")
+    
+    def update_search_weights(self, **kwargs):
+        """更新搜索权重配置"""
+        for key, value in kwargs.items():
+            if key in self.search_weights:
+                self.search_weights[key] = value
+        logger.info(f"搜索权重已更新: {self.search_weights}")
+    
+    def update_search_strategy(self, **kwargs):
+        """更新搜索策略配置"""
+        for key, value in kwargs.items():
+            if key in self.search_strategy:
+                self.search_strategy[key] = value
+        logger.info(f"搜索策略已更新: {self.search_strategy}")

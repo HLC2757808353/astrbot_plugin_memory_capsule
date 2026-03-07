@@ -21,6 +21,9 @@ class MemoryCapsulePlugin(Star):
         """插件初始化方法"""
         logger.info("记忆胶囊插件正在初始化...")
         
+        # 检查依赖
+        self._check_dependencies()
+        
         # 创建必要的目录结构
         self._create_directories()
         
@@ -37,6 +40,37 @@ class MemoryCapsulePlugin(Star):
         self._start_webui()
         
         logger.info("记忆胶囊插件初始化完成")
+    
+    def _check_dependencies(self):
+        """检查插件所需的依赖"""
+        logger.info("检查插件依赖...")
+        
+        # 检查必要依赖
+        required_dependencies = {
+            'jieba': '分词库，用于智能标签提取',
+            'pypinyin': '拼音库，用于拼音匹配'
+        }
+        
+        for dep_name, dep_desc in required_dependencies.items():
+            try:
+                __import__(dep_name)
+                logger.info(f"✓ 依赖 {dep_name} 已安装")
+            except ImportError:
+                logger.warning(f"⚠ 依赖 {dep_name} 未安装 - {dep_desc}")
+                logger.warning(f"  建议运行: pip install {dep_name}")
+        
+        # 检查可选依赖
+        optional_dependencies = {
+            'python-Levenshtein': '字符串相似度计算',
+            'msgpack': '缓存序列化'
+        }
+        
+        for dep_name, dep_desc in optional_dependencies.items():
+            try:
+                __import__(dep_name.replace('-', '_'))
+                logger.info(f"✓ 可选依赖 {dep_name} 已安装")
+            except ImportError:
+                logger.info(f"ℹ 可选依赖 {dep_name} 未安装 - {dep_desc}")
 
     def _create_directories(self):
         """创建必要的目录结构"""
@@ -220,12 +254,14 @@ class MemoryCapsulePlugin(Star):
             return f"存储失败: {e}"
 
     @filter.llm_tool(name="search_memory")
-    async def search_memory(self, event, query):
+    async def search_memory(self, event, query, category_filter=None, limit=5):
         """
         搜索过去的记忆
         
         Args:
             query(str): 搜索关键词或句子
+            category_filter(str): 分类过滤
+            limit(int): 返回结果数量限制
             
         Returns:
             list: 搜索结果列表
@@ -236,9 +272,11 @@ class MemoryCapsulePlugin(Star):
             
         # 类型转换确保参数类型正确
         query = str(query)
+        category_filter = str(category_filter) if category_filter is not None else None
+        limit = int(limit)
         try:
             import asyncio
-            results = await asyncio.to_thread(self.db_manager.search_memory, query)
+            results = await asyncio.to_thread(self.db_manager.search_memory, query, category_filter, limit)
             logger.info(f"搜索记忆成功，找到 {len(results)} 条结果")
             return results
         except Exception as e:
@@ -352,6 +390,63 @@ class MemoryCapsulePlugin(Star):
         except Exception as e:
             logger.error(f"数据库备份失败: {e}")
             return f"备份失败: {e}"
+
+    @filter.llm_tool(name="self_optimize")
+    async def self_optimize(self, event):
+        """
+        执行自我优化
+        
+        Returns:
+            str: 优化结果
+        """
+        try:
+            import asyncio
+            await asyncio.to_thread(self.db_manager.self_optimize)
+            logger.info("自我优化执行成功")
+            return "自我优化执行成功"
+        except Exception as e:
+            logger.error(f"自我优化执行失败: {e}")
+            return f"优化失败: {e}"
+
+    @filter.llm_tool(name="update_search_weights")
+    async def update_search_weights(self, event, **kwargs):
+        """
+        更新搜索权重配置
+        
+        Args:
+            **kwargs: 权重参数，如 tag_match, recent_boost 等
+            
+        Returns:
+            str: 更新结果
+        """
+        try:
+            import asyncio
+            await asyncio.to_thread(self.db_manager.update_search_weights, **kwargs)
+            logger.info("搜索权重更新成功")
+            return "搜索权重更新成功"
+        except Exception as e:
+            logger.error(f"更新搜索权重失败: {e}")
+            return f"更新失败: {e}"
+
+    @filter.llm_tool(name="update_search_strategy")
+    async def update_search_strategy(self, event, **kwargs):
+        """
+        更新搜索策略配置
+        
+        Args:
+            **kwargs: 策略参数，如 match_type, synonym_expansion 等
+            
+        Returns:
+            str: 更新结果
+        """
+        try:
+            import asyncio
+            await asyncio.to_thread(self.db_manager.update_search_strategy, **kwargs)
+            logger.info("搜索策略更新成功")
+            return "搜索策略更新成功"
+        except Exception as e:
+            logger.error(f"更新搜索策略失败: {e}")
+            return f"更新失败: {e}"
 
     @filter.on_llm_request()
     async def inject_relation_context(self, event: AstrMessageEvent, req: ProviderRequest):
