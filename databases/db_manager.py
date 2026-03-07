@@ -165,6 +165,19 @@ class DatabaseManager:
             conn = self._get_connection()
             cursor = conn.cursor()
             
+            # 检查并添加缺失的列
+            try:
+                # 检查memories表是否有access_count列
+                cursor.execute('PRAGMA table_info(memories)')
+                columns = [column[1] for column in cursor.fetchall()]
+                if 'access_count' not in columns:
+                    logger.info("添加缺失的access_count列...")
+                    cursor.execute('ALTER TABLE memories ADD COLUMN access_count INTEGER DEFAULT 0')
+                    conn.commit()
+                    logger.info("成功添加access_count列")
+            except Exception as e:
+                logger.error(f"添加access_count列失败: {e}")
+            
             # 检查是否需要迁移（如果tags表为空且memories表有数据）
             cursor.execute('SELECT COUNT(*) FROM tags')
             tags_count = cursor.fetchone()[0]

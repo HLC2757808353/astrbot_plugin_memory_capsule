@@ -60,11 +60,14 @@ class MemoryCapsulePlugin(Star):
             # 检查并尝试释放端口
             import socket
             import subprocess
+            import time
             
             # 检查端口是否被占用
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             result = sock.connect_ex(('localhost', self.webui_port))
-            if result == 0:
+            port_available = result != 0
+            
+            if not port_available:
                 logger.warning(f"端口 {self.webui_port} 已被占用，尝试释放...")
                 # 尝试找到并终止占用端口的进程
                 try:
@@ -102,8 +105,19 @@ class MemoryCapsulePlugin(Star):
                                     logger.error(f"终止进程 {pid} 失败: {kill_result.stderr}")
                             except Exception as kill_e:
                                 logger.error(f"终止进程 {pid} 失败: {kill_e}")
+                    
+                    # 等待一段时间后再次检查端口是否可用
+                    time.sleep(1)
+                    result = sock.connect_ex(('localhost', self.webui_port))
+                    port_available = result != 0
+                    if not port_available:
+                        logger.error(f"端口 {self.webui_port} 仍然被占用，无法启动WebUI服务")
+                        sock.close()
+                        return
                 except Exception as e:
                     logger.error(f"释放端口失败: {e}")
+                    sock.close()
+                    return
             sock.close()
             
             from .webui.server import WebUIServer
