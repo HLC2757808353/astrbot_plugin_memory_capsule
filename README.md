@@ -12,6 +12,10 @@
 - **多插件支持**：提供统一接口供其他插件存储数据
 - **WebUI管理**：提供可视化界面查看和管理记忆数据
 - **自动备份**：定期自动备份数据库，防止数据丢失
+- **记忆宫殿**：智能记忆管理系统，支持标签提取、同义词扩展、智能搜索
+- **记忆宫殿开关**：可在配置中启用或禁用记忆宫殿模块
+- **数据迁移**：自动将旧数据迁移到新的表结构
+- **智能搜索**：支持关键词搜索、分类过滤、热度排序
 
 ## 二、安装方法
 
@@ -46,40 +50,9 @@
 
 ## 四、插件开发接口
 
-### 4.1 存储数据
+### 4.1 存储记忆
 
-其他插件可以通过以下接口存储数据：
-
-```python
-from astrbot_plugin_memory_capsule import store_plugin_data
-
-# 存储数据
-result = store_plugin_data(
-    plugin_name="your_plugin_name",  # 插件名称
-    data_type="data_type",           # 数据类型
-    content="数据内容",              # 具体内容
-    metadata={"key": "value"}       # 附加元数据（可选）
-)
-print(result)  # 返回存储结果
-```
-
-### 4.2 查询数据
-
-```python
-from astrbot_plugin_memory_capsule import query_plugin_data
-
-# 查询数据
-results = query_plugin_data(
-    query_keyword="关键词",          # 搜索关键词（可选）
-    plugin_name="your_plugin_name",  # 插件名称（可选）
-    data_type="data_type"           # 数据类型（可选）
-)
-
-for item in results:
-    print(f"{item['plugin_name']}/{item['data_type']}: {item['content']}")
-```
-
-### 4.3 获取记忆管理器
+其他插件可以通过以下接口存储记忆：
 
 ```python
 from astrbot_plugin_memory_capsule import get_memory_manager
@@ -87,40 +60,147 @@ from astrbot_plugin_memory_capsule import get_memory_manager
 # 获取记忆管理器实例
 db_manager = get_memory_manager()
 
-# 使用管理器的其他方法
-all_data = db_manager.get_all_plugin_data()
-all_relations = db_manager.get_all_relations()
+# 存储记忆
+result = db_manager.write_memory(
+    content="记忆内容",              # 记忆正文
+    category="日常",                # 分类（默认 "日常"）
+    tags="标签1,标签2",            # 标签（逗号分隔）
+    target_user_id="用户ID",         # 如果是关于特定人的记忆，填这里
+    source_platform="Web",         # 来源（默认 "Web"）
+    source_context="场景",          # 场景
+    importance=5                    # 重要性（1-10，默认 5）
+)
+print(result)  # 返回存储结果
+```
+
+### 4.2 搜索记忆
+
+```python
+from astrbot_plugin_memory_capsule import get_memory_manager
+
+# 获取记忆管理器实例
+db_manager = get_memory_manager()
+
+# 搜索记忆
+results = db_manager.search_memory(
+    query="搜索关键词",             # 搜索关键词或句子
+    target_user_id="用户ID"         # 限定搜索某人的相关记忆（可选）
+)
+
+for item in results:
+    print(f"{item['category']}: {item['content']}")
+```
+
+### 4.3 管理关系
+
+```python
+from astrbot_plugin_memory_capsule import get_memory_manager
+
+# 获取记忆管理器实例
+db_manager = get_memory_manager()
+
+# 更新关系
+result = db_manager.update_relationship(
+    user_id="用户ID",               # 目标用户 ID
+    relation_type="朋友",          # 新的关系定义
+    summary_update="核心印象",      # 新的印象总结
+    intimacy_change=5,             # 好感度变化值（如 +5, -10）
+    nickname="昵称",               # AI 对 TA 的称呼
+    first_met_time="2026-01-01 12:00:00",  # 初次见面时间
+    first_met_location="QQ群:12345",  # 初次见面地点
+    known_contexts="QQ群:12345"     # 遇到过的场景
+)
+print(result)  # 返回更新结果
+```
+
+### 4.4 其他方法
+
+```python
+from astrbot_plugin_memory_capsule import get_memory_manager
+
+# 获取记忆管理器实例
+db_manager = get_memory_manager()
+
+# 获取所有记忆
+all_memories = db_manager.get_all_memories(limit=20)
+
+# 获取所有关系
+all_relationships = db_manager.get_all_relationships()
+
+# 删除记忆
+delete_result = db_manager.delete_memory(memory_id)
+
+# 删除关系
+delete_relation_result = db_manager.delete_relationship(user_id)
+
+# 备份数据库
 backup_result = db_manager.backup()
+
+# 从备份恢复
+restore_result = db_manager.restore_from_backup(backup_filename)
+
+# 获取最近活动
+activities = db_manager.get_recent_activities(limit=10)
 ```
 
 ## 五、数据存储结构
 
-### 5.1 插件数据表 (`plugin_data`)
+### 5.1 记忆表 (`memories`)
 
 | 字段名 | 类型 | 描述 |
 |--------|------|------|
 | id | INTEGER | 主键，自增 |
-| plugin_name | TEXT | 插件名称 |
-| data_type | TEXT | 数据类型 |
-| content | TEXT | 数据内容 |
-| metadata | TEXT | 元数据（JSON格式） |
-| category | TEXT | 分类路径 |
+| user_id | TEXT | 关联对象（如果是关于某人的记忆） |
+| source_platform | TEXT | 来源（QQ, Bilibili, Web） |
+| source_context | TEXT | 场景（群号, 视频ID） |
+| category | TEXT | 分类（社交, 知识, 娱乐, 日记） |
+| tags | TEXT | 标签（方便检索） |
+| content | TEXT | 记忆正文 |
+| importance | INTEGER | 重要性（1-10） |
+| access_count | INTEGER | 被搜索到的次数（用于热度统计） |
 | created_at | TIMESTAMP | 创建时间 |
 | updated_at | TIMESTAMP | 更新时间 |
 
-### 5.2 关系数据表 (`relations`)
+### 5.2 关系表 (`relationships`)
+
+| 字段名 | 类型 | 描述 |
+|--------|------|------|
+| user_id | TEXT | 对方 QQ 号（主键） |
+| nickname | TEXT | AI 对 TA 的称呼 |
+| relation_type | TEXT | 关系（如: 朋友, 损友） |
+| intimacy | INTEGER | 好感度（0-100） |
+| tags | TEXT | 印象标签（如: "幽默,程序员"） |
+| summary | TEXT | 核心印象（覆盖式更新，不追加） |
+| first_met_time | TIMESTAMP | 初次见面时间 |
+| first_met_location | TEXT | 初次见面地点（如: "QQ群:12345"） |
+| known_contexts | TEXT | 遇到过的场景（JSON列表） |
+| updated_at | TIMESTAMP | 更新时间 |
+
+### 5.3 标签表 (`tags`)
+
+| 字段名 | 类型 | 描述 |
+|--------|------|------|
+| memory_id | INTEGER | 关联哪条记忆 |
+| tag | TEXT | 标签内容 |
+| source | TEXT | 来源：auto=自动，manual=手动 |
+| created_at | TIMESTAMP | 创建时间 |
+
+### 5.4 同义词表 (`synonyms`)
+
+| 字段名 | 类型 | 描述 |
+|--------|------|------|
+| word | TEXT | 基础词（总是较小的词） |
+| synonym | TEXT | 同义词（总是较大的词） |
+| source | TEXT | 来源：rule=规则，learned=学习 |
+| strength | FLOAT | 同义强度（0.0-1.0） |
+
+### 5.5 活动记录表 (`activities`)
 
 | 字段名 | 类型 | 描述 |
 |--------|------|------|
 | id | INTEGER | 主键，自增 |
-| user_id | TEXT | 用户ID |
-| group_id | TEXT | 群组ID |
-| nickname | TEXT | 昵称 |
-| alias_history | TEXT | 昵称历史 |
-| impression_summary | TEXT | 印象总结 |
-| favor_level | INTEGER | 好感度(0-100) |
-| interaction_count | INTEGER | 互动次数 |
-| last_interaction_time | TIMESTAMP | 最后互动时间 |
+| action | TEXT | 操作类型（添加记忆, 更新关系, 删除记忆等） |
+| details | TEXT | 操作详情 |
 | created_at | TIMESTAMP | 创建时间 |
 
 ## 六、备份与恢复
@@ -154,18 +234,23 @@ print(result)
 ### 7.1 刷视频插件示例
 
 ```python
-from astrbot_plugin_memory_capsule import store_plugin_data
+from astrbot_plugin_memory_capsule import get_memory_manager
 
 def process_video(video_url):
     # 处理视频，生成观后感
     summary = generate_summary(video_url)
     
+    # 获取记忆管理器实例
+    db_manager = get_memory_manager()
+    
     # 存储到记忆胶囊
-    result = store_plugin_data(
-        plugin_name="bilibili_watcher",
-        data_type="video_summary",
+    result = db_manager.write_memory(
         content=summary,
-        metadata={"video_url": video_url, "title": get_video_title(video_url)}
+        category="娱乐",
+        tags="视频,观后感",
+        source_platform="Bilibili",
+        source_context=video_url,
+        importance=7
     )
     
     return f"视频处理完成，{result}"
@@ -174,21 +259,51 @@ def process_video(video_url):
 ### 7.2 小说阅读插件示例
 
 ```python
-from astrbot_plugin_memory_capsule import store_plugin_data
+from astrbot_plugin_memory_capsule import get_memory_manager
 
 def read_chapter(novel_name, chapter):
     # 读取章节，生成笔记
     notes = generate_notes(novel_name, chapter)
     
+    # 获取记忆管理器实例
+    db_manager = get_memory_manager()
+    
     # 存储到记忆胶囊
-    result = store_plugin_data(
-        plugin_name="novel_reader",
-        data_type="chapter_notes",
+    result = db_manager.write_memory(
         content=notes,
-        metadata={"novel_name": novel_name, "chapter": chapter}
+        category="知识",
+        tags="小说,阅读笔记",
+        source_platform="Web",
+        source_context=f"{novel_name}:第{chapter}章",
+        importance=6
     )
     
     return f"章节阅读完成，{result}"
+```
+
+### 7.3 关系管理示例
+
+```python
+from astrbot_plugin_memory_capsule import get_memory_manager
+
+def update_user_relation(user_id, message):
+    # 分析消息，提取关系信息
+    relation_type = analyze_relation_type(message)
+    summary = generate_impression_summary(message)
+    intimacy_change = calculate_intimacy_change(message)
+    
+    # 获取记忆管理器实例
+    db_manager = get_memory_manager()
+    
+    # 更新关系
+    result = db_manager.update_relationship(
+        user_id=user_id,
+        relation_type=relation_type,
+        summary_update=summary,
+        intimacy_change=intimacy_change
+    )
+    
+    return f"关系更新完成，{result}"
 ```
 
 ## 八、常见问题
@@ -212,6 +327,15 @@ def read_chapter(novel_name, chapter):
 
 ## 九、版本历史
 
+- **v0.4.1** - 记忆宫殿优化版
+  - 实现记忆宫殿模块，支持智能标签提取和同义词扩展
+  - 添加记忆宫殿开关功能，可在配置中启用或禁用
+  - 优化数据库结构，添加 tags 和 synonyms 表
+  - 实现数据迁移功能，自动将旧数据迁移到新表结构
+  - 支持智能搜索，包括关键词搜索、分类过滤、热度排序
+  - 优化关系信息注入格式，使用 <Relationship> 标签
+  - 修复多个 bug，提高系统稳定性
+
 - **v0.0.1** - 初始版本
   - 实现基本的存储和查询功能
   - 添加 WebUI 管理界面
@@ -232,6 +356,7 @@ def read_chapter(novel_name, chapter):
 astrbot_plugin_memory_capsule/
 ├── main.py                 # 插件入口
 ├── __init__.py             # 模块初始化
+├── _conf_schema.json       # 配置文件
 ├── databases/              # 数据库管理
 │   ├── __init__.py
 │   ├── db_manager.py       # 数据库核心操作
@@ -240,6 +365,11 @@ astrbot_plugin_memory_capsule/
 │   ├── __init__.py
 │   ├── server.py           # Flask 服务器
 │   └── templates/          # HTML 模板
+│       ├── index.html      # 仪表盘
+│       ├── memories.html   # 记忆宫殿
+│       ├── relationships.html # 关系图谱
+│       ├── settings.html   # 系统设置
+│       └── notes.html      # 笔记页面
 ├── data/                   # 数据存储
 │   ├── memory.db           # SQLite 数据库
 │   └── backups/            # 备份文件

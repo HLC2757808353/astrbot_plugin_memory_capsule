@@ -157,6 +157,10 @@ class MemoryCapsulePlugin(Star):
         Returns:
             str: 存储结果
         """
+        # 检查记忆宫殿是否启用
+        if not self.config.get('memory_palace_enabled', True):
+            return "记忆宫殿模块已禁用"
+            
         # 类型转换确保参数类型正确
         content = str(content)
         category = str(category)
@@ -185,6 +189,10 @@ class MemoryCapsulePlugin(Star):
         Returns:
             list: 搜索结果列表
         """
+        # 检查记忆宫殿是否启用
+        if not self.config.get('memory_palace_enabled', True):
+            return []
+            
         # 类型转换确保参数类型正确
         query = str(query)
         target_user_id = str(target_user_id) if target_user_id is not None else None
@@ -208,6 +216,10 @@ class MemoryCapsulePlugin(Star):
         Returns:
             str: 删除结果
         """
+        # 检查记忆宫殿是否启用
+        if not self.config.get('memory_palace_enabled', True):
+            return "记忆宫殿模块已禁用"
+            
         # 类型转换确保参数类型正确
         memory_id = int(memory_id)
         try:
@@ -230,6 +242,10 @@ class MemoryCapsulePlugin(Star):
         Returns:
             list: 记忆列表
         """
+        # 检查记忆宫殿是否启用
+        if not self.config.get('memory_palace_enabled', True):
+            return []
+            
         # 类型转换确保参数类型正确
         limit = int(limit)
         try:

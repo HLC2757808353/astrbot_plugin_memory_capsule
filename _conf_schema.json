@@ -23,6 +23,14 @@
     "editable": true,
     "display_name": "WebUI端口"
   },
+  "memory_palace_enabled": {
+    "description": "记忆宫殿模块",
+    "type": "boolean",
+    "default": true,
+    "hint": "启用或禁用记忆宫殿模块",
+    "editable": true,
+    "display_name": "记忆宫殿"
+  },
   "context_inject_position": {
     "description": "关系信息注入位置",
     "type": "string",

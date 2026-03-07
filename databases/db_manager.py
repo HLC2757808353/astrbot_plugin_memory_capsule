@@ -64,7 +64,33 @@ class DatabaseManager:
                 tags TEXT,                      -- 标签 (方便检索)
                 content TEXT NOT NULL,          -- 记忆正文
                 importance INTEGER DEFAULT 5,   -- 重要性 (1-10)
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                access_count INTEGER DEFAULT 0, -- 被搜索到的次数（用于热度统计）
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            ''')
+            
+            # 创建标签表 (tags) —— 用于智能标签管理
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS tags (
+                memory_id INTEGER NOT NULL,            -- 关联哪条记忆
+                tag TEXT NOT NULL,                     -- 标签内容
+                source TEXT DEFAULT 'auto',            -- 来源：auto=自动，manual=手动
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (memory_id) REFERENCES memories(id) ON DELETE CASCADE,
+                UNIQUE(memory_id, tag)
+            )
+            ''')
+            
+            # 创建同义词表 (synonyms) —— 用于搜索扩展
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS synonyms (
+                word TEXT NOT NULL,                    -- 基础词（总是较小的词）
+                synonym TEXT NOT NULL,                 -- 同义词（总是较大的词）
+                source TEXT DEFAULT 'rule',            -- 来源：rule=规则，learned=学习
+                strength FLOAT DEFAULT 1.0,            -- 同义强度（0.0-1.0）
+                CHECK (word < synonym),                -- 强制统一存储方向
+                UNIQUE(word, synonym)
             )
             ''')
             
@@ -81,6 +107,12 @@ class DatabaseManager:
             # 建立索引加速搜索
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_mem_user ON memories(user_id)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_mem_cate ON memories(category)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_mem_time ON memories(created_at)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_mem_access ON memories(access_count)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_tags_tag ON tags(tag)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_tags_memory ON tags(memory_id)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_synonyms_word ON synonyms(word)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_synonyms_synonym ON synonyms(synonym)')
             
             # 全文搜索虚拟表 (SQLite FTS5)
             try:
@@ -128,10 +160,53 @@ class DatabaseManager:
         finally:
             if conn:
                 conn.close()
+    
+    def _migrate_old_data(self):
+        """迁移旧数据到新表结构"""
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            
+            # 检查是否需要迁移（如果tags表为空且memories表有数据）
+            cursor.execute('SELECT COUNT(*) FROM tags')
+            tags_count = cursor.fetchone()[0]
+            
+            cursor.execute('SELECT COUNT(*) FROM memories')
+            memories_count = cursor.fetchone()[0]
+            
+            if tags_count == 0 and memories_count > 0:
+                logger.info("开始迁移旧数据到新表结构...")
+                
+                # 迁移标签数据
+                cursor.execute('SELECT id, tags FROM memories WHERE tags IS NOT NULL AND tags != ""')
+                memory_tags = cursor.fetchall()
+                
+                for memory_id, tags_str in memory_tags:
+                    try:
+                        tags = tags_str.split(',')
+                        for tag in tags:
+                            tag = tag.strip()
+                            if tag:
+                                cursor.execute('''
+                                INSERT OR IGNORE INTO tags (memory_id, tag, source)
+                                VALUES (?, ?, ?)
+                                ''', (memory_id, tag, 'auto'))
+                    except Exception as e:
+                        logger.error(f"迁移标签失败: {memory_id}, {e}")
+                
+                conn.commit()
+                logger.info(f"成功迁移 {len(memory_tags)} 条记忆的标签数据")
+            
+            conn.close()
+        except Exception as e:
+            logger.error(f"数据迁移失败: {e}")
 
     def initialize(self):
         """初始化数据库"""
         try:
+            # 迁移旧数据
+            self._migrate_old_data()
+            
             # 启动自动备份
             self.backup_manager.start_auto_backup()
             
