@@ -22,7 +22,10 @@ class DatabaseManager:
         self.db_path = os.path.join(app_data_dir, "memory_capsule.db")
         self.config = config or {}
         # 使用新的备份配置路径
-        backup_config = self.config.get('backup_settings', {})
+        backup_config = {
+            'interval': self.config.get('backup_interval', 24),
+            'max_count': self.config.get('backup_max_count', 10)
+        }
         self.backup_manager = BackupManager(self.db_path, backup_config)
         
         # 初始化数据库结构
@@ -626,15 +629,14 @@ class DatabaseManager:
         """
         try:
             # 获取清理配置
-            cleanup_config = self.config.get('memory_cleanup', {})
-            enabled = cleanup_config.get('enabled', True)
+            enabled = self.config.get('memory_cleanup_enabled', True)
             
             if not enabled:
                 return "清理功能已禁用"
             
-            days_old = cleanup_config.get('days_old', 365)
-            max_count = cleanup_config.get('max_count', 10000)
-            strategy = cleanup_config.get('strategy', 'unaccessed')
+            days_old = self.config.get('memory_cleanup_days', 365)
+            max_count = self.config.get('memory_cleanup_max', 10000)
+            strategy = self.config.get('memory_cleanup_strategy', 'unaccessed')
             
             conn = self._get_connection()
             cursor = conn.cursor()

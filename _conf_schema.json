@@ -7,122 +7,85 @@
     "editable": true,
     "display_name": "记忆宫殿"
   },
-  "memory_cleanup": {
-    "description": "记忆清理设置",
-    "type": "object",
+  "memory_cleanup_enabled": {
+    "description": "启用记忆清理",
+    "type": "bool",
+    "default": true,
     "editable": true,
-    "display_name": "记忆清理",
-    "properties": {
-      "enabled": {
-        "description": "启用自动清理",
-        "type": "bool",
-        "default": true,
-        "editable": true,
-        "display_name": "启用清理"
-      },
-      "days_old": {
-        "description": "清理多少天前的记忆",
-        "type": "int",
-        "default": 365,
-        "hint": "设置为0表示永不按时间清理",
-        "editable": true,
-        "display_name": "清理天数"
-      },
-      "max_count": {
-        "description": "最大记忆数量",
-        "type": "int",
-        "default": 10000,
-        "hint": "设置为0表示永不按数量清理",
-        "editable": true,
-        "display_name": "最大数量"
-      },
-      "strategy": {
-        "description": "清理策略",
-        "type": "string",
-        "default": "unaccessed",
-        "hint": "可选值: unaccessed(清理未访问的), oldest(清理最旧的), random(随机清理)",
-        "editable": true,
-        "display_name": "清理策略"
-      }
-    }
+    "display_name": "启用清理"
   },
-  "search_settings": {
-    "description": "搜索设置",
-    "type": "object",
+  "memory_cleanup_days": {
+    "description": "清理多少天前的记忆",
+    "type": "int",
+    "default": 365,
+    "hint": "设置为0表示永不按时间清理",
     "editable": true,
-    "display_name": "搜索设置",
-    "properties": {
-      "max_results": {
-        "description": "最大搜索结果数",
-        "type": "int",
-        "default": 50,
-        "editable": true,
-        "display_name": "最大结果数"
-      },
-      "sort_by": {
-        "description": "排序方式",
-        "type": "string",
-        "default": "access_count",
-        "hint": "可选值: access_count(按访问次数), created_at(按创建时间)",
-        "editable": true,
-        "display_name": "排序方式"
-      }
-    }
+    "display_name": "清理天数"
   },
-  "backup_settings": {
-    "description": "备份设置",
-    "type": "object",
+  "memory_cleanup_max": {
+    "description": "最大记忆数量",
+    "type": "int",
+    "default": 10000,
+    "hint": "设置为0表示永不按数量清理",
     "editable": true,
-    "display_name": "备份设置",
-    "properties": {
-      "interval": {
-        "description": "自动备份间隔（小时）",
-        "type": "int",
-        "default": 24,
-        "hint": "设置自动备份的时间间隔，单位为小时",
-        "editable": true,
-        "display_name": "备份间隔"
-      },
-      "max_count": {
-        "description": "备份最大数量",
-        "type": "int",
-        "default": 10,
-        "hint": "设置备份文件的最大数量，超过后会自动清理旧备份",
-        "editable": true,
-        "display_name": "备份最大数量"
-      }
-    }
+    "display_name": "最大数量"
   },
-  "webui_settings": {
-    "description": "WebUI设置",
-    "type": "object",
+  "memory_cleanup_strategy": {
+    "description": "清理策略",
+    "type": "string",
+    "default": "unaccessed",
+    "options": ["unaccessed", "oldest", "random"],
+    "hint": "unaccessed: 清理未访问的, oldest: 清理最旧的, random: 随机清理",
     "editable": true,
-    "display_name": "WebUI设置",
-    "properties": {
-      "port": {
-        "description": "WebUI服务端口",
-        "type": "int",
-        "default": 5000,
-        "hint": "设置WebUI服务的端口号，默认5000",
-        "editable": true,
-        "display_name": "WebUI端口"
-      }
-    }
+    "display_name": "清理策略"
   },
-  "context_inject": {
-    "description": "关系信息注入设置",
-    "type": "object",
+  "search_max_results": {
+    "description": "最大搜索结果数",
+    "type": "int",
+    "default": 50,
     "editable": true,
-    "display_name": "关系信息注入",
-    "properties": {
-      "position": {
-        "description": "注入位置",
-        "type": "string",
-        "default": "user_prompt",
-        "hint": "可选值: user_prompt(嵌入到用户消息), system_prompt(嵌入到系统消息), insert_system_prompt(添加新的系统消息)",
-        "editable": true,
-        "display_name": "注入位置"
-      }
-    }
+    "display_name": "最大结果数"
+  },
+  "search_sort_by": {
+    "description": "排序方式",
+    "type": "string",
+    "default": "access_count",
+    "options": ["access_count", "created_at"],
+    "hint": "access_count: 按访问次数, created_at: 按创建时间",
+    "editable": true,
+    "display_name": "排序方式"
+  },
+  "backup_interval": {
+    "description": "自动备份间隔（小时）",
+    "type": "int",
+    "default": 24,
+    "hint": "设置自动备份的时间间隔，单位为小时",
+    "editable": true,
+    "display_name": "备份间隔"
+  },
+  "backup_max_count": {
+    "description": "备份最大数量",
+    "type": "int",
+    "default": 10,
+    "hint": "设置备份文件的最大数量，超过后会自动清理旧备份",
+    "editable": true,
+    "display_name": "备份最大数量"
+  },
+  "webui_port": {
+    "description": "WebUI服务端口",
+    "type": "int",
+    "default": 5000,
+    "hint": "设置WebUI服务的端口号，默认5000",
+    "editable": true,
+    "display_name": "WebUI端口"
+  },
+  "context_inject_position": {
+    "description": "关系信息注入位置",
+    "type": "string",
+    "default": "user_prompt",
+    "options": ["user_prompt", "system_prompt", "insert_system_prompt"],
+    "hint": "user_prompt 会嵌入到用户消息的最前面，system_prompt会嵌入到系统消息中，insert_system_prompt会向上下文列表中添加一条新的系统消息",
+    "editable": true,
+    "display_name": "注入位置"
   }
 }

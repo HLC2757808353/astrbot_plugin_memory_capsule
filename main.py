@@ -15,7 +15,7 @@ class MemoryCapsulePlugin(Star):
         self.webui_thread = None
         self.config = config
         # 获取WebUI端口配置，默认为5000
-        self.webui_port = config.get('webui_settings', {}).get('port', 5000) if config else 5000
+        self.webui_port = config.get('webui_port', 5000) if config else 5000
 
     async def initialize(self):
         """插件初始化方法"""
@@ -378,7 +378,7 @@ class MemoryCapsulePlugin(Star):
                 logger.info(f"用户 {user_id} 暂无关系信息")
             
             # 检查配置，确定注入方式
-            injection_method = self.config.get('context_inject', {}).get('position', 'user_prompt')
+            injection_method = self.config.get('context_inject_position', 'user_prompt')
             
             if injection_method == 'system_prompt':
                 # 注入到系统提示词
