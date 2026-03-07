@@ -410,19 +410,19 @@ class MemoryCapsulePlugin(Star):
             return f"优化失败: {e}"
 
     @filter.llm_tool(name="update_search_weights")
-    async def update_search_weights(self, event, **kwargs: Dict[str, Any]):
+    async def update_search_weights(self, event, weights: dict):
         """
         更新搜索权重配置
         
         Args:
-            **kwargs: 权重参数，如 tag_match, recent_boost 等
+            weights(dict): 权重参数，如 tag_match, recent_boost 等
             
         Returns:
             str: 更新结果
         """
         try:
             import asyncio
-            await asyncio.to_thread(self.db_manager.update_search_weights, **kwargs)
+            await asyncio.to_thread(self.db_manager.update_search_weights, **weights)
             logger.info("搜索权重更新成功")
             return "搜索权重更新成功"
         except Exception as e:
@@ -430,19 +430,19 @@ class MemoryCapsulePlugin(Star):
             return f"更新失败: {e}"
 
     @filter.llm_tool(name="update_search_strategy")
-    async def update_search_strategy(self, event, **kwargs: Dict[str, Any]):
+    async def update_search_strategy(self, event, strategy: dict):
         """
         更新搜索策略配置
         
         Args:
-            **kwargs: 策略参数，如 match_type, synonym_expansion 等
+            strategy(dict): 策略参数，如 match_type, synonym_expansion 等
             
         Returns:
             str: 更新结果
         """
         try:
             import asyncio
-            await asyncio.to_thread(self.db_manager.update_search_strategy, **kwargs)
+            await asyncio.to_thread(self.db_manager.update_search_strategy, **strategy)
             logger.info("搜索策略更新成功")
             return "搜索策略更新成功"
         except Exception as e:
