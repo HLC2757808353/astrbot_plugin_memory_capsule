@@ -15,7 +15,7 @@ class MemoryCapsulePlugin(Star):
         self.webui_thread = None
         self.config = config
         # 获取WebUI端口配置，默认为5000
-        self.webui_port = config.get('webui_port', 5000) if config else 5000
+        self.webui_port = config.get('webui_settings', {}).get('port', 5000) if config else 5000
 
     async def initialize(self):
         """插件初始化方法"""
@@ -57,16 +57,54 @@ class MemoryCapsulePlugin(Star):
     def _start_webui(self):
         """启动WebUI服务"""
         try:
-            # 检查端口是否被占用
+            # 检查并尝试释放端口
             import socket
+            import subprocess
+            
+            # 检查端口是否被占用
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             result = sock.connect_ex(('localhost', self.webui_port))
             if result == 0:
                 logger.warning(f"端口 {self.webui_port} 已被占用，尝试释放...")
-                # 尝试释放端口（这里简化处理，实际可能需要更复杂的逻辑）
-                sock.close()
-            else:
-                sock.close()
+                # 尝试找到并终止占用端口的进程
+                try:
+                    # 使用netstat命令查找占用端口的进程
+                    netstat_result = subprocess.run(
+                        f'netstat -ano | findstr :{self.webui_port}',
+                        shell=True,
+                        capture_output=True,
+                        text=True
+                    )
+                    lines = netstat_result.stdout.strip().split('\n')
+                    pids = set()
+                    for line in lines:
+                        if line:
+                            parts = line.split()
+                            if len(parts) >= 5:
+                                pid = parts[4]
+                                pids.add(pid)
+                    
+                    # 终止找到的进程
+                    for pid in pids:
+                        if pid != '0':  # 排除TIME_WAIT状态的连接
+                            logger.info(f"发现占用端口 {self.webui_port} 的进程 PID: {pid}")
+                            try:
+                                # 使用taskkill命令终止进程
+                                kill_result = subprocess.run(
+                                    f'taskkill /PID {pid} /F',
+                                    shell=True,
+                                    capture_output=True,
+                                    text=True
+                                )
+                                if kill_result.returncode == 0:
+                                    logger.info(f"已成功终止进程 {pid}")
+                                else:
+                                    logger.error(f"终止进程 {pid} 失败: {kill_result.stderr}")
+                            except Exception as kill_e:
+                                logger.error(f"终止进程 {pid} 失败: {kill_e}")
+                except Exception as e:
+                    logger.error(f"释放端口失败: {e}")
+            sock.close()
             
             from .webui.server import WebUIServer
             self.webui_server = WebUIServer(self.db_manager, port=self.webui_port)
@@ -106,7 +144,7 @@ class MemoryCapsulePlugin(Star):
         logger.info("记忆胶囊插件已关闭")
 
     @filter.llm_tool(name="update_relationship")
-    async def update_relationship(self, event, user_id, relation_type=None, summary_update=None, intimacy_change=-40, nickname=None, first_met_time=None, first_met_location=None, known_contexts=None):
+    async def update_relationship(self, event, user_id, relation_type=None, summary_update=None, intimacy_change=-40, nickname=None, first_met_location=None, known_contexts=None):
         """
         更新对某人的印象或关系
         
@@ -116,7 +154,6 @@ class MemoryCapsulePlugin(Star):
             summary_update(str): 新的印象总结 (会覆盖旧的)
             intimacy_change(int): 好感度变化值 (如 +5, -10)
             nickname(str): AI 对 TA 的称呼
-            first_met_time(str): 初次见面时间
             first_met_location(str): 初次见面地点
             known_contexts(str): 遇到过的场景
             
@@ -129,11 +166,10 @@ class MemoryCapsulePlugin(Star):
         summary_update = str(summary_update) if summary_update is not None else None
         intimacy_change = int(intimacy_change)
         nickname = str(nickname) if nickname is not None else None
-        first_met_time = str(first_met_time) if first_met_time is not None else None
         first_met_location = str(first_met_location) if first_met_location is not None else None
         known_contexts = str(known_contexts) if known_contexts is not None else None
         try:
-            result = await asyncio.to_thread(self.db_manager.update_relationship, user_id, relation_type, None, summary_update, intimacy_change, nickname, first_met_time, first_met_location, known_contexts)
+            result = await asyncio.to_thread(self.db_manager.update_relationship, user_id, relation_type, summary_update, intimacy_change, nickname, first_met_location, known_contexts)
             logger.info(f"更新关系成功: {user_id}")
             return result
         except Exception as e:
@@ -141,7 +177,7 @@ class MemoryCapsulePlugin(Star):
             return f"更新失败: {e}"
 
     @filter.llm_tool(name="write_memory")
-    async def write_memory(self, event, content, category="日常", tags="", target_user_id=None, source_platform="Web", source_context="", importance=5):
+    async def write_memory(self, event, content, category="日常", tags=""):
         """
         记下一个永久知识点
         
@@ -149,28 +185,20 @@ class MemoryCapsulePlugin(Star):
             content(str): 要记住的内容
             category(str): 分类 (默认 "日常")
             tags(str): 标签 (逗号分隔)
-            target_user_id(str): 如果是关于特定人的记忆，填这里
-            source_platform(str): 来源 (默认 "Web")
-            source_context(str): 场景
-            importance(int): 重要性 (1-10，默认 5)
             
         Returns:
             str: 存储结果
         """
         # 检查记忆宫殿是否启用
-        if not self.config.get('memory_palace_enabled', True):
+        if not self.config.get('memory_palace', True):
             return "记忆宫殿模块已禁用"
             
         # 类型转换确保参数类型正确
         content = str(content)
         category = str(category)
         tags = str(tags)
-        target_user_id = str(target_user_id) if target_user_id is not None else None
-        source_platform = str(source_platform)
-        source_context = str(source_context)
-        importance = int(importance)
         try:
-            result = await asyncio.to_thread(self.db_manager.write_memory, content, category, tags, target_user_id, source_platform, source_context, importance)
+            result = await asyncio.to_thread(self.db_manager.write_memory, content, category, tags)
             logger.info("存储记忆成功")
             return result
         except Exception as e:
@@ -178,27 +206,25 @@ class MemoryCapsulePlugin(Star):
             return f"存储失败: {e}"
 
     @filter.llm_tool(name="search_memory")
-    async def search_memory(self, event, query, target_user_id=None):
+    async def search_memory(self, event, query):
         """
         搜索过去的记忆
         
         Args:
             query(str): 搜索关键词或句子
-            target_user_id(str): 限定搜索某人的相关记忆
             
         Returns:
             list: 搜索结果列表
         """
         # 检查记忆宫殿是否启用
-        if not self.config.get('memory_palace_enabled', True):
+        if not self.config.get('memory_palace', True):
             return []
             
         # 类型转换确保参数类型正确
         query = str(query)
-        target_user_id = str(target_user_id) if target_user_id is not None else None
         try:
             import asyncio
-            results = await asyncio.to_thread(self.db_manager.search_memory, query, target_user_id)
+            results = await asyncio.to_thread(self.db_manager.search_memory, query)
             logger.info(f"搜索记忆成功，找到 {len(results)} 条结果")
             return results
         except Exception as e:
@@ -217,7 +243,7 @@ class MemoryCapsulePlugin(Star):
             str: 删除结果
         """
         # 检查记忆宫殿是否启用
-        if not self.config.get('memory_palace_enabled', True):
+        if not self.config.get('memory_palace', True):
             return "记忆宫殿模块已禁用"
             
         # 类型转换确保参数类型正确
@@ -243,7 +269,7 @@ class MemoryCapsulePlugin(Star):
             list: 记忆列表
         """
         # 检查记忆宫殿是否启用
-        if not self.config.get('memory_palace_enabled', True):
+        if not self.config.get('memory_palace', True):
             return []
             
         # 类型转换确保参数类型正确
@@ -339,21 +365,20 @@ class MemoryCapsulePlugin(Star):
             if user_relation:
                 # 确保所有字段都有值
                 nickname = user_relation['nickname'] or '未知'
-                first_met_time = user_relation['first_met_time'] or '未知'
                 first_met_location = user_relation['first_met_location'] or '未知'
                 known_contexts = user_relation['known_contexts'] or '未知'
                 relation_type = user_relation['relation_type'] or '未知'
                 summary = user_relation['summary'] or '无'
                 
                 # 构建关系信息格式
-                relation_context = f"\n\n<Relationship> 当前关系状态：\n- 用户ID: {user_relation['user_id']}\n- 昵称: {nickname}\n- 关系类型: {relation_type}\n- 好感度: {user_relation['intimacy']}\n- 初次见面时间: {first_met_time}\n- 初次见面地点: {first_met_location}\n- 认识群组: {known_contexts}\n- 核心印象: {summary}\n</Relationship>\n"
+                relation_context = f"\n\n<Relationship> 当前关系状态：\n- 用户ID: {user_relation['user_id']}\n- 昵称: {nickname}\n- 关系类型: {relation_type}\n- 好感度: {user_relation['intimacy']}\n- 初次见面地点: {first_met_location}\n- 认识群组: {known_contexts}\n- 核心印象: {summary}\n</Relationship>\n"
             else:
                 # 如果查询为空，返回指定格式
                 relation_context = f"\n\n<Relationship>当前对象未被记录在关系图谱里</Relationship>\n"
                 logger.info(f"用户 {user_id} 暂无关系信息")
             
             # 检查配置，确定注入方式
-            injection_method = self.config.get('context_inject_position', 'user_prompt')
+            injection_method = self.config.get('context_inject', {}).get('position', 'user_prompt')
             
             if injection_method == 'system_prompt':
                 # 注入到系统提示词

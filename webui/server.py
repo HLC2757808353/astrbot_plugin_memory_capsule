@@ -100,11 +100,7 @@ class WebUIServer:
             result = self.db_manager.write_memory(
                 content=data.get('content', ''),
                 category=data.get('category', '日常'),
-                tags=data.get('tags', ''),
-                target_user_id=data.get('target_user_id'),
-                source_platform=data.get('source_platform', 'Web'),
-                source_context=data.get('source_context', ''),
-                importance=data.get('importance', 5)
+                tags=data.get('tags', '')
             )
             return jsonify({'result': result})
 
@@ -117,8 +113,7 @@ class WebUIServer:
         def api_search_memories():
             """搜索记忆"""
             query = request.args.get('q')
-            target_user_id = request.args.get('target_user_id')
-            memories = self.db_manager.search_memory(query, target_user_id)
+            memories = self.db_manager.search_memory(query)
             return jsonify(memories)
         
         @self.app.route('/api/tags')
@@ -130,7 +125,8 @@ class WebUIServer:
         @self.app.route('/api/categories')
         def api_categories():
             """获取所有分类"""
-            categories = self.db_manager.get_all_categories()
+            # 从配置中获取分类
+            categories = self.db_manager.get_memory_categories()
             return jsonify(categories)
 
         @self.app.route('/api/relationships', methods=['POST'])
@@ -139,11 +135,9 @@ class WebUIServer:
             result = self.db_manager.update_relationship(
                 user_id=data.get('user_id', ''),
                 relation_type=data.get('relation_type', ''),
-                tags_update=data.get('tags_update', ''),
                 summary_update=data.get('summary_update', ''),
                 intimacy_change=data.get('intimacy_change', 0),
                 nickname=data.get('nickname', ''),
-                first_met_time=data.get('first_met_time'),
                 first_met_location=data.get('first_met_location'),
                 known_contexts=data.get('known_contexts')
             )
@@ -165,8 +159,8 @@ class WebUIServer:
             
             # 如果没有精确匹配，再进行模糊搜索
             if not results:
-                cursor.execute('SELECT * FROM relationships WHERE nickname LIKE ? OR relation_type LIKE ? OR tags LIKE ? OR summary LIKE ? OR first_met_location LIKE ? OR known_contexts LIKE ?', 
-                              (f"%{query}%", f"%{query}%", f"%{query}%", f"%{query}%", f"%{query}%", f"%{query}%"))
+                cursor.execute('SELECT * FROM relationships WHERE nickname LIKE ? OR relation_type LIKE ? OR summary LIKE ? OR first_met_location LIKE ? OR known_contexts LIKE ?', 
+                              (f"%{query}%", f"%{query}%", f"%{query}%", f"%{query}%", f"%{query}%"))
                 results = cursor.fetchall()
             
             conn.close()
@@ -177,12 +171,10 @@ class WebUIServer:
                     "nickname": r[1],
                     "relation_type": r[2],
                     "intimacy": r[3],
-                    "tags": r[4],
-                    "summary": r[5],
-                    "first_met_time": r[6],
-                    "first_met_location": r[7],
-                    "known_contexts": r[8],
-                    "updated_at": r[9]
+                    "summary": r[4],
+                    "first_met_location": r[5],
+                    "known_contexts": r[6],
+                    "updated_at": r[7]
                 }
                 relationship_list.append(relationship)
             return jsonify(relationship_list)
@@ -259,6 +251,16 @@ class WebUIServer:
             except Exception as e:
                 logger.error(f"恢复备份失败: {e}")
                 return jsonify({'result': f'恢复失败: {e}'})
+
+        @self.app.route('/api/cleanup')
+        def api_cleanup_memories():
+            """清理旧记忆"""
+            try:
+                result = self.db_manager.cleanup_memories()
+                return jsonify({'result': result})
+            except Exception as e:
+                logger.error(f"清理记忆失败: {e}")
+                return jsonify({'result': f'清理失败: {e}'})
 
         @self.app.route('/api/backup/<string:filename>', methods=['DELETE'])
         def api_delete_backup(filename):

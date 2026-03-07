@@ -21,7 +21,9 @@ class DatabaseManager:
         os.makedirs(app_data_dir, exist_ok=True)
         self.db_path = os.path.join(app_data_dir, "memory_capsule.db")
         self.config = config or {}
-        self.backup_manager = BackupManager(self.db_path, self.config)
+        # 使用新的备份配置路径
+        backup_config = self.config.get('backup_settings', {})
+        self.backup_manager = BackupManager(self.db_path, backup_config)
         
         # 初始化数据库结构
         self._initialize_database_structure()
@@ -43,10 +45,8 @@ class DatabaseManager:
                 user_id TEXT PRIMARY KEY,       -- 对方 QQ 号
                 nickname TEXT,                  -- AI 对 TA 的称呼
                 relation_type TEXT,             -- 关系 (如: 朋友, 损友)
-                intimacy INTEGER DEFAULT 50,    -- 好感度 (0-100)
-                tags TEXT,                      -- 印象标签 (如: "幽默,程序员")
+                intimacy INTEGER DEFAULT 0,     -- 好感度 (0-100)
                 summary TEXT,                   -- 核心印象 (覆盖式更新，不追加)
-                first_met_time TIMESTAMP,       -- 初次见面时间
                 first_met_location TEXT,        -- 初次见面地点 (如: "QQ群:12345")
                 known_contexts TEXT,            -- 遇到过的场景 (JSON列表)
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -56,17 +56,12 @@ class DatabaseManager:
             # 创建记忆表 (memories) —— 笔记本
             cursor.execute('''
             CREATE TABLE IF NOT EXISTS memories (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id TEXT,                   -- 关联对象 (如果是关于某人的记忆)
-                source_platform TEXT,           -- 来源 (QQ, Bilibili, Web)
-                source_context TEXT,            -- 场景 (群号, 视频ID)
-                category TEXT,                  -- 分类 (社交, 知识, 娱乐, 日记)
-                tags TEXT,                      -- 标签 (方便检索)
-                content TEXT NOT NULL,          -- 记忆正文
-                importance INTEGER DEFAULT 5,   -- 重要性 (1-10)
-                access_count INTEGER DEFAULT 0, -- 被搜索到的次数（用于热度统计）
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                id INTEGER PRIMARY KEY AUTOINCREMENT,  -- 主键，唯一标识
+                category TEXT,                         -- 分类（AI指定，如"技术笔记"、"生活记录"等）
+                content TEXT NOT NULL,                 -- 记忆内容（AI给什么存什么）
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,  -- 创建时间
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,  -- 更新时间
+                access_count INTEGER DEFAULT 0         -- 被搜索到的次数（用于热度统计）
             )
             ''')
             
@@ -236,17 +231,13 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"记录活动失败: {e}")
 
-    def write_memory(self, content, category="日常", tags="", target_user_id=None, source_platform="Web", source_context="", importance=5):
+    def write_memory(self, content, category="日常", tags=""):
         """存储记忆
         
         参数说明：
         - content: 记忆内容
         - category: 分类 (默认 "日常")
         - tags: 标签 (逗号分隔)
-        - target_user_id: 如果是关于特定人的记忆，填这里
-        - source_platform: 来源 (默认 "Web")
-        - source_context: 场景
-        - importance: 重要性 (1-10，默认 5)
         """
         try:
             conn = self._get_connection()
@@ -254,11 +245,23 @@ class DatabaseManager:
             
             # 插入数据
             cursor.execute('''
-            INSERT INTO memories (user_id, source_platform, source_context, category, tags, content, importance)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            ''', (target_user_id, source_platform, source_context, category, tags, content, importance))
+            INSERT INTO memories (category, content)
+            VALUES (?, ?)
+            ''', (category, content))
             
             memory_id = cursor.lastrowid
+            
+            # 处理标签
+            if tags:
+                tag_list = tags.split(',')
+                for tag in tag_list:
+                    tag = tag.strip()
+                    if tag:
+                        cursor.execute('''
+                        INSERT OR IGNORE INTO tags (memory_id, tag, source)
+                        VALUES (?, ?, ?)
+                        ''', (memory_id, tag, 'auto'))
+            
             conn.commit()
             conn.close()
             
@@ -270,12 +273,11 @@ class DatabaseManager:
             logger.error(f"存储记忆失败: {e}")
             return f"存储失败: {e}"
 
-    def search_memory(self, query, target_user_id=None):
+    def search_memory(self, query):
         """搜索记忆
         
         参数说明：
         - query: 搜索关键词或句子
-        - target_user_id: 限定搜索某人的相关记忆
         """
         try:
             conn = self._get_connection()
@@ -285,25 +287,21 @@ class DatabaseManager:
             if query:
                 search_query = "SELECT m.* FROM memories m JOIN memories_fts f ON m.id = f.rowid WHERE f.memories_fts MATCH ?"
                 params = [f"{query}"]
-                
-                if target_user_id:
-                    search_query += " AND m.user_id = ?"
-                    params.append(target_user_id)
-                
-                search_query += " ORDER BY m.importance DESC, m.created_at DESC LIMIT 50"
+                search_query += " ORDER BY m.access_count DESC, m.created_at DESC LIMIT 50"
             else:
                 # 没有查询关键词，返回最新的记忆
-                search_query = "SELECT * FROM memories WHERE 1=1"
+                search_query = "SELECT * FROM memories ORDER BY created_at DESC LIMIT 50"
                 params = []
-                
-                if target_user_id:
-                    search_query += " AND user_id = ?"
-                    params.append(target_user_id)
-                
-                search_query += " ORDER BY importance DESC, created_at DESC LIMIT 50"
             
             cursor.execute(search_query, params)
             results = cursor.fetchall()
+            
+            # 更新访问次数
+            for row in results:
+                memory_id = row[0]
+                cursor.execute('UPDATE memories SET access_count = access_count + 1 WHERE id = ?', (memory_id,))
+            
+            conn.commit()
             conn.close()
             
             # 处理结果
@@ -311,14 +309,11 @@ class DatabaseManager:
             for row in results:
                 memory = {
                     "id": row[0],
-                    "user_id": row[1],
-                    "source_platform": row[2],
-                    "source_context": row[3],
-                    "category": row[4],
-                    "tags": row[5],
-                    "content": row[6],
-                    "importance": row[7],
-                    "created_at": row[8]
+                    "category": row[1],
+                    "content": row[2],
+                    "created_at": row[3],
+                    "updated_at": row[4],
+                    "access_count": row[5]
                 }
                 memory_list.append(memory)
             
@@ -349,17 +344,15 @@ class DatabaseManager:
             logger.error(f"删除记忆失败: {e}")
             return f"删除失败: {e}"
 
-    def update_relationship(self, user_id, relation_type=None, tags_update=None, summary_update=None, intimacy_change=0, nickname=None, first_met_time=None, first_met_location=None, known_contexts=None):
+    def update_relationship(self, user_id, relation_type=None, summary_update=None, intimacy_change=0, nickname=None, first_met_location=None, known_contexts=None):
         """更新关系
         
         参数说明：
         - user_id: 目标用户 ID
         - relation_type: 新的关系定义
-        - tags_update: 新的标签 (会覆盖旧的)
         - summary_update: 新的印象总结 (会覆盖旧的)
         - intimacy_change: 好感度变化值 (如 +5, -10)
         - nickname: AI 对 TA 的称呼
-        - first_met_time: 初次见面时间
         - first_met_location: 初次见面地点
         - known_contexts: 遇到过的场景 (JSON列表)
         """
@@ -368,21 +361,19 @@ class DatabaseManager:
             cursor = conn.cursor()
             
             # 检查是否存在记录
-            cursor.execute('SELECT nickname, relation_type, intimacy, tags, summary, first_met_time, first_met_location, known_contexts FROM relationships WHERE user_id=?', (user_id,))
+            cursor.execute('SELECT nickname, relation_type, intimacy, summary, first_met_location, known_contexts FROM relationships WHERE user_id=?', (user_id,))
             existing = cursor.fetchone()
             
             if existing:
                 # 更新现有记录
-                old_nickname, old_relation_type, old_intimacy, old_tags, old_summary, old_first_met_time, old_first_met_location, old_known_contexts = existing
+                old_nickname, old_relation_type, old_intimacy, old_summary, old_first_met_location, old_known_contexts = existing
                 
                 # 处理各字段
                 new_nickname = nickname or old_nickname
                 new_relation_type = relation_type or old_relation_type
                 new_intimacy = old_intimacy + intimacy_change
                 new_intimacy = max(0, min(100, new_intimacy))  # 限制在 0-100
-                new_tags = tags_update or old_tags
                 new_summary = summary_update or old_summary
-                new_first_met_time = first_met_time or old_first_met_time
                 new_first_met_location = first_met_location or old_first_met_location
                 new_known_contexts = known_contexts or old_known_contexts
                 
@@ -392,23 +383,21 @@ class DatabaseManager:
                     nickname = ?, 
                     relation_type = ?, 
                     intimacy = ?, 
-                    tags = ?, 
                     summary = ?, 
-                    first_met_time = ?, 
                     first_met_location = ?, 
                     known_contexts = ?, 
                     updated_at = CURRENT_TIMESTAMP
                 WHERE user_id = ?
-                ''', (new_nickname, new_relation_type, new_intimacy, new_tags, new_summary, new_first_met_time, new_first_met_location, new_known_contexts, user_id))
+                ''', (new_nickname, new_relation_type, new_intimacy, new_summary, new_first_met_location, new_known_contexts, user_id))
             else:
                 # 创建新记录
-                new_intimacy = 50 + intimacy_change
+                new_intimacy = 0 + intimacy_change
                 new_intimacy = max(0, min(100, new_intimacy))  # 限制在 0-100
                 
                 cursor.execute('''
-                INSERT INTO relationships (user_id, nickname, relation_type, intimacy, tags, summary, first_met_time, first_met_location, known_contexts)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ''', (user_id, nickname or "", relation_type or "", new_intimacy, tags_update or "", summary_update or "", first_met_time, first_met_location, known_contexts))
+                INSERT INTO relationships (user_id, nickname, relation_type, intimacy, summary, first_met_location, known_contexts)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ''', (user_id, nickname or "", relation_type or "", new_intimacy, summary_update or "", first_met_location, known_contexts))
             
             conn.commit()
             conn.close()
@@ -476,9 +465,9 @@ class DatabaseManager:
             cursor = conn.cursor()
             
             if category:
-                cursor.execute('SELECT * FROM memories WHERE category=? ORDER BY importance DESC, created_at DESC LIMIT ? OFFSET ?', (category, limit, offset))
+                cursor.execute('SELECT * FROM memories WHERE category=? ORDER BY created_at DESC LIMIT ? OFFSET ?', (category, limit, offset))
             else:
-                cursor.execute('SELECT * FROM memories ORDER BY importance DESC, created_at DESC LIMIT ? OFFSET ?', (limit, offset))
+                cursor.execute('SELECT * FROM memories ORDER BY created_at DESC LIMIT ? OFFSET ?', (limit, offset))
             
             results = cursor.fetchall()
             conn.close()
@@ -487,14 +476,11 @@ class DatabaseManager:
             for row in results:
                 memory = {
                     "id": row[0],
-                    "user_id": row[1],
-                    "source_platform": row[2],
-                    "source_context": row[3],
-                    "category": row[4],
-                    "tags": row[5],
-                    "content": row[6],
-                    "importance": row[7],
-                    "created_at": row[8]
+                    "category": row[1],
+                    "content": row[2],
+                    "created_at": row[3],
+                    "updated_at": row[4],
+                    "access_count": row[5]
                 }
                 memory_list.append(memory)
             
@@ -541,12 +527,10 @@ class DatabaseManager:
                     "nickname": row[1],
                     "relation_type": row[2],
                     "intimacy": row[3],
-                    "tags": row[4],
-                    "summary": row[5],
-                    "first_met_time": row[6],
-                    "first_met_location": row[7],
-                    "known_contexts": row[8],
-                    "updated_at": row[9]
+                    "summary": row[4],
+                    "first_met_location": row[5],
+                    "known_contexts": row[6],
+                    "updated_at": row[7]
                 }
                 relationship_list.append(relationship)
             
@@ -634,3 +618,94 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"获取最近活动失败: {e}")
             return []
+    
+    def cleanup_memories(self):
+        """清理旧记忆
+        
+        根据配置的清理策略，清理旧的记忆数据
+        """
+        try:
+            # 获取清理配置
+            cleanup_config = self.config.get('memory_cleanup', {})
+            enabled = cleanup_config.get('enabled', True)
+            
+            if not enabled:
+                return "清理功能已禁用"
+            
+            days_old = cleanup_config.get('days_old', 365)
+            max_count = cleanup_config.get('max_count', 10000)
+            strategy = cleanup_config.get('strategy', 'unaccessed')
+            
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            deleted_count = 0
+            
+            # 按时间清理
+            if days_old > 0:
+                cursor.execute('''
+                DELETE FROM memories 
+                WHERE created_at < datetime('now', '-' || ? || ' days')
+                ''', (days_old,))
+                deleted_count += cursor.rowcount
+            
+            # 按数量清理
+            if max_count > 0:
+                # 获取当前记忆数量
+                cursor.execute('SELECT COUNT(*) FROM memories')
+                current_count = cursor.fetchone()[0]
+                
+                if current_count > max_count:
+                    to_delete = current_count - max_count
+                    
+                    # 根据策略选择要删除的记忆
+                    if strategy == 'unaccessed':
+                        # 清理未访问的记忆
+                        cursor.execute('''
+                        DELETE FROM memories 
+                        ORDER BY access_count ASC, created_at ASC
+                        LIMIT ?
+                        ''', (to_delete,))
+                    elif strategy == 'oldest':
+                        # 清理最旧的记忆
+                        cursor.execute('''
+                        DELETE FROM memories 
+                        ORDER BY created_at ASC
+                        LIMIT ?
+                        ''', (to_delete,))
+                    else:  # random
+                        # 随机清理
+                        cursor.execute('''
+                        DELETE FROM memories 
+                        WHERE id IN (
+                            SELECT id FROM memories 
+                            ORDER BY RANDOM()
+                            LIMIT ?
+                        )
+                        ''', (to_delete,))
+                    
+                    deleted_count += cursor.rowcount
+            
+            conn.commit()
+            conn.close()
+            
+            if deleted_count > 0:
+                self._record_activity("清理记忆", f"删除了 {deleted_count} 条旧记忆")
+                return f"成功清理了 {deleted_count} 条旧记忆"
+            else:
+                return "没有需要清理的记忆"
+        except Exception as e:
+            logger.error(f"清理记忆失败: {e}")
+            return f"清理失败: {e}"
+    
+    def get_memory_categories(self):
+        """获取记忆分类
+        
+        从配置中获取记忆分类列表
+        """
+        try:
+            # 从配置中获取分类
+            categories = self.config.get('memory_categories', ["技术笔记", "生活记录", "学习资料", "个人想法"])
+            return categories
+        except Exception as e:
+            logger.error(f"获取记忆分类失败: {e}")
+            return ["技术笔记", "生活记录", "学习资料", "个人想法"]

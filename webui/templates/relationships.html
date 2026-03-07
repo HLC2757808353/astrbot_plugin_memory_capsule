@@ -655,7 +655,7 @@
                     document.getElementById('edit-nickname').value = relationship.nickname || '';
                     document.getElementById('edit-first-met-location').value = relationship.first_met_location || '';
                     document.getElementById('edit-known-groups').value = relationship.known_contexts || '';
-                    document.getElementById('edit-intimacy').value = relationship.intimacy || 50;
+                    document.getElementById('edit-intimacy').value = relationship.intimacy || 0;
                     document.getElementById('edit-relation-type').value = relationship.relation_type || '';
                     document.getElementById('edit-summary').value = relationship.summary || '';
                     
@@ -697,7 +697,7 @@
             document.getElementById('edit-nickname').value = '';
             document.getElementById('edit-first-met-location').value = '';
             document.getElementById('edit-known-groups').value = '';
-            document.getElementById('edit-intimacy').value = 50;
+            document.getElementById('edit-intimacy').value = 0;
             document.getElementById('edit-relation-type').value = '';
             document.getElementById('edit-summary').value = '';
             
@@ -755,12 +755,12 @@
                 const response = await fetch('/api/relationships/search?q=' + userId);
                 const relationships = await response.json();
                 if (relationships.length > 0) {
-                    return relationships[0].intimacy || 50;
+                    return relationships[0].intimacy || 0;
                 }
-                return 50;
+                return 0;
             } catch (error) {
                 console.error('获取好感度失败:', error);
-                return 50;
+                return 0;
             }
         }
         
