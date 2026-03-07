@@ -155,6 +155,16 @@ class MemoryCapsulePlugin(Star):
                     return
             sock.close()
             
+            # 再次检查端口是否可用
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            result = sock.connect_ex(('localhost', self.webui_port))
+            port_available = result != 0
+            sock.close()
+            
+            if not port_available:
+                logger.error(f"端口 {self.webui_port} 仍然被占用，无法启动WebUI服务")
+                return
+            
             from .webui.server import WebUIServer
             self.webui_server = WebUIServer(self.db_manager, port=self.webui_port)
             # 设置 server_thread 属性，确保 stop 方法能够正确识别线程

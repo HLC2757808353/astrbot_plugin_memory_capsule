@@ -602,14 +602,14 @@ class DatabaseManager:
                 # 确保row不是None
                 if row:
                     try:
-                        # 使用索引获取数据，避免列名错误
+                        # 使用正确的列索引获取数据
                         memory = {
                             "id": row[0],
-                            "category": row[4],
-                            "content": row[6],
-                            "created_at": row[8],
-                            "updated_at": row[8],  # 没有updated_at字段，使用created_at
-                            "access_count": row[9]
+                            "category": row[1],
+                            "content": row[2],
+                            "created_at": row[3],
+                            "updated_at": row[4],
+                            "access_count": row[5]
                         }
                         memory_list.append(memory)
                     except Exception as e:
@@ -635,14 +635,14 @@ class DatabaseManager:
                 # 确保row不是None
                 if row:
                     try:
-                        # 使用索引获取数据，避免列名错误
+                        # 使用正确的列索引获取数据
                         memory = {
                             "id": row[0],
-                            "category": row[4],
-                            "content": row[6],
-                            "created_at": row[8],
-                            "updated_at": row[8],  # 没有updated_at字段，使用created_at
-                            "access_count": row[9]
+                            "category": row[1],
+                            "content": row[2],
+                            "created_at": row[3],
+                            "updated_at": row[4],
+                            "access_count": row[5]
                         }
                         memory_list.append(memory)
                     except Exception as e:
