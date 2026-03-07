@@ -609,7 +609,10 @@ class DatabaseManager:
                             "content": row[2],
                             "created_at": row[3],
                             "updated_at": row[4],
-                            "access_count": row[5]
+                            "access_count": row[5],
+                            "importance": 3,  # 默认重要性
+                            "tags": "",  # 默认空标签
+                            "source_platform": "Web"  # 默认来源
                         }
                         memory_list.append(memory)
                     except Exception as e:
@@ -642,7 +645,10 @@ class DatabaseManager:
                             "content": row[2],
                             "created_at": row[3],
                             "updated_at": row[4],
-                            "access_count": row[5]
+                            "access_count": row[5],
+                            "importance": 5,  # 默认重要性
+                            "tags": "",  # 默认空标签
+                            "source_platform": "Web"  # 默认来源
                         }
                         memory_list.append(memory)
                     except Exception as e:
@@ -811,7 +817,10 @@ class DatabaseManager:
                     "content": row[2],
                     "created_at": row[3],
                     "updated_at": row[4],
-                    "access_count": row[5]
+                    "access_count": row[5],
+                    "importance": 5,  # 默认重要性
+                    "tags": "",  # 默认空标签
+                    "source_platform": "Web"  # 默认来源
                 }
                 memory_list.append(memory)
             
@@ -847,7 +856,7 @@ class DatabaseManager:
             conn = self._get_connection()
             cursor = conn.cursor()
             
-            cursor.execute('SELECT * FROM relationships ORDER BY updated_at DESC LIMIT ? OFFSET ?', (limit, offset))
+            cursor.execute('SELECT user_id, nickname, relation_type, intimacy, summary, first_met_location, known_contexts, updated_at FROM relationships ORDER BY updated_at DESC LIMIT ? OFFSET ?', (limit, offset))
             results = cursor.fetchall()
             conn.close()
             
