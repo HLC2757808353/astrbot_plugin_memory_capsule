@@ -25,7 +25,7 @@
   },
   "memory_palace_enabled": {
     "description": "记忆宫殿模块",
-    "type": "boolean",
+    "type": "bool",
     "default": true,
     "hint": "启用或禁用记忆宫殿模块",
     "editable": true,
