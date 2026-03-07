@@ -1,3 +1,4 @@
+from typing import Dict, Any
 from astrbot.api.event import filter, AstrMessageEvent, MessageEventResult
 from astrbot.api.provider import ProviderRequest
 from astrbot.api.star import Context, Star, register
@@ -409,7 +410,7 @@ class MemoryCapsulePlugin(Star):
             return f"优化失败: {e}"
 
     @filter.llm_tool(name="update_search_weights")
-    async def update_search_weights(self, event, **kwargs: dict):
+    async def update_search_weights(self, event, **kwargs: Dict[str, Any]):
         """
         更新搜索权重配置
         
@@ -429,7 +430,7 @@ class MemoryCapsulePlugin(Star):
             return f"更新失败: {e}"
 
     @filter.llm_tool(name="update_search_strategy")
-    async def update_search_strategy(self, event, **kwargs: dict):
+    async def update_search_strategy(self, event, **kwargs: Dict[str, Any]):
         """
         更新搜索策略配置
         
