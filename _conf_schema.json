@@ -50,6 +50,9 @@
   "memory_categories": {
     "description": "记忆分类",
     "type": "list",
+    "items": {
+      "type": "string"
+    },
     "default": ["技术笔记", "生活记录", "学习资料", "个人想法"],
     "hint": "添加或修改记忆分类",
     "editable": true,
