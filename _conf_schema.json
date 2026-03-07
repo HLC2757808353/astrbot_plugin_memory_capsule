@@ -40,8 +40,7 @@
         "description": "清理策略",
         "type": "string",
         "default": "unaccessed",
-        "options": ["unaccessed", "oldest", "random"],
-        "hint": "unaccessed: 清理未访问的, oldest: 清理最旧的, random: 随机清理",
+        "hint": "可选值: unaccessed(清理未访问的), oldest(清理最旧的), random(随机清理)",
         "editable": true,
         "display_name": "清理策略"
       }
@@ -64,8 +63,7 @@
         "description": "排序方式",
         "type": "string",
         "default": "access_count",
-        "options": ["access_count", "created_at"],
-        "hint": "access_count: 按访问次数, created_at: 按创建时间",
+        "hint": "可选值: access_count(按访问次数), created_at(按创建时间)",
         "editable": true,
         "display_name": "排序方式"
       }
@@ -121,8 +119,7 @@
         "description": "注入位置",
         "type": "string",
         "default": "user_prompt",
-        "options": ["user_prompt", "system_prompt", "insert_system_prompt"],
-        "hint": "user_prompt 会嵌入到用户消息的最前面，system_prompt会嵌入到系统消息中，insert_system_prompt会向上下文列表中添加一条新的系统消息",
+        "hint": "可选值: user_prompt(嵌入到用户消息), system_prompt(嵌入到系统消息), insert_system_prompt(添加新的系统消息)",
         "editable": true,
         "display_name": "注入位置"
       }
