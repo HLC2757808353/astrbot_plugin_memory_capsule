@@ -510,15 +510,24 @@
                         groups.forEach(group => {
                             group = group.trim();
                             if (group) {
-                                knownGroupsHtml += `<span class="tag">${group}</span>`;
+                                // 提取群名字（如果格式为ID+群名字）
+                                const groupName = group.split('+').pop() || group;
+                                knownGroupsHtml += `<span class="tag">${groupName}</span>`;
                             }
                         });
+                    }
+                    
+                    // 处理初次见面地点
+                    let firstMetLocation = relationship.first_met_location || '未知';
+                    if (firstMetLocation !== '未知') {
+                        // 提取群名字（如果格式为ID+群名字）
+                        firstMetLocation = firstMetLocation.split('+').pop() || firstMetLocation;
                     }
                     
                     tr.innerHTML = `
                         <td>${relationship.user_id}</td>
                         <td>${relationship.nickname || '无'}</td>
-                        <td>${relationship.first_met_location || '未知'}</td>
+                        <td>${firstMetLocation}</td>
                         <td>${knownGroupsHtml || '无'}</td>
                         <td>
                             <div class="intimacy-bar">
@@ -803,15 +812,24 @@
                         groups.forEach(group => {
                             group = group.trim();
                             if (group) {
-                                knownGroupsHtml += `<span class="tag">${group}</span>`;
+                                // 提取群名字（如果格式为ID+群名字）
+                                const groupName = group.split('+').pop() || group;
+                                knownGroupsHtml += `<span class="tag">${groupName}</span>`;
                             }
                         });
+                    }
+                    
+                    // 处理初次见面地点
+                    let firstMetLocation = relationship.first_met_location || '未知';
+                    if (firstMetLocation !== '未知') {
+                        // 提取群名字（如果格式为ID+群名字）
+                        firstMetLocation = firstMetLocation.split('+').pop() || firstMetLocation;
                     }
                     
                     tr.innerHTML = `
                         <td>${relationship.user_id}</td>
                         <td>${relationship.nickname || '无'}</td>
-                        <td>${relationship.first_met_location || '未知'}</td>
+                        <td>${firstMetLocation}</td>
                         <td>${knownGroupsHtml || '无'}</td>
                         <td>
                             <div class="intimacy-bar">

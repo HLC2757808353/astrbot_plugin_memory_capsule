@@ -605,8 +605,8 @@ class DatabaseManager:
                         # 使用正确的列索引获取数据
                         memory = {
                             "id": row[0],
-                            "category": row[1],
-                            "content": row[2],
+                            "category": row[1] or self.get_default_category(),  # 默认分类
+                            "content": row[2] or "无内容",  # 默认内容
                             "created_at": row[3],
                             "updated_at": row[4],
                             "access_count": row[5],
@@ -641,8 +641,8 @@ class DatabaseManager:
                         # 使用正确的列索引获取数据
                         memory = {
                             "id": row[0],
-                            "category": row[1],
-                            "content": row[2],
+                            "category": row[1] or self.get_default_category(),  # 默认分类
+                            "content": row[2] or "无内容",  # 默认内容
                             "created_at": row[3],
                             "updated_at": row[4],
                             "access_count": row[5],
@@ -691,7 +691,7 @@ class DatabaseManager:
         - intimacy_change: 好感度变化值 (如 +5, -10)
         - nickname: AI 对 TA 的称呼
         - first_met_location: 初次见面地点
-        - known_contexts: 遇到过的场景 (JSON列表)
+        - known_contexts: 遇到过的场景 (逗号分隔的群ID+群名称)
         """
         try:
             conn = self._get_connection()
@@ -712,7 +712,19 @@ class DatabaseManager:
                 new_intimacy = max(0, min(100, new_intimacy))  # 限制在 0-100
                 new_summary = summary_update or old_summary
                 new_first_met_location = first_met_location or old_first_met_location
-                new_known_contexts = known_contexts or old_known_contexts
+                
+                # 处理认识群组（添加新群，不覆盖旧群）
+                if known_contexts:
+                    if old_known_contexts:
+                        # 合并现有群组和新群组，去重
+                        existing_groups = set(old_known_contexts.split(','))
+                        new_groups = set(known_contexts.split(','))
+                        combined_groups = existing_groups.union(new_groups)
+                        new_known_contexts = ','.join(combined_groups)
+                    else:
+                        new_known_contexts = known_contexts
+                else:
+                    new_known_contexts = old_known_contexts
                 
                 # 执行更新
                 cursor.execute('''
@@ -813,8 +825,8 @@ class DatabaseManager:
             for row in results:
                 memory = {
                     "id": row[0],
-                    "category": row[1],
-                    "content": row[2],
+                    "category": row[1] or self.get_default_category(),  # 默认分类
+                    "content": row[2] or "无内容",  # 默认内容
                     "created_at": row[3],
                     "updated_at": row[4],
                     "access_count": row[5],
@@ -1048,6 +1060,14 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"获取记忆分类失败: {e}")
             return ["技术笔记", "生活记录", "学习资料", "个人想法"]
+    
+    def get_default_category(self):
+        """获取默认记忆分类
+        
+        返回配置中的第一个分类作为默认分类
+        """
+        categories = self.get_memory_categories()
+        return categories[0] if categories else "技术笔记"
     
     def optimize_synonyms(self):
         """优化同义词库"""
