@@ -46,6 +46,14 @@
     "editable": true,
     "display_name": "最大结果数"
   },
+  "max_extracted_tags": {
+    "description": "最大提取提示词数量",
+    "type": "int",
+    "default": 10,
+    "editable": true,
+    "display_name": "最大提示词数量",
+    "hint": "设置智能提取的最大提示词数量，防止提取过多提示词"
+  },
   "search_sort_by": {
     "description": "排序方式",
     "type": "string",

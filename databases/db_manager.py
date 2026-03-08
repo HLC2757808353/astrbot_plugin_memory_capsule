@@ -94,7 +94,7 @@ class DatabaseManager:
         tags.extend(versions)
         
         # 去重，限制数量
-        max_tags = self.config.get('max_tags_per_memory', 10)
+        max_tags = self.config.get('max_extracted_tags', 10)
         return list(dict.fromkeys(tags))[:max_tags]
     
     def add_synonym_pair(self, word1, word2):
@@ -275,16 +275,80 @@ class DatabaseManager:
             
             # 检查并添加缺失的列
             try:
-                # 检查memories表是否有access_count列
+                # 检查memories表的列结构
                 cursor.execute('PRAGMA table_info(memories)')
                 columns = [column[1] for column in cursor.fetchall()]
+                
+                # 添加缺失的access_count列
                 if 'access_count' not in columns:
                     logger.info("添加缺失的access_count列...")
                     cursor.execute('ALTER TABLE memories ADD COLUMN access_count INTEGER DEFAULT 0')
                     conn.commit()
                     logger.info("成功添加access_count列")
+                
+                # 添加缺失的tags列
+                if 'tags' not in columns:
+                    logger.info("添加缺失的tags列...")
+                    cursor.execute('ALTER TABLE memories ADD COLUMN tags TEXT')
+                    conn.commit()
+                    logger.info("成功添加tags列")
+                
+                # 添加缺失的importance列
+                if 'importance' not in columns:
+                    logger.info("添加缺失的importance列...")
+                    cursor.execute('ALTER TABLE memories ADD COLUMN importance INTEGER DEFAULT 5')
+                    conn.commit()
+                    logger.info("成功添加importance列")
             except Exception as e:
-                logger.error(f"添加access_count列失败: {e}")
+                logger.error(f"添加memories列失败: {e}")
+            
+            try:
+                # 检查relationships表的列结构
+                cursor.execute('PRAGMA table_info(relationships)')
+                columns = [column[1] for column in cursor.fetchall()]
+                
+                # 确保relationships表的列结构正确
+                expected_columns = ['user_id', 'nickname', 'relation_type', 'intimacy', 'summary', 'first_met_location', 'known_contexts', 'updated_at']
+                
+                # 如果表结构不正确，重新创建表
+                if len(columns) != len(expected_columns) or not all(col in columns for col in expected_columns):
+                    logger.info("relationships表结构不正确，重新创建...")
+                    
+                    # 先备份数据
+                    cursor.execute('SELECT * FROM relationships')
+                    relationships_data = cursor.fetchall()
+                    
+                    # 删除旧表
+                    cursor.execute('DROP TABLE IF EXISTS relationships')
+                    
+                    # 创建新表
+                    cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS relationships (
+                        user_id TEXT PRIMARY KEY,       -- 对方 QQ 号
+                        nickname TEXT,                  -- AI 对 TA 的称呼
+                        relation_type TEXT,             -- 关系 (如: 朋友, 损友)
+                        intimacy INTEGER DEFAULT 0,     -- 好感度 (0-100)
+                        summary TEXT,                   -- 核心印象 (覆盖式更新，不追加)
+                        first_met_location TEXT,        -- 初次见面地点 (如: "QQ群:12345")
+                        known_contexts TEXT,            -- 遇到过的场景 (JSON列表)
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                    ''')
+                    
+                    # 恢复数据
+                    for data in relationships_data:
+                        try:
+                            cursor.execute('''
+                            INSERT INTO relationships (user_id, nickname, relation_type, intimacy, summary, first_met_location, known_contexts, updated_at)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                            ''', data)
+                        except Exception as e:
+                            logger.error(f"恢复关系数据失败: {e}")
+                    
+                    conn.commit()
+                    logger.info("成功重建relationships表")
+            except Exception as e:
+                logger.error(f"处理relationships表失败: {e}")
             
             # 检查是否需要迁移（如果tags表为空且memories表有数据）
             cursor.execute('SELECT COUNT(*) FROM tags')
