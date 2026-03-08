@@ -313,10 +313,6 @@
             border-left: 4px solid #9c27b0;
         }
         
-        .memory-card.日常 {
-            border-left: 4px solid #e91e63;
-        }
-        
         /* 确保默认记忆卡片没有左边框 */
         .memory-card {
             border-left: 4px solid transparent;
@@ -1005,6 +1001,9 @@
                     document.getElementById('edit-tags').value = memory.tags || '';
                     document.getElementById('edit-importance').value = memory.importance;
                     
+                    // 更改模态框标题
+                    document.querySelector('.modal-title').textContent = '编辑记忆';
+                    
                     // 显示模态框
                     document.getElementById('edit-modal').style.display = 'block';
                 } else {
@@ -1119,9 +1118,12 @@
             // 清空表单
             document.getElementById('edit-memory-id').value = '';
             document.getElementById('edit-content').value = '';
-            document.getElementById('edit-category').value = '日常';
+            document.getElementById('edit-category').value = '';
             document.getElementById('edit-tags').value = '';
             document.getElementById('edit-importance').value = 5;
+            
+            // 更改模态框标题
+            document.querySelector('.modal-title').textContent = '添加记忆';
             
             // 显示模态框
             document.getElementById('edit-modal').style.display = 'block';

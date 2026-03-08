@@ -240,13 +240,13 @@ class MemoryCapsulePlugin(Star):
             return f"更新失败: {e}"
 
     @filter.llm_tool(name="write_memory")
-    async def write_memory(self, event, content, category="日常", tags=""):
+    async def write_memory(self, event, content, category=None, tags=""):
         """
         记下一个永久知识点
         
         Args:
             content(str): 要记住的内容
-            category(str): 分类 (默认 "日常")
+            category(str): 分类 (AI指定)
             tags(str): 标签 (逗号分隔)
             
         Returns:
@@ -258,7 +258,8 @@ class MemoryCapsulePlugin(Star):
             
         # 类型转换确保参数类型正确
         content = str(content)
-        category = str(category)
+        if category is not None:
+            category = str(category)
         tags = str(tags)
         try:
             result = await asyncio.to_thread(self.db_manager.write_memory, content, category, tags)

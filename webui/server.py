@@ -99,7 +99,7 @@ class WebUIServer:
             data = request.json
             result = self.db_manager.write_memory(
                 content=data.get('content', ''),
-                category=data.get('category', '日常'),
+                category=data.get('category'),
                 tags=data.get('tags', '')
             )
             return jsonify({'result': result})
