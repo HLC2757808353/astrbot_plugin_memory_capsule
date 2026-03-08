@@ -90,7 +90,7 @@
   },
   "memory_categories": {
     "description": "记忆分类列表",
-    "type": "array",
+    "type": "list",
     "default": ["技术笔记", "生活记录", "学习资料", "个人想法"],
     "hint": "设置记忆宫殿的分类列表，多个分类用逗号分隔",
     "editable": true,
