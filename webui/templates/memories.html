@@ -632,11 +632,11 @@
                     
                     card.innerHTML = `
                         <div class="memory-header">
-                            <div class="memory-time">${memory.created_at}</div>
+                            <div class="memory-time">${memory.created_at || ''}</div>
                             <div class="memory-importance">重要性: ${memory.importance}</div>
                         </div>
                         <div class="memory-category">分类: ${memory.category}</div>
-                        <div class="memory-content">${memory.content}</div>
+                        <div class="memory-content">${memory.content || '无内容'}</div>
                         <div class="memory-tags">${tagsHtml || '无'}</div>
                         <div class="memory-actions">
                             <input type="checkbox" class="memory-checkbox" data-id="${memory.id}">
@@ -938,11 +938,11 @@
                 
                 card.innerHTML = `
                     <div class="memory-header">
-                        <div class="memory-time">${memory.created_at}</div>
+                        <div class="memory-time">${memory.created_at || ''}</div>
                         <div class="memory-importance">重要性: ${memory.importance}</div>
                     </div>
                     <div class="memory-category">分类: ${memory.category}</div>
-                    <div class="memory-content">${memory.content}</div>
+                    <div class="memory-content">${memory.content || '无内容'}</div>
                     <div class="memory-tags">${tagsHtml || '无'}</div>
                     <div class="memory-actions">
                         <input type="checkbox" class="memory-checkbox" data-id="${memory.id}">
