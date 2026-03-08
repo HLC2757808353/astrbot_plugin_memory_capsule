@@ -584,9 +584,9 @@ class DatabaseManager:
             
             # 插入数据
             cursor.execute('''
-            INSERT INTO memories (category, tags, content, importance)
+            INSERT INTO memories (category, content, tags, importance)
             VALUES (?, ?, ?, ?)
-            ''', (category, tags_str, content, importance))
+            ''', (category, content, tags_str, importance))
             
             memory_id = cursor.lastrowid
             
@@ -675,12 +675,12 @@ class DatabaseManager:
                         memory = {
                             "id": row[0],
                             "category": row[1] or self.get_default_category(),  # 默认分类
-                            "content": row[2] or "无内容",  # 默认内容
+                            "content": row[3] or "无内容",  # 默认内容
                             "created_at": row[5],
                             "updated_at": row[6],
                             "access_count": row[7],
                             "importance": row[4] or 3,  # 从数据库读取重要性
-                            "tags": row[3] or "",  # 从数据库读取标签
+                            "tags": row[2] or "",  # 从数据库读取标签
                             "source_platform": "Web"  # 默认来源
                         }
                         memory_list.append(memory)
@@ -711,12 +711,12 @@ class DatabaseManager:
                         memory = {
                             "id": row[0],
                             "category": row[1] or self.get_default_category(),  # 默认分类
-                            "content": row[2] or "无内容",  # 默认内容
+                            "content": row[3] or "无内容",  # 默认内容
                             "created_at": row[5],
                             "updated_at": row[6],
                             "access_count": row[7],
                             "importance": row[4] or 5,  # 从数据库读取重要性
-                            "tags": row[3] or "",  # 从数据库读取标签
+                            "tags": row[2] or "",  # 从数据库读取标签
                             "source_platform": "Web"  # 默认来源
                         }
                         memory_list.append(memory)
@@ -788,7 +788,7 @@ class DatabaseManager:
                 else:
                     new_first_met_location = old_first_met_location
                 
-                # 处理多次相遇群组（添加新群，不覆盖旧群）
+                # 处理多次相遇群组（完全替换，不合并）
                 if known_contexts:
                     # 提取ID部分（如果包含群名称）
                     new_groups = []
@@ -798,14 +798,7 @@ class DatabaseManager:
                             # 提取ID部分
                             group_id = group.split('+')[0].strip()
                             new_groups.append(group_id)
-                    
-                    if old_known_contexts:
-                        # 合并现有群组和新群组，去重
-                        existing_groups = set(old_known_contexts.split(','))
-                        combined_groups = existing_groups.union(set(new_groups))
-                        new_known_contexts = ','.join(combined_groups)
-                    else:
-                        new_known_contexts = ','.join(new_groups)
+                    new_known_contexts = ','.join(new_groups)
                 else:
                     new_known_contexts = old_known_contexts
                 
@@ -926,12 +919,12 @@ class DatabaseManager:
                 memory = {
                     "id": row[0],
                     "category": row[1] or self.get_default_category(),  # 默认分类
-                    "content": row[2] or "无内容",  # 默认内容
+                    "content": row[3] or "无内容",  # 默认内容
                     "created_at": row[5],
                     "updated_at": row[6],
                     "access_count": row[7],
                     "importance": row[4] or 5,  # 从数据库读取重要性
-                    "tags": row[3] or "",  # 从数据库读取标签
+                    "tags": row[2] or "",  # 从数据库读取标签
                     "source_platform": "Web"  # 默认来源
                 }
                 memory_list.append(memory)

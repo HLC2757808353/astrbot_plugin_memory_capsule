@@ -541,15 +541,6 @@
                     
                     <!-- 筛选栏 -->
                     <div class="filter-bar">
-                        <div class="filter-group">
-                            <label class="filter-label">来源</label>
-                            <select class="filter-control" id="source-filter">
-                                <option value="">全部</option>
-                                <option value="QQ">QQ</option>
-                                <option value="Bilibili">Bilibili</option>
-                                <option value="Web">Web</option>
-                            </select>
-                        </div>
                         <div class="filter-group search-box">
                             <label class="filter-label">搜索</label>
                             <div style="display: flex; align-items: center; gap: 10px;">
@@ -583,11 +574,7 @@
                 <div class="form-group">
                     <label class="form-label" for="edit-category">分类</label>
                     <select class="form-control" id="edit-category">
-                        <option value="日常">日常</option>
-                        <option value="社交">社交</option>
-                        <option value="知识">知识</option>
-                        <option value="娱乐">娱乐</option>
-                        <option value="日记">日记</option>
+                        <!-- 分类将通过 JavaScript 动态加载 -->
                     </select>
                 </div>
                 <div class="form-group">
@@ -617,8 +604,6 @@
             try {
                 // 更新全局当前页码
                 currentPage = page;
-                
-                const source = document.getElementById('source-filter').value;
                 
                 let url = `/api/memories?page=${page}&limit=${pageSize}`;
                 
@@ -887,7 +872,6 @@
         // 搜索记忆
         async function searchMemories() {
             const query = document.getElementById('search-box').value;
-            const source = document.getElementById('source-filter').value;
             
             try {
                 let url = `/api/memories`;
@@ -921,11 +905,6 @@
                         memory.category.toLowerCase().includes(lowerQuery) ||
                         (memory.tags && memory.tags.toLowerCase().includes(lowerQuery))
                     );
-                }
-                
-                // 如果有来源过滤
-                if (source) {
-                    memories = memories.filter(memory => memory.source_platform === source);
                 }
                 
                 displayMemories(memories);
@@ -1191,12 +1170,12 @@
         });
         
         // 点击模态框外部关闭
-        window.onclick = function(event) {
-            const modal = document.getElementById('edit-modal');
-            if (event.target === modal) {
-                closeModal();
-            }
-        }
+        // window.onclick = function(event) {
+        //     const modal = document.getElementById('edit-modal');
+        //     if (event.target === modal) {
+        //         closeModal();
+        //     }
+        // }
         
         // 加载分类列表
         async function loadCategories() {
