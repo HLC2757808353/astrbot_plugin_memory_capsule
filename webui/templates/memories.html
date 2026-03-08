@@ -615,6 +615,9 @@
         // 加载记忆列表
         async function loadMemories(page = 1) {
             try {
+                // 更新全局当前页码
+                currentPage = page;
+                
                 const source = document.getElementById('source-filter').value;
                 
                 let url = `/api/memories?page=${page}&limit=${pageSize}`;
@@ -1195,8 +1198,29 @@
             }
         }
         
+        // 加载分类列表
+        async function loadCategories() {
+            try {
+                const response = await fetch('/api/categories');
+                const categories = await response.json();
+                
+                const categorySelect = document.getElementById('edit-category');
+                categorySelect.innerHTML = '';
+                
+                categories.forEach(category => {
+                    const option = document.createElement('option');
+                    option.value = category;
+                    option.textContent = category;
+                    categorySelect.appendChild(option);
+                });
+            } catch (error) {
+                console.error('加载分类列表失败:', error);
+            }
+        }
+        
         // 页面加载时执行
         window.onload = function() {
+            loadCategories();
             loadMemories();
         };
     </script>

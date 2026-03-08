@@ -168,6 +168,8 @@ class DatabaseManager:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,  -- 主键，唯一标识
                 category TEXT,                         -- 分类（AI指定，如"技术笔记"、"生活记录"等）
                 content TEXT NOT NULL,                 -- 记忆内容（AI给什么存什么）
+                tags TEXT,                             -- 标签（逗号分隔）
+                importance INTEGER DEFAULT 5,          -- 重要性（1-10）
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,  -- 创建时间
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,  -- 更新时间
                 access_count INTEGER DEFAULT 0         -- 被搜索到的次数（用于热度统计）
@@ -349,6 +351,8 @@ class DatabaseManager:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,  -- 主键，唯一标识
                 category TEXT,                         -- 分类（AI指定，如"技术笔记"、"生活记录"等）
                 content TEXT NOT NULL,                 -- 记忆内容（AI给什么存什么）
+                tags TEXT,                             -- 标签（逗号分隔）
+                importance INTEGER DEFAULT 5,          -- 重要性（1-10）
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,  -- 创建时间
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,  -- 更新时间
                 access_count INTEGER DEFAULT 0         -- 被搜索到的次数（用于热度统计）
@@ -482,13 +486,14 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"记录活动失败: {e}")
 
-    def write_memory(self, content, category="日常", tags=""):
+    def write_memory(self, content, category="日常", tags="", importance=5):
         """存储记忆
         
         参数说明：
         - content: 记忆内容
         - category: 分类 (默认 "日常")
         - tags: 标签 (逗号分隔)
+        - importance: 重要性 (默认 5)
         """
         try:
             conn = self._get_connection()
@@ -515,9 +520,9 @@ class DatabaseManager:
             
             # 插入数据
             cursor.execute('''
-            INSERT INTO memories (category, tags, content)
-            VALUES (?, ?, ?)
-            ''', (category, tags_str, content))
+            INSERT INTO memories (category, tags, content, importance)
+            VALUES (?, ?, ?, ?)
+            ''', (category, tags_str, content, importance))
             
             memory_id = cursor.lastrowid
             
@@ -607,11 +612,11 @@ class DatabaseManager:
                             "id": row[0],
                             "category": row[1] or self.get_default_category(),  # 默认分类
                             "content": row[2] or "无内容",  # 默认内容
-                            "created_at": row[3],
-                            "updated_at": row[4],
-                            "access_count": row[5],
-                            "importance": 3,  # 默认重要性
-                            "tags": "",  # 默认空标签
+                            "created_at": row[5],
+                            "updated_at": row[6],
+                            "access_count": row[7],
+                            "importance": row[4] or 3,  # 从数据库读取重要性
+                            "tags": row[3] or "",  # 从数据库读取标签
                             "source_platform": "Web"  # 默认来源
                         }
                         memory_list.append(memory)
@@ -643,11 +648,11 @@ class DatabaseManager:
                             "id": row[0],
                             "category": row[1] or self.get_default_category(),  # 默认分类
                             "content": row[2] or "无内容",  # 默认内容
-                            "created_at": row[3],
-                            "updated_at": row[4],
-                            "access_count": row[5],
-                            "importance": 5,  # 默认重要性
-                            "tags": "",  # 默认空标签
+                            "created_at": row[5],
+                            "updated_at": row[6],
+                            "access_count": row[7],
+                            "importance": row[4] or 5,  # 从数据库读取重要性
+                            "tags": row[3] or "",  # 从数据库读取标签
                             "source_platform": "Web"  # 默认来源
                         }
                         memory_list.append(memory)
@@ -690,8 +695,8 @@ class DatabaseManager:
         - summary_update: 新的印象总结 (会覆盖旧的)
         - intimacy_change: 好感度变化值 (如 +5, -10)
         - nickname: AI 对 TA 的称呼
-        - first_met_location: 初次见面地点
-        - known_contexts: 遇到过的场景 (逗号分隔的群ID+群名称)
+        - first_met_location: 初次见面地点 (仅存储ID)
+        - known_contexts: 多次相遇群组 (逗号分隔的群ID数组)
         """
         try:
             conn = self._get_connection()
@@ -711,18 +716,32 @@ class DatabaseManager:
                 new_intimacy = old_intimacy + intimacy_change
                 new_intimacy = max(0, min(100, new_intimacy))  # 限制在 0-100
                 new_summary = summary_update or old_summary
-                new_first_met_location = first_met_location or old_first_met_location
                 
-                # 处理认识群组（添加新群，不覆盖旧群）
+                # 处理初次见面地点（仅存储ID或使用"private"表示私聊认识）
+                if first_met_location:
+                    # 提取ID部分（如果包含群名称），如果是私聊认识可以使用"private"
+                    new_first_met_location = first_met_location.split('+')[0].strip()
+                else:
+                    new_first_met_location = old_first_met_location
+                
+                # 处理多次相遇群组（添加新群，不覆盖旧群）
                 if known_contexts:
+                    # 提取ID部分（如果包含群名称）
+                    new_groups = []
+                    for group in known_contexts.split(','):
+                        group = group.strip()
+                        if group:
+                            # 提取ID部分
+                            group_id = group.split('+')[0].strip()
+                            new_groups.append(group_id)
+                    
                     if old_known_contexts:
                         # 合并现有群组和新群组，去重
                         existing_groups = set(old_known_contexts.split(','))
-                        new_groups = set(known_contexts.split(','))
-                        combined_groups = existing_groups.union(new_groups)
+                        combined_groups = existing_groups.union(set(new_groups))
                         new_known_contexts = ','.join(combined_groups)
                     else:
-                        new_known_contexts = known_contexts
+                        new_known_contexts = ','.join(new_groups)
                 else:
                     new_known_contexts = old_known_contexts
                 
@@ -739,9 +758,26 @@ class DatabaseManager:
                 WHERE user_id = ?
                 ''', (new_nickname, new_relation_type, new_intimacy, new_summary, new_first_met_location, new_known_contexts, user_id))
             else:
-                # 创建新记录
-                new_intimacy = 0 + intimacy_change
+                # 创建新记录，默认好感度为20
+                new_intimacy = 20 + intimacy_change
                 new_intimacy = max(0, min(100, new_intimacy))  # 限制在 0-100
+                
+                # 处理初次见面地点（仅存储ID或使用"private"表示私聊认识）
+                if first_met_location:
+                    # 提取ID部分（如果包含群名称），如果是私聊认识可以使用"private"
+                    first_met_location = first_met_location.split('+')[0].strip()
+                
+                # 处理多次相遇群组（仅存储ID）
+                if known_contexts:
+                    # 提取ID部分（如果包含群名称）
+                    new_groups = []
+                    for group in known_contexts.split(','):
+                        group = group.strip()
+                        if group:
+                            # 提取ID部分
+                            group_id = group.split('+')[0].strip()
+                            new_groups.append(group_id)
+                    known_contexts = ','.join(new_groups)
                 
                 cursor.execute('''
                 INSERT INTO relationships (user_id, nickname, relation_type, intimacy, summary, first_met_location, known_contexts)
@@ -827,11 +863,11 @@ class DatabaseManager:
                     "id": row[0],
                     "category": row[1] or self.get_default_category(),  # 默认分类
                     "content": row[2] or "无内容",  # 默认内容
-                    "created_at": row[3],
-                    "updated_at": row[4],
-                    "access_count": row[5],
-                    "importance": 5,  # 默认重要性
-                    "tags": "",  # 默认空标签
+                    "created_at": row[5],
+                    "updated_at": row[6],
+                    "access_count": row[7],
+                    "importance": row[4] or 5,  # 从数据库读取重要性
+                    "tags": row[3] or "",  # 从数据库读取标签
                     "source_platform": "Web"  # 默认来源
                 }
                 memory_list.append(memory)

@@ -95,5 +95,13 @@
     "hint": "设置记忆宫殿的分类列表，多个分类用逗号分隔",
     "editable": true,
     "display_name": "记忆分类"
+  },
+  "relation_injection_refresh_time": {
+    "description": "关系注入刷新时间",
+    "type": "int",
+    "default": 3600,
+    "hint": "设置关系信息注入的刷新时间，单位为秒，默认3600秒（1小时）。当与同一用户连续对话时，超过此时间才会重新注入关系信息。",
+    "editable": true,
+    "display_name": "关系注入刷新时间"
   }
 }

@@ -17,6 +17,10 @@ class MemoryCapsulePlugin(Star):
         self.config = config
         # 获取WebUI端口配置，默认为5000
         self.webui_port = config.get('webui_port', 5000) if config else 5000
+        # 关系注入缓存
+        self.relation_injection_cache = {}
+        # 关系注入刷新时间（默认1小时）
+        self.relation_injection_refresh_time = config.get('relation_injection_refresh_time', 3600) if config else 3600
 
     async def initialize(self):
         """插件初始化方法"""
@@ -471,6 +475,18 @@ class MemoryCapsulePlugin(Star):
             # 获取用户信息
             user_id = event.get_sender_id()
             
+            # 检查缓存
+            import time
+            current_time = time.time()
+            cache_key = f"relation_injection_{user_id}"
+            
+            if cache_key in self.relation_injection_cache:
+                last_injection_time = self.relation_injection_cache[cache_key]
+                if current_time - last_injection_time < self.relation_injection_refresh_time:
+                    # 缓存未过期，跳过注入
+                    logger.info(f"用户 {user_id} 的关系信息在缓存期内，跳过注入")
+                    return event
+            
             # 查找用户关系信息
             import asyncio
             relationships = await asyncio.to_thread(self.db_manager.get_all_relationships)
@@ -491,7 +507,7 @@ class MemoryCapsulePlugin(Star):
                 summary = user_relation['summary'] or '无'
                 
                 # 构建关系信息格式
-                relation_context = f"\n\n<Relationship> 当前关系状态：\n- 用户ID: {user_relation['user_id']}\n- 昵称: {nickname}\n- 关系类型: {relation_type}\n- 好感度: {user_relation['intimacy']}\n- 初次见面地点: {first_met_location}\n- 认识群组: {known_contexts}\n- 核心印象: {summary}\n</Relationship>\n"
+                relation_context = f"\n\n<Relationship> 当前关系状态：\n- 用户ID: {user_relation['user_id']}\n- 昵称: {nickname}\n- 关系类型: {relation_type}\n- 好感度: {user_relation['intimacy']}\n- 初次见面地点: {first_met_location}\n- 多次相遇群组: {known_contexts}\n- 核心印象: {summary}\n</Relationship>\n"
             else:
                 # 如果查询为空，返回指定格式
                 relation_context = f"\n\n<Relationship>当前对象未被记录在关系图谱里</Relationship>\n"
@@ -525,6 +541,9 @@ class MemoryCapsulePlugin(Star):
                 # 默认注入到用户消息
                 req.prompt = relation_context + '\n' + (req.prompt or "")
                 logger.info(f"成功注入用户 {user_id} 的关系信息到用户提示词")
+            
+            # 更新缓存
+            self.relation_injection_cache[cache_key] = current_time
             
         except Exception as e:
             logger.error(f"注入关系信息失败: {e}")

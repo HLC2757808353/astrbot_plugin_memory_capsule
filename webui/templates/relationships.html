@@ -421,7 +421,7 @@
                                 <th>ID</th>
                                 <th>昵称</th>
                                 <th>初次见面地点</th>
-                                <th>认识群组</th>
+                                <th>多次相遇群组</th>
                                 <th>好感度</th>
                                 <th>关系类型</th>
                                 <th>核心印象</th>
@@ -454,12 +454,12 @@
                     <input type="text" class="form-control" id="edit-nickname" placeholder="请输入用户昵称">
                 </div>
                 <div class="form-group">
-                    <label class="form-label" for="edit-first-met-location">初次见面地点 (id+群名称)</label>
-                    <input type="text" class="form-control" id="edit-first-met-location" placeholder="例如: 123456+群组名称">
+                    <label class="form-label" for="edit-first-met-location">初次见面地点 (仅ID)</label>
+                    <input type="text" class="form-control" id="edit-first-met-location" placeholder="例如: 123456">
                 </div>
                 <div class="form-group">
-                    <label class="form-label" for="edit-known-groups">认识群组 (数组id+群名称，逗号分隔)</label>
-                    <input type="text" class="form-control" id="edit-known-groups" placeholder="例如: 123456+群组1,789012+群组2">
+                    <label class="form-label" for="edit-known-groups">多次相遇群组 (ID数组，逗号分隔)</label>
+                    <input type="text" class="form-control" id="edit-known-groups" placeholder="例如: 123456,789012">
                 </div>
                 <div class="form-group">
                     <label class="form-label" for="edit-intimacy">好感度</label>
@@ -503,16 +503,15 @@
                 relationships.forEach(relationship => {
                     const tr = document.createElement('tr');
                     
-                    // 处理认识群组
+                    // 处理多次相遇群组
                     let knownGroupsHtml = '';
                     if (relationship.known_contexts) {
                         const groups = relationship.known_contexts.split(',');
                         groups.forEach(group => {
                             group = group.trim();
                             if (group) {
-                                // 提取群名字（如果格式为ID+群名字）
-                                const groupName = group.split('+').pop() || group;
-                                knownGroupsHtml += `<span class="tag">${groupName}</span>`;
+                                // 直接显示ID
+                                knownGroupsHtml += `<span class="tag">${group}</span>`;
                             }
                         });
                     }
@@ -520,8 +519,8 @@
                     // 处理初次见面地点
                     let firstMetLocation = relationship.first_met_location || '未知';
                     if (firstMetLocation !== '未知') {
-                        // 提取群名字（如果格式为ID+群名字）
-                        firstMetLocation = firstMetLocation.split('+').pop() || firstMetLocation;
+                        // 直接显示ID
+                        firstMetLocation = firstMetLocation.split('+')[0].trim() || firstMetLocation;
                     }
                     
                     tr.innerHTML = `
@@ -805,16 +804,15 @@
                 relationships.forEach(relationship => {
                     const tr = document.createElement('tr');
                     
-                    // 处理认识群组
+                    // 处理多次相遇群组
                     let knownGroupsHtml = '';
                     if (relationship.known_contexts) {
                         const groups = relationship.known_contexts.split(',');
                         groups.forEach(group => {
                             group = group.trim();
                             if (group) {
-                                // 提取群名字（如果格式为ID+群名字）
-                                const groupName = group.split('+').pop() || group;
-                                knownGroupsHtml += `<span class="tag">${groupName}</span>`;
+                                // 直接显示ID
+                                knownGroupsHtml += `<span class="tag">${group}</span>`;
                             }
                         });
                     }
@@ -822,8 +820,8 @@
                     // 处理初次见面地点
                     let firstMetLocation = relationship.first_met_location || '未知';
                     if (firstMetLocation !== '未知') {
-                        // 提取群名字（如果格式为ID+群名字）
-                        firstMetLocation = firstMetLocation.split('+').pop() || firstMetLocation;
+                        // 直接显示ID
+                        firstMetLocation = firstMetLocation.split('+')[0].trim() || firstMetLocation;
                     }
                     
                     tr.innerHTML = `
