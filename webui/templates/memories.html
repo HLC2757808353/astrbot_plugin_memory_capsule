@@ -1162,7 +1162,12 @@
                 });
                 
                 const result = await response.json();
-                alert(result.result);
+                // 根据是否有记忆ID显示不同的成功消息
+                if (memoryId) {
+                    alert('编辑记忆成功');
+                } else {
+                    alert(result.result);
+                }
                 closeModal();
                 loadMemories();
             } catch (error) {
