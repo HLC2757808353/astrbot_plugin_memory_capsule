@@ -700,11 +700,11 @@ class DatabaseManager:
                         memory = {
                             "id": row[0],
                             "category": row[1] or self.get_default_category(),  # 默认分类
-                            "content": row[2] or "无内容",  # 默认内容
-                            "tags": row[3] or "",  # 从数据库读取标签
-                            "importance": row[4] or 5,  # 从数据库读取重要性
-                            "created_at": row[5],
-                            "updated_at": row[6],
+                            "importance": row[2] or 5,  # 从数据库读取重要性
+                            "created_at": row[3],
+                            "updated_at": row[4],
+                            "tags": row[5] or "",  # 从数据库读取标签
+                            "content": row[6] or "无内容",  # 默认内容
                             "access_count": row[7],
                             "source_platform": "Web"  # 默认来源
                         }
@@ -736,11 +736,11 @@ class DatabaseManager:
                         memory = {
                             "id": row[0],
                             "category": row[1] or self.get_default_category(),  # 默认分类
-                            "content": row[2] or "无内容",  # 默认内容
-                            "tags": row[3] or "",  # 从数据库读取标签
-                            "importance": row[4] or 5,  # 从数据库读取重要性
-                            "created_at": row[5],
-                            "updated_at": row[6],
+                            "importance": row[2] or 5,  # 从数据库读取重要性
+                            "created_at": row[3],
+                            "updated_at": row[4],
+                            "tags": row[5] or "",  # 从数据库读取标签
+                            "content": row[6] or "无内容",  # 默认内容
                             "access_count": row[7],
                             "source_platform": "Web"  # 默认来源
                         }
@@ -944,11 +944,11 @@ class DatabaseManager:
                 memory = {
                     "id": row[0],
                     "category": row[1] or self.get_default_category(),  # 默认分类
-                    "content": row[2] or "无内容",  # 默认内容
-                    "tags": row[3] or "",  # 从数据库读取标签
-                    "importance": row[4] or 5,  # 从数据库读取重要性
-                    "created_at": row[5],
-                    "updated_at": row[6],
+                    "importance": row[2] or 5,  # 从数据库读取重要性
+                    "created_at": row[3],
+                    "updated_at": row[4],
+                    "tags": row[5] or "",  # 从数据库读取标签
+                    "content": row[6] or "无内容",  # 默认内容
                     "access_count": row[7],
                     "source_platform": "Web"  # 默认来源
                 }
