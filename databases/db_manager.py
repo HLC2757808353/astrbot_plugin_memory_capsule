@@ -338,10 +338,31 @@ class DatabaseManager:
                     # 恢复数据
                     for data in relationships_data:
                         try:
-                            cursor.execute('''
-                            INSERT INTO relationships (user_id, nickname, relation_type, intimacy, summary, first_met_location, known_contexts, updated_at)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                            ''', data)
+                            # 根据数据长度确定插入方式
+                            if len(data) == 8:
+                                # 完整数据
+                                cursor.execute('''
+                                INSERT INTO relationships (user_id, nickname, relation_type, intimacy, summary, first_met_location, known_contexts, updated_at)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                                ''', data)
+                            elif len(data) == 7:
+                                # 缺少updated_at列
+                                cursor.execute('''
+                                INSERT INTO relationships (user_id, nickname, relation_type, intimacy, summary, first_met_location, known_contexts)
+                                VALUES (?, ?, ?, ?, ?, ?, ?)
+                                ''', data)
+                            elif len(data) == 6:
+                                # 缺少updated_at和known_contexts列
+                                cursor.execute('''
+                                INSERT INTO relationships (user_id, nickname, relation_type, intimacy, summary, first_met_location)
+                                VALUES (?, ?, ?, ?, ?, ?)
+                                ''', data)
+                            else:
+                                # 其他情况，只插入必要字段
+                                cursor.execute('''
+                                INSERT INTO relationships (user_id, nickname, relation_type, intimacy, summary)
+                                VALUES (?, ?, ?, ?, ?)
+                                ''', data[:5])
                         except Exception as e:
                             logger.error(f"恢复关系数据失败: {e}")
                     
@@ -675,12 +696,12 @@ class DatabaseManager:
                         memory = {
                             "id": row[0],
                             "category": row[1] or self.get_default_category(),  # 默认分类
-                            "content": row[3] or "无内容",  # 默认内容
+                            "content": row[2] or "无内容",  # 默认内容
                             "created_at": row[5],
                             "updated_at": row[6],
                             "access_count": row[7],
                             "importance": row[4] or 3,  # 从数据库读取重要性
-                            "tags": row[2] or "",  # 从数据库读取标签
+                            "tags": row[3] or "",  # 从数据库读取标签
                             "source_platform": "Web"  # 默认来源
                         }
                         memory_list.append(memory)
@@ -711,12 +732,12 @@ class DatabaseManager:
                         memory = {
                             "id": row[0],
                             "category": row[1] or self.get_default_category(),  # 默认分类
-                            "content": row[3] or "无内容",  # 默认内容
+                            "content": row[2] or "无内容",  # 默认内容
                             "created_at": row[5],
                             "updated_at": row[6],
                             "access_count": row[7],
                             "importance": row[4] or 5,  # 从数据库读取重要性
-                            "tags": row[2] or "",  # 从数据库读取标签
+                            "tags": row[3] or "",  # 从数据库读取标签
                             "source_platform": "Web"  # 默认来源
                         }
                         memory_list.append(memory)
@@ -919,12 +940,12 @@ class DatabaseManager:
                 memory = {
                     "id": row[0],
                     "category": row[1] or self.get_default_category(),  # 默认分类
-                    "content": row[3] or "无内容",  # 默认内容
+                    "content": row[2] or "无内容",  # 默认内容
                     "created_at": row[5],
                     "updated_at": row[6],
                     "access_count": row[7],
                     "importance": row[4] or 5,  # 从数据库读取重要性
-                    "tags": row[2] or "",  # 从数据库读取标签
+                    "tags": row[3] or "",  # 从数据库读取标签
                     "source_platform": "Web"  # 默认来源
                 }
                 memory_list.append(memory)
