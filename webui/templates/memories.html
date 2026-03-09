@@ -1084,9 +1084,9 @@
                     
                     const newImportance = Math.min(10, memory.importance + 1);
                     
-                    // 调用更新接口，使用重新创建的方式
-                    const createResponse = await fetch('/api/memories', {
-                        method: 'POST',
+                    // 直接更新记忆
+                    const response = await fetch(`/api/memories/${memoryId}`, {
+                        method: 'PUT',
                         headers: {
                             'Content-Type': 'application/json'
                         },
@@ -1096,10 +1096,6 @@
                             tags: memory.tags,
                             importance: newImportance
                         })
-                    });
-                    
-                    const deleteResponse = await fetch(`/api/memories/${memoryId}`, {
-                        method: 'DELETE'
                     });
                     
                     alert('重要性已提升');
@@ -1140,26 +1136,36 @@
             const importance = parseInt(document.getElementById('edit-importance').value);
             
             try {
+                let response;
                 if (memoryId) {
-                    // 更新记忆（暂时使用删除后重新创建的方式）
-                    await fetch(`/api/memories/${memoryId}`, {
-                        method: 'DELETE'
+                    // 更新记忆
+                    response = await fetch(`/api/memories/${memoryId}`, {
+                        method: 'PUT',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            content: content,
+                            category: category,
+                            tags: tags,
+                            importance: importance
+                        })
+                    });
+                } else {
+                    // 创建新记忆
+                    response = await fetch('/api/memories', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            content: content,
+                            category: category,
+                            tags: tags,
+                            importance: importance
+                        })
                     });
                 }
-                
-                // 创建新记忆
-                const response = await fetch('/api/memories', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        content: content,
-                        category: category,
-                        tags: tags,
-                        importance: importance
-                    })
-                });
                 
                 const result = await response.json();
                 // 根据是否有记忆ID显示不同的成功消息

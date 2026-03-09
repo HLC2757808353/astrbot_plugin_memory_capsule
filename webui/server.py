@@ -100,13 +100,26 @@ class WebUIServer:
             result = self.db_manager.write_memory(
                 content=data.get('content', ''),
                 category=data.get('category'),
-                tags=data.get('tags', '')
+                tags=data.get('tags', ''),
+                importance=data.get('importance', 5)
             )
             return jsonify({'result': result})
 
         @self.app.route('/api/memories/<memory_id>', methods=['DELETE'])
         def api_delete_memory(memory_id):
             result = self.db_manager.delete_memory(memory_id)
+            return jsonify({'result': result})
+        
+        @self.app.route('/api/memories/<memory_id>', methods=['PUT'])
+        def api_update_memory(memory_id):
+            data = request.json
+            result = self.db_manager.update_memory(
+                memory_id=memory_id,
+                content=data.get('content', ''),
+                category=data.get('category'),
+                tags=data.get('tags', ''),
+                importance=data.get('importance', 5)
+            )
             return jsonify({'result': result})
 
         @self.app.route('/api/memories/search')

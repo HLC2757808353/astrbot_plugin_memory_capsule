@@ -137,135 +137,7 @@ class DatabaseManager:
             logger.error(f"获取同义词失败: {e}")
             return [word]
 
-    def _initialize_database_structure(self):
-        """初始化数据库结构"""
-        conn = None
-        try:
-            # 创建数据库目录
-            os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
-            
-            # 临时连接创建表结构
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            
-            # 创建关系表 (relationships) —— 名片夹
-            cursor.execute('''
-            CREATE TABLE IF NOT EXISTS relationships (
-                user_id TEXT PRIMARY KEY,       -- 对方 QQ 号
-                nickname TEXT,                  -- AI 对 TA 的称呼
-                relation_type TEXT,             -- 关系 (如: 朋友, 损友)
-                intimacy INTEGER DEFAULT 0,     -- 好感度 (0-100)
-                summary TEXT,                   -- 核心印象 (覆盖式更新，不追加)
-                first_met_location TEXT,        -- 初次见面地点 (如: "QQ群:12345")
-                known_contexts TEXT,            -- 遇到过的场景 (JSON列表)
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-            ''')
-            
-            # 创建记忆表 (memories) —— 笔记本
-            cursor.execute('''
-            CREATE TABLE IF NOT EXISTS memories (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,  -- 主键，唯一标识
-                category TEXT,                         -- 分类（AI指定，如"技术笔记"、"生活记录"等）
-                content TEXT NOT NULL,                 -- 记忆内容（AI给什么存什么）
-                tags TEXT,                             -- 标签（逗号分隔）
-                importance INTEGER DEFAULT 5,          -- 重要性（1-10）
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,  -- 创建时间
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,  -- 更新时间
-                access_count INTEGER DEFAULT 0         -- 被搜索到的次数（用于热度统计）
-            )
-            ''')
-            
-            # 创建标签表 (tags) —— 用于智能标签管理
-            cursor.execute('''
-            CREATE TABLE IF NOT EXISTS tags (
-                memory_id INTEGER NOT NULL,            -- 关联哪条记忆
-                tag TEXT NOT NULL,                     -- 标签内容
-                source TEXT DEFAULT 'auto',            -- 来源：auto=自动，manual=手动
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (memory_id) REFERENCES memories(id) ON DELETE CASCADE,
-                UNIQUE(memory_id, tag)
-            )
-            ''')
-            
-            # 创建同义词表 (synonyms) —— 用于搜索扩展
-            cursor.execute('''
-            CREATE TABLE IF NOT EXISTS synonyms (
-                word TEXT NOT NULL,                    -- 基础词（总是较小的词）
-                synonym TEXT NOT NULL,                 -- 同义词（总是较大的词）
-                source TEXT DEFAULT 'rule',            -- 来源：rule=规则，learned=学习
-                strength FLOAT DEFAULT 1.0,            -- 同义强度（0.0-1.0）
-                CHECK (word < synonym),                -- 强制统一存储方向
-                UNIQUE(word, synonym)
-            )
-            ''')
-            
-            # 创建活动记录表 (activities)
-            cursor.execute('''
-            CREATE TABLE IF NOT EXISTS activities (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                action TEXT NOT NULL,           -- 操作类型 (添加记忆, 更新关系, 删除记忆等)
-                details TEXT,                   -- 操作详情
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-            ''')
-            
-            # 建立索引加速搜索
-            cursor.execute('CREATE INDEX IF NOT EXISTS idx_mem_user ON memories(user_id)')
-            cursor.execute('CREATE INDEX IF NOT EXISTS idx_mem_cate ON memories(category)')
-            cursor.execute('CREATE INDEX IF NOT EXISTS idx_mem_time ON memories(created_at)')
-            cursor.execute('CREATE INDEX IF NOT EXISTS idx_mem_access ON memories(access_count)')
-            cursor.execute('CREATE INDEX IF NOT EXISTS idx_tags_tag ON tags(tag)')
-            cursor.execute('CREATE INDEX IF NOT EXISTS idx_tags_memory ON tags(memory_id)')
-            cursor.execute('CREATE INDEX IF NOT EXISTS idx_synonyms_word ON synonyms(word)')
-            cursor.execute('CREATE INDEX IF NOT EXISTS idx_synonyms_synonym ON synonyms(synonym)')
-            
-            # 全文搜索虚拟表 (SQLite FTS5)
-            try:
-                cursor.execute('''
-                CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(content, tags, category)
-                ''')
-            except:
-                pass
-            
-            # 创建触发器，当memories表变化时更新全文搜索表
-            try:
-                cursor.execute('''
-                CREATE TRIGGER IF NOT EXISTS memories_fts_insert AFTER INSERT ON memories
-                BEGIN
-                    INSERT INTO memories_fts(rowid, content, tags, category) VALUES (new.id, new.content, new.tags, new.category);
-                END
-                ''')
-            except:
-                pass
-            
-            try:
-                cursor.execute('''
-                CREATE TRIGGER IF NOT EXISTS memories_fts_update AFTER UPDATE ON memories
-                BEGIN
-                    UPDATE memories_fts SET content = new.content, tags = new.tags, category = new.category WHERE rowid = old.id;
-                END
-                ''')
-            except:
-                pass
-            
-            try:
-                cursor.execute('''
-                CREATE TRIGGER IF NOT EXISTS memories_fts_delete AFTER DELETE ON memories
-                BEGIN
-                    DELETE FROM memories_fts WHERE rowid = old.id;
-                END
-                ''')
-            except:
-                pass
-            
-            conn.commit()
-            logger.info(f"数据库结构初始化成功: {self.db_path}")
-        except Exception as e:
-            logger.error(f"数据库结构初始化失败: {e}")
-        finally:
-            if conn:
-                conn.close()
+
     
     def _migrate_old_data(self):
         """迁移旧数据到新表结构"""
@@ -601,6 +473,11 @@ class DatabaseManager:
             
             # 3. 去重并合并标签
             unique_tags = list(dict.fromkeys(tag_list))
+            
+            # 4. 限制标签数量
+            max_tags = self.config.get('max_extracted_tags', 10)
+            unique_tags = unique_tags[:max_tags]
+            
             tags_str = ','.join(unique_tags)
             
             # 使用默认分类如果未指定
@@ -774,6 +651,70 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"删除记忆失败: {e}")
             return f"删除失败: {e}"
+    
+    def update_memory(self, memory_id, content, category=None, tags="", importance=5):
+        """更新记忆
+        
+        参数说明：
+        - memory_id: 记忆的 ID
+        - content: 记忆内容
+        - category: 分类 (AI指定)
+        - tags: 标签 (逗号分隔)
+        - importance: 重要性 (默认 5)
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            
+            # 处理标签
+            tag_list = []
+            
+            # 1. 添加用户指定的标签
+            if tags:
+                user_tags = tags.split(',')
+                for tag in user_tags:
+                    tag = tag.strip()
+                    if tag:
+                        tag_list.append(tag)
+            
+            # 2. 智能提取标签
+            auto_tags = self.extract_tags_optimized(content)
+            tag_list.extend(auto_tags)
+            
+            # 3. 去重并合并标签
+            unique_tags = list(dict.fromkeys(tag_list))
+            
+            # 4. 限制标签数量
+            max_tags = self.config.get('max_extracted_tags', 10)
+            unique_tags = unique_tags[:max_tags]
+            
+            tags_str = ','.join(unique_tags)
+            
+            # 使用默认分类如果未指定
+            if category is None:
+                category = self.get_default_category()
+            
+            # 更新数据
+            cursor.execute('''
+            UPDATE memories SET 
+                category = ?, 
+                content = ?, 
+                tags = ?, 
+                importance = ?, 
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            ''', (category, content, tags_str, importance, memory_id))
+            
+            conn.commit()
+            conn.close()
+            
+            # 记录活动
+            self._record_activity("更新记忆", f"ID: {memory_id}, 分类: {category}")
+            
+            return "更新成功"
+        except Exception as e:
+            logger.error(f"更新记忆失败: {e}")
+            return f"更新失败: {e}"
 
     def update_relationship(self, user_id, relation_type=None, summary_update=None, intimacy_change=0, nickname=None, first_met_location=None, known_contexts=None):
         """更新关系

@@ -486,7 +486,7 @@ class MemoryCapsulePlugin(Star):
                 if current_time - last_injection_time < self.relation_injection_refresh_time:
                     # 缓存未过期，跳过注入
                     logger.info(f"用户 {user_id} 的关系信息在缓存期内，跳过注入")
-                    return event
+                    return req
             
             # 查找用户关系信息
             import asyncio
