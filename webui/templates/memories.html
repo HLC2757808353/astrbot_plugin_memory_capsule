@@ -595,6 +595,71 @@
         let totalPages = 1;
         let selectedMemories = [];
         
+        // 页面加载完成后执行
+        window.onload = function() {
+            // 加载分类列表
+            loadCategories();
+            // 加载记忆列表
+            loadMemories();
+            
+            // 绑定表单提交事件
+            document.getElementById('edit-form').addEventListener('submit', async function(e) {
+                e.preventDefault();
+                
+                const memoryId = document.getElementById('edit-memory-id').value;
+                const content = document.getElementById('edit-content').value;
+                const category = document.getElementById('edit-category').value;
+                const tags = document.getElementById('edit-tags').value;
+                const importance = parseInt(document.getElementById('edit-importance').value);
+                
+                try {
+                    let response;
+                    if (memoryId) {
+                        // 更新记忆
+                        response = await fetch(`/api/memories/${memoryId}`, {
+                            method: 'PUT',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                content: content,
+                                category: category,
+                                tags: tags,
+                                importance: importance
+                            })
+                        });
+                    } else {
+                        // 创建新记忆
+                        response = await fetch('/api/memories', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                content: content,
+                                category: category,
+                                tags: tags,
+                                importance: importance
+                            })
+                        });
+                    }
+                    
+                    const result = await response.json();
+                    // 根据是否有记忆ID显示不同的成功消息
+                    if (memoryId) {
+                        alert('编辑记忆成功');
+                    } else {
+                        alert(result.result);
+                    }
+                    closeModal();
+                    loadMemories();
+                } catch (error) {
+                    console.error('保存记忆失败:', error);
+                    alert('保存失败');
+                }
+            });
+        };
+        
         // 加载记忆列表
         async function loadMemories(page = 1) {
             try {
@@ -615,54 +680,54 @@
                     grid.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; padding: 40px; color: #999;">暂无记忆数据</div>';
                 } else {
                     memories.forEach(memory => {
-                    const card = document.createElement('div');
-                    card.className = `memory-card ${memory.category}`;
+                        const card = document.createElement('div');
+                        card.className = `memory-card ${memory.category}`;
+                        
+                        // 处理标签
+                        let tagsHtml = '';
+                        if (memory.tags) {
+                            const tags = memory.tags.split(',');
+                            tags.forEach(tag => {
+                                tag = tag.trim();
+                                if (tag) {
+                                    tagsHtml += `<span class="tag">${tag}</span>`;
+                                }
+                            });
+                        }
+                        
+                        card.innerHTML = `
+                            <div class="memory-header">
+                                <div class="memory-time">${memory.created_at || ''}</div>
+                                <div class="memory-importance">重要性: ${memory.importance}</div>
+                            </div>
+                            <div class="memory-category">分类: ${memory.category}</div>
+                            <div class="memory-content">${memory.content || '无内容'}</div>
+                            <div class="memory-tags">${tagsHtml || '无'}</div>
+                            <div class="memory-actions">
+                                <input type="checkbox" class="memory-checkbox" data-id="${memory.id}">
+                                <button class="btn btn-outline" onclick="editMemory('${memory.id}')">修改</button>
+                                <button class="btn btn-outline" onclick="deleteMemory('${memory.id}')">删除</button>
+                                <button class="btn btn-outline" onclick="increaseImportance('${memory.id}')">加权</button>
+                            </div>
+                        `;
+                        
+                        grid.appendChild(card);
+                    });
                     
-                    // 处理标签
-                    let tagsHtml = '';
-                    if (memory.tags) {
-                        const tags = memory.tags.split(',');
-                        tags.forEach(tag => {
-                            tag = tag.trim();
-                            if (tag) {
-                                tagsHtml += `<span class="tag">${tag}</span>`;
-                            }
+                    // 绑定全选事件
+                    document.getElementById('select-all').addEventListener('change', function() {
+                        const checkboxes = document.querySelectorAll('.memory-checkbox');
+                        checkboxes.forEach(checkbox => {
+                            checkbox.checked = this.checked;
                         });
-                    }
+                        updateSelectedMemories();
+                    });
                     
-                    card.innerHTML = `
-                        <div class="memory-header">
-                            <div class="memory-time">${memory.created_at || ''}</div>
-                            <div class="memory-importance">重要性: ${memory.importance}</div>
-                        </div>
-                        <div class="memory-category">分类: ${memory.category}</div>
-                        <div class="memory-content">${memory.content || '无内容'}</div>
-                        <div class="memory-tags">${tagsHtml || '无'}</div>
-                        <div class="memory-actions">
-                            <input type="checkbox" class="memory-checkbox" data-id="${memory.id}">
-                            <button class="btn btn-outline" onclick="editMemory('${memory.id}')">修改</button>
-                            <button class="btn btn-outline" onclick="deleteMemory('${memory.id}')">删除</button>
-                            <button class="btn btn-outline" onclick="increaseImportance('${memory.id}')">加权</button>
-                        </div>
-                    `;
-                    
-                    grid.appendChild(card);
-                });
-                
-                // 绑定全选事件
-                document.getElementById('select-all').addEventListener('change', function() {
+                    // 绑定单个复选框事件
                     const checkboxes = document.querySelectorAll('.memory-checkbox');
                     checkboxes.forEach(checkbox => {
-                        checkbox.checked = this.checked;
+                        checkbox.addEventListener('change', updateSelectedMemories);
                     });
-                    updateSelectedMemories();
-                });
-                
-                // 绑定单个复选框事件
-                const checkboxes = document.querySelectorAll('.memory-checkbox');
-                checkboxes.forEach(checkbox => {
-                    checkbox.addEventListener('change', updateSelectedMemories);
-                });
                 }
                 
                 // 更新分页控件
@@ -1130,62 +1195,7 @@
             document.getElementById('edit-modal').style.display = 'block';
         }
         
-        // 提交编辑表单
-        document.getElementById('edit-form').addEventListener('submit', async function(e) {
-            e.preventDefault();
-            
-            const memoryId = document.getElementById('edit-memory-id').value;
-            const content = document.getElementById('edit-content').value;
-            const category = document.getElementById('edit-category').value;
-            const tags = document.getElementById('edit-tags').value;
-            const importance = parseInt(document.getElementById('edit-importance').value);
-            
-            try {
-                let response;
-                if (memoryId) {
-                    // 更新记忆
-                    response = await fetch(`/api/memories/${memoryId}`, {
-                        method: 'PUT',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({
-                            content: content,
-                            category: category,
-                            tags: tags,
-                            importance: importance
-                        })
-                    });
-                } else {
-                    // 创建新记忆
-                    response = await fetch('/api/memories', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({
-                            content: content,
-                            category: category,
-                            tags: tags,
-                            importance: importance
-                        })
-                    });
-                }
-                
-                const result = await response.json();
-                // 根据是否有记忆ID显示不同的成功消息
-                if (memoryId) {
-                    alert('编辑记忆成功');
-                } else {
-                    alert(result.result);
-                }
-                closeModal();
-                loadMemories();
-            } catch (error) {
-                console.error('保存记忆失败:', error);
-                alert('保存失败');
-            }
-        });
+
         
         // 点击模态框外部关闭
         // window.onclick = function(event) {
