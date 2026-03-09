@@ -705,11 +705,16 @@ class DatabaseManager:
             WHERE id = ?
             ''', (category, content, tags_str, importance, memory_id))
             
+            # 检查是否更新成功
+            if cursor.rowcount == 0:
+                conn.close()
+                return f"未找到ID为 {memory_id} 的记忆"
+            
             conn.commit()
             conn.close()
             
             # 记录活动
-            self._record_activity("更新记忆", f"ID: {memory_id}, 分类: {category}")
+            self._record_activity("更新记忆", f"ID: {memory_id}, 分类: {category}, 重要性: {importance}")
             
             return "更新成功"
         except Exception as e:

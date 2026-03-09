@@ -1098,8 +1098,13 @@
                         })
                     });
                     
-                    alert('重要性已提升');
-                    loadMemories(currentPage);
+                    if (response.ok) {
+                        alert('重要性已提升');
+                        loadMemories(currentPage);
+                    } else {
+                        const result = await response.json();
+                        alert('提升重要性失败: ' + result.result);
+                    }
                 } else {
                     alert('未找到记忆详情');
                 }
