@@ -478,7 +478,7 @@ class DatabaseManager:
             max_tags = self.config.get('max_extracted_tags', 10)
             unique_tags = unique_tags[:max_tags]
             
-            tags_str = ','.join(unique_tags)
+            tags = ','.join(unique_tags)
             
             # 使用默认分类如果未指定
             if category is None:
@@ -488,7 +488,7 @@ class DatabaseManager:
             cursor.execute('''
             INSERT INTO memories (category, content, tags, importance)
             VALUES (?, ?, ?, ?)
-            ''', (category, content, tags_str, importance))
+            ''', (category, content, tags, importance))
             
             memory_id = cursor.lastrowid
             
@@ -688,7 +688,7 @@ class DatabaseManager:
             max_tags = self.config.get('max_extracted_tags', 10)
             unique_tags = unique_tags[:max_tags]
             
-            tags_str = ','.join(unique_tags)
+            tags = ','.join(unique_tags)
             
             # 使用默认分类如果未指定
             if category is None:
@@ -703,7 +703,7 @@ class DatabaseManager:
                 importance = ?, 
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
-            ''', (category, content, tags_str, importance, memory_id))
+            ''', (category, content, tags, importance, memory_id))
             
             # 检查是否更新成功
             if cursor.rowcount == 0:

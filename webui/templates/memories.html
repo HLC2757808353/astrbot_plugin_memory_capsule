@@ -644,21 +644,67 @@
                         });
                     }
                     
+                    if (!response.ok) {
+                        throw new Error('API响应失败');
+                    }
+                    
                     const result = await response.json();
                     // 根据是否有记忆ID显示不同的成功消息
                     if (memoryId) {
                         alert('编辑记忆成功');
+                        // 只更新当前编辑的卡片，而不是重新加载整个列表
+                        updateMemoryCard(memoryId, content, category, tags, importance);
                     } else {
                         alert(result.result);
+                        // 重新加载列表以显示新添加的记忆
+                        loadMemories(currentPage);
                     }
                     closeModal();
-                    loadMemories();
                 } catch (error) {
                     console.error('保存记忆失败:', error);
                     alert('保存失败');
                 }
             });
         };
+        
+        // 更新单个记忆卡片
+        function updateMemoryCard(memoryId, content, category, tags, importance) {
+            // 查找对应的记忆卡片
+            const cards = document.querySelectorAll('.memory-card');
+            for (const card of cards) {
+                const checkboxes = card.querySelectorAll('.memory-checkbox');
+                for (const checkbox of checkboxes) {
+                    if (checkbox.dataset.id === memoryId) {
+                        // 更新卡片内容
+                        card.className = `memory-card ${category}`;
+                        card.querySelector('.memory-category').textContent = `分类: ${category}`;
+                        card.querySelector('.memory-content').textContent = content;
+                        card.querySelector('.memory-importance').textContent = `重要性: ${importance}`;
+                        
+                        // 更新标签
+                        let tagsHtml = '';
+                        if (tags) {
+                            const tagArray = tags.split(',');
+                            tagArray.forEach(tag => {
+                                tag = tag.trim();
+                                if (tag) {
+                                    tagsHtml += `<span class="tag">${tag}</span>`;
+                                }
+                            });
+                        }
+                        card.querySelector('.memory-tags').innerHTML = tagsHtml || '无';
+                        
+                        // 重新绑定事件
+                        card.querySelector('button[onclick*="editMemory"]').onclick = () => editMemory(memoryId);
+                        card.querySelector('button[onclick*="deleteMemory"]').onclick = () => deleteMemory(memoryId);
+                        card.querySelector('button[onclick*="increaseImportance"]').onclick = () => increaseImportance(memoryId);
+                        checkbox.addEventListener('change', updateSelectedMemories);
+                        
+                        return;
+                    }
+                }
+            }
+        }
         
         // 加载记忆列表
         async function loadMemories(page = 1) {
@@ -1165,7 +1211,8 @@
                     
                     if (response.ok) {
                         alert('重要性已提升');
-                        loadMemories(currentPage);
+                        // 更新单个卡片而不是重新加载整个列表
+                        updateMemoryCard(memoryId, memory.content, memory.category, memory.tags, newImportance);
                     } else {
                         const result = await response.json();
                         alert('提升重要性失败: ' + result.result);
@@ -1224,12 +1271,6 @@
                 console.error('加载分类列表失败:', error);
             }
         }
-        
-        // 页面加载时执行
-        window.onload = function() {
-            loadCategories();
-            loadMemories();
-        };
     </script>
 </body>
 </html>
