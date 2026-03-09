@@ -193,7 +193,7 @@ class WebUIServer:
             return jsonify(relationship_list)
 
         @self.app.route('/api/settings', methods=['GET'])
-        def api_get_settings():
+        def api_get_settings(self):
             """获取系统设置"""
             try:
                 # 读取配置文件
@@ -202,7 +202,12 @@ class WebUIServer:
                     with open(config_path, 'r', encoding='utf-8') as f:
                         import json
                         config = json.load(f)
-                        return jsonify(config)
+                        # 提取默认值，返回扁平化的配置
+                        return jsonify({
+                            'webui_port': config.get('webui_port', {}).get('default', 5000),
+                            'backup_interval': config.get('backup_interval', {}).get('default', 24),
+                            'backup_retention': config.get('backup_max_count', {}).get('default', 10)
+                        })
                 else:
                     # 返回默认配置
                     return jsonify({
@@ -219,15 +224,35 @@ class WebUIServer:
                 })
 
         @self.app.route('/api/settings', methods=['POST'])
-        def api_save_settings():
+        def api_save_settings(self):
             """保存系统设置"""
             try:
                 data = request.json
                 # 保存配置文件
                 config_path = os.path.join(os.path.dirname(__file__), "..", "_conf_schema.json")
                 import json
+                
+                # 读取现有配置
+                if os.path.exists(config_path):
+                    with open(config_path, 'r', encoding='utf-8') as f:
+                        existing_config = json.load(f)
+                else:
+                    existing_config = {}
+                
+                # 只更新特定的配置项，保持配置文件格式不变
+                if 'webui_port' in data:
+                    if 'webui_port' in existing_config:
+                        existing_config['webui_port']['default'] = data['webui_port']
+                if 'backup_interval' in data:
+                    if 'backup_interval' in existing_config:
+                        existing_config['backup_interval']['default'] = data['backup_interval']
+                if 'backup_retention' in data:
+                    if 'backup_max_count' in existing_config:
+                        existing_config['backup_max_count']['default'] = data['backup_retention']
+                
+                # 写回配置文件
                 with open(config_path, 'w', encoding='utf-8') as f:
-                    json.dump(data, f, indent=2, ensure_ascii=False)
+                    json.dump(existing_config, f, indent=2, ensure_ascii=False)
                 return jsonify({'result': '设置保存成功'})
             except Exception as e:
                 logger.error(f"保存设置失败: {e}")
