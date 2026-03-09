@@ -217,8 +217,8 @@ class MemoryCapsulePlugin(Star):
             summary_update(str): 新的印象总结 (会覆盖旧的)
             intimacy_change(int): 好感度变化值 (如 +5, -10)
             nickname(str): AI 对 TA 的称呼
-            first_met_location(str): 初次见面地点
-            known_contexts(str): 遇到过的场景
+            first_met_location(str): 初次见面地点(填写群id)
+            known_contexts(str): 遇到过的场景(填写群id)
             
         Returns:
             str: 更新结果
