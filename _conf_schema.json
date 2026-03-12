@@ -116,6 +116,7 @@
     "description": "分类判断模型",
     "type": "string",
     "default": "",
+    "_special": "select_provider",
     "hint": "选择用于自动分类判断的大模型，留空则使用默认模型",
     "editable": true,
     "display_name": "分类判断模型"

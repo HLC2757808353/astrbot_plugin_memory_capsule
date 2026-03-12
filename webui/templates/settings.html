@@ -297,13 +297,6 @@
                             <label class="form-label" for="backup-retention">备份保留数量</label>
                             <input type="number" class="form-control" id="backup-retention" value="10" min="1" max="100">
                         </div>
-                        <div class="form-group">
-                            <label class="form-label" for="category-model">分类判断模型</label>
-                            <select class="form-control" id="category-model">
-                                <option value="">使用默认模型</option>
-                                <!-- 提供商选项将通过JavaScript动态添加 -->
-                            </select>
-                        </div>
 
                         <button type="submit" class="btn btn-primary">保存设置</button>
                     </form>
@@ -334,33 +327,8 @@
                 document.getElementById('webui-port').value = settings.webui_port || 5000;
                 document.getElementById('backup-interval').value = settings.backup_interval || 24;
                 document.getElementById('backup-retention').value = settings.backup_retention || 10;
-                document.getElementById('category-model').value = settings.category_model || '';
             } catch (error) {
                 console.error('加载设置失败:', error);
-            }
-        }
-        
-        // 加载提供商列表
-        async function loadProviders() {
-            try {
-                const response = await fetch('/api/providers');
-                const providers = await response.json();
-                const select = document.getElementById('category-model');
-                
-                // 清空现有选项（保留默认选项）
-                while (select.options.length > 1) {
-                    select.remove(1);
-                }
-                
-                // 添加提供商选项
-                providers.forEach(provider => {
-                    const option = document.createElement('option');
-                    option.value = provider;
-                    option.textContent = provider;
-                    select.appendChild(option);
-                });
-            } catch (error) {
-                console.error('加载提供商列表失败:', error);
             }
         }
         
@@ -371,7 +339,6 @@
             const webuiPort = parseInt(document.getElementById('webui-port').value);
             const backupInterval = parseInt(document.getElementById('backup-interval').value);
             const backupRetention = parseInt(document.getElementById('backup-retention').value);
-            const categoryModel = document.getElementById('category-model').value;
             
             try {
                 const response = await fetch('/api/settings', {
@@ -382,8 +349,7 @@
                     body: JSON.stringify({
                         webui_port: webuiPort,
                         backup_interval: backupInterval,
-                        backup_retention: backupRetention,
-                        category_model: categoryModel
+                        backup_retention: backupRetention
                     })
                 });
                 const result = await response.json();
@@ -483,7 +449,6 @@
         // 页面加载时执行
         window.onload = function() {
             loadSettings();
-            loadProviders();
             loadBackups();
         };
     </script>

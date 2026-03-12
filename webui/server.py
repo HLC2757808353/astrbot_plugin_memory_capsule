@@ -141,31 +141,6 @@ class WebUIServer:
             # 从配置中获取分类
             categories = self.db_manager.get_memory_categories()
             return jsonify(categories)
-        
-        @self.app.route('/api/providers')
-        def api_providers():
-            """获取已配置的大模型提供商"""
-            try:
-                # 尝试从AstrBot配置中获取已配置的提供商
-                import os
-                import json
-                from astrbot.core.utils.astrbot_path import get_astrbot_data_path
-                config_path = os.path.join(get_astrbot_data_path(), "cmd_config.json")
-                
-                if os.path.exists(config_path):
-                    with open(config_path, 'r', encoding='utf-8') as f:
-                        config = json.load(f)
-                        providers = config.get('provider', [])
-                        # 过滤出启用的聊天完成提供商
-                        chat_providers = [p for p in providers if p.get('enable', False) and p.get('provider_type') == 'chat_completion']
-                        # 提取提供商ID列表
-                        provider_ids = [p.get('id') for p in chat_providers]
-                        return jsonify(provider_ids)
-                else:
-                    return jsonify([])
-            except Exception as e:
-                logger.error(f"获取提供商列表失败: {e}")
-                return jsonify([])
 
         @self.app.route('/api/relationships', methods=['POST'])
         def api_add_relationship():
@@ -218,7 +193,7 @@ class WebUIServer:
             return jsonify(relationship_list)
 
         @self.app.route('/api/settings', methods=['GET'])
-        def api_get_settings():
+        def api_get_settings(self):
             """获取系统设置"""
             try:
                 # 读取配置文件
@@ -231,28 +206,25 @@ class WebUIServer:
                         return jsonify({
                             'webui_port': config.get('webui_port', {}).get('default', 5000),
                             'backup_interval': config.get('backup_interval', {}).get('default', 24),
-                            'backup_retention': config.get('backup_max_count', {}).get('default', 10),
-                            'category_model': config.get('category_model', {}).get('default', '')
+                            'backup_retention': config.get('backup_max_count', {}).get('default', 10)
                         })
                 else:
                     # 返回默认配置
                     return jsonify({
                         'webui_port': 5000,
                         'backup_interval': 24,
-                        'backup_retention': 10,
-                        'category_model': ''
+                        'backup_retention': 10
                     })
             except Exception as e:
                 logger.error(f"获取设置失败: {e}")
                 return jsonify({
                     'webui_port': 5000,
                     'backup_interval': 24,
-                    'backup_retention': 10,
-                    'category_model': ''
+                    'backup_retention': 10
                 })
 
         @self.app.route('/api/settings', methods=['POST'])
-        def api_save_settings():
+        def api_save_settings(self):
             """保存系统设置"""
             try:
                 data = request.json
@@ -277,9 +249,6 @@ class WebUIServer:
                 if 'backup_retention' in data:
                     if 'backup_max_count' in existing_config:
                         existing_config['backup_max_count']['default'] = data['backup_retention']
-                if 'category_model' in data:
-                    if 'category_model' in existing_config:
-                        existing_config['category_model']['default'] = data['category_model']
                 
                 # 写回配置文件
                 with open(config_path, 'w', encoding='utf-8') as f:
