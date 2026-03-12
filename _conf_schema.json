@@ -111,5 +111,13 @@
     "hint": "设置关系信息注入的刷新时间，单位为秒，默认3600秒（1小时）。当与同一用户连续对话时，超过此时间才会重新注入关系信息。",
     "editable": true,
     "display_name": "关系注入刷新时间"
+  },
+  "category_model": {
+    "description": "分类判断模型",
+    "type": "string",
+    "default": "",
+    "hint": "选择用于自动分类判断的大模型，留空则使用默认模型",
+    "editable": true,
+    "display_name": "分类判断模型"
   }
 }

@@ -512,10 +512,16 @@ class DatabaseManager:
         - limit: 返回结果数量限制
         """
         try:
-            # 1. 从查询中提取关键词
+            # 1. 检查缓存
+            cache_key = f"search_{query}_{category_filter}_{limit}"
+            if cache_key in self.cache:
+                logger.info(f"使用缓存的搜索结果: {query}")
+                return self.cache[cache_key]
+            
+            # 2. 从查询中提取关键词
             query_tags = self.extract_tags_optimized(query)
             
-            # 2. 扩展同义词
+            # 3. 扩展同义词
             expanded_terms = []
             if self.search_strategy.get('synonym_expansion', True):
                 for term in query_tags:
@@ -523,77 +529,146 @@ class DatabaseManager:
             else:
                 expanded_terms = query_tags
             
-            # 3. 构建SQL查询
+            # 4. 确保查询本身也被包含在搜索中
+            if query:
+                expanded_terms.append(query)
+            
+            # 5. 构建SQL查询
             conn = self._get_connection()
             cursor = conn.cursor()
             
-            if expanded_terms:
-                # 构建LIKE查询条件
-                where_conditions = []
-                params = []
-                
-                for term in expanded_terms:
-                    where_conditions.append('(content LIKE ? OR tags LIKE ?)')
-                    params.extend([f'%{term}%', f'%{term}%'])
-                
-                # 分类过滤
-                if category_filter:
-                    where_conditions.append('category = ?')
-                    params.append(category_filter)
-                
-                # 构建完整查询
-                where_clause = ' AND '.join(where_conditions)
-                sql = f'''
-                    SELECT * FROM memories 
-                    WHERE {where_clause}
-                    ORDER BY access_count DESC, created_at DESC
-                    LIMIT ?
-                '''
-                params.append(limit)
-                
-                cursor.execute(sql, params)
+            # 获取所有记忆以进行权重计算
+            if category_filter:
+                cursor.execute('SELECT * FROM memories WHERE category = ?', (category_filter,))
             else:
-                # 没有关键词，返回最近的记忆
-                sql = 'SELECT * FROM memories ORDER BY created_at DESC LIMIT ?'
-                cursor.execute(sql, (limit,))
+                cursor.execute('SELECT * FROM memories')
             
-            results = cursor.fetchall()
+            all_memories = cursor.fetchall()
             
-            # 更新访问次数
-            for row in results:
-                memory_id = row[0]
+            # 6. 计算相关性分数
+            scored_memories = []
+            for row in all_memories:
+                if row:
+                    try:
+                        # 从数据库读取标签并处理
+                        tags_str = row[5] or ""
+                        tags = tags_str.split(',') if tags_str else []
+                        tags = [tag.strip() for tag in tags if tag.strip()]
+                        
+                        # 使用正确的列索引获取数据
+                        memory = {
+                            "id": row[0],
+                            "category": row[1] or self.get_default_category(),  # 默认分类
+                            "tags": tags,  # 处理后的标签列表
+                            "description": row[6] or "无内容",  # 默认内容
+                            "importance": row[2] or 5,  # 从数据库读取重要性
+                            "created_at": row[3],
+                            "updated_at": row[4],
+                            "access_count": row[7],
+                            "source_platform": "Web"  # 默认来源
+                        }
+                        
+                        # 计算相关性分数
+                        score = self._calculate_relevance_score(memory, expanded_terms, query)
+                        if score > 0:
+                            memory['relevance_score'] = score
+                            scored_memories.append(memory)
+                    except Exception as e:
+                        logger.error(f"处理记忆失败: {e}")
+            
+            # 7. 按相关性分数排序
+            scored_memories.sort(key=lambda x: x.get('relevance_score', 0), reverse=True)
+            
+            # 8. 限制结果数量
+            top_memories = scored_memories[:limit]
+            
+            # 9. 更新访问次数
+            for memory in top_memories:
+                memory_id = memory['id']
                 cursor.execute('UPDATE memories SET access_count = access_count + 1 WHERE id = ?', (memory_id,))
             
             conn.commit()
             conn.close()
             
-            # 处理结果
-            memory_list = []
-            for row in results:
-                # 确保row不是None
-                if row:
-                    try:
-                        # 使用正确的列索引获取数据
-                        memory = {
-                            "id": row[0],
-                            "category": row[1] or self.get_default_category(),  # 默认分类
-                            "importance": row[2] or 5,  # 从数据库读取重要性
-                            "created_at": row[3],
-                            "updated_at": row[4],
-                            "tags": row[5] or "",  # 从数据库读取标签
-                            "content": row[6] or "无内容",  # 默认内容
-                            "access_count": row[7],
-                            "source_platform": "Web"  # 默认来源
-                        }
-                        memory_list.append(memory)
-                    except Exception as e:
-                        logger.error(f"处理搜索结果失败: {e}")
+            # 10. 格式化返回结果
+            formatted_results = []
+            for i, memory in enumerate(top_memories, 1):
+                formatted_result = f"[{i}] 分类：{memory['category']}\n"
+                formatted_result += f"    标签：{', '.join(memory['tags']) if memory['tags'] else '无'}\n"
+                formatted_result += f"    描述：{memory['description']}\n"
+                formatted_results.append(formatted_result)
             
-            return memory_list
+            # 11. 缓存结果
+            self._update_cache(cache_key, formatted_results)
+            
+            return formatted_results
         except Exception as e:
             logger.error(f"搜索记忆失败: {e}")
             # 出错时返回空列表
             return []
+    
+    def _update_cache(self, key, value):
+        """更新缓存
+        
+        参数说明：
+        - key: 缓存键
+        - value: 缓存值
+        """
+        # 检查缓存大小
+        if len(self.cache) >= self.cache_max_size:
+            # 删除最旧的缓存项
+            oldest_key = next(iter(self.cache))
+            del self.cache[oldest_key]
+        # 添加新缓存
+        self.cache[key] = value
+    
+    def _calculate_relevance_score(self, memory, terms, query):
+        """计算记忆与查询的相关性分数
+        
+        参数说明：
+        - memory: 记忆对象
+        - terms: 扩展后的关键词列表
+        - query: 原始查询
+        
+        返回值：
+        - 相关性分数
+        """
+        score = 0
+        
+        # 1. 标签匹配分数
+        tag_match_score = 0
+        for term in terms:
+            if any(term.lower() in tag.lower() for tag in memory['tags']):
+                tag_match_score += self.search_weights.get('tag_match', 5.0)
+        score += tag_match_score
+        
+        # 2. 内容匹配分数
+        content = memory['description'].lower()
+        content_match_score = 0
+        for term in terms:
+            if term.lower() in content:
+                content_match_score += self.search_weights.get('tag_match', 5.0) * 0.8  # 内容匹配权重稍低
+        score += content_match_score
+        
+        # 3. 分类匹配分数
+        category = memory['category'].lower()
+        category_match_score = 0
+        for term in terms:
+            if term.lower() in category:
+                category_match_score += self.search_weights.get('category_match', 2.0)
+        score += category_match_score
+        
+        # 4. 重要性分数
+        score += memory['importance'] * 0.5
+        
+        # 5. 访问次数（流行度）分数
+        score += memory['access_count'] * self.search_weights.get('popularity', 1.0) * 0.1
+        
+        # 6. 完整匹配奖励
+        if query and query.lower() in memory['description'].lower():
+            score += self.search_weights.get('full_match_bonus', 10.0)
+        
+        return score
     
     def get_recent_memories(self, limit=5):
         """获取最近的记忆"""
