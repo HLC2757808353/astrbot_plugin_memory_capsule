@@ -31,13 +31,14 @@ except ImportError:
 from .backup import BackupManager
 
 class DatabaseManager:
-    def __init__(self, config=None):
+    def __init__(self, config=None, context=None):
         # 将数据库文件存储在插件目录的上上个目录中，确保跨平台兼容
         # 路径：d:\Astrbot\AstrBot\data\memory_capsule.db
         app_data_dir = os.path.join(os.path.dirname(__file__), "..", "..")
         os.makedirs(app_data_dir, exist_ok=True)
         self.db_path = os.path.join(app_data_dir, "memory_capsule.db")
         self.config = config or {}
+        self.context = context
         # 使用新的备份配置路径
         backup_config = {
             'interval': self.config.get('backup_interval', 24),
@@ -480,9 +481,51 @@ class DatabaseManager:
             
             tags = ','.join(unique_tags)
             
-            # 使用默认分类如果未指定
+            # 使用配置的大模型进行自动分类
             if category is None:
-                category = self.get_default_category()
+                category_model = self.config.get('category_model', '')
+                if category_model and self.context:
+                    try:
+                        # 获取分类列表
+                        categories = self.get_memory_categories()
+                        if categories:
+                            # 构建分类提示词
+                            categories_str = '、'.join(categories)
+                            prompt = f"请从以下分类中为内容选择最合适的分类：{categories_str}\n\n内容：{content}\n\n请只返回分类名称，不要返回其他任何内容。"
+                            
+                            # 使用配置的大模型进行分类
+                            logger.info(f"使用大模型 {category_model} 进行分类")
+                            
+                            # 获取大模型提供商
+                            provider = self.context.get_provider_by_id(category_model)
+                            if provider:
+                                # 调用大模型进行分类
+                                llm_resp = provider.text_chat(
+                                    prompt=prompt,
+                                    system_prompt="你是一个分类助手，只需要从给定的分类列表中选择最合适的分类，并只返回分类名称。"
+                                )
+                                
+                                # 处理大模型返回的结果
+                                if llm_resp and llm_resp.completion_text:
+                                    predicted_category = llm_resp.completion_text.strip()
+                                    # 验证返回的分类是否在分类列表中
+                                    if predicted_category in categories:
+                                        category = predicted_category
+                                        logger.info(f"自动分类结果: {category}")
+                                    else:
+                                        logger.warning(f"大模型返回的分类 '{predicted_category}' 不在分类列表中，使用默认分类")
+                                        category = self.get_default_category()
+                                else:
+                                    logger.warning("大模型分类无返回结果，使用默认分类")
+                                    category = self.get_default_category()
+                            else:
+                                logger.warning(f"未找到大模型提供商: {category_model}，使用默认分类")
+                                category = self.get_default_category()
+                    except Exception as e:
+                        logger.error(f"自动分类失败: {e}")
+                        category = self.get_default_category()
+                else:
+                    category = self.get_default_category()
             
             # 插入数据
             cursor.execute('''
