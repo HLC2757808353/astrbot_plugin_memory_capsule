@@ -96,82 +96,19 @@ class MemoryCapsulePlugin(Star):
     def _start_webui(self):
         """启动WebUI服务"""
         try:
-            # 检查并尝试释放端口
             import socket
-            import subprocess
-            import time
             
-            # 检查端口是否被占用
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             result = sock.connect_ex(('localhost', self.webui_port))
-            port_available = result != 0
-            
-            if not port_available:
-                logger.warning(f"端口 {self.webui_port} 已被占用，尝试释放...")
-                # 尝试找到并终止占用端口的进程
-                try:
-                    # 使用netstat命令查找占用端口的进程
-                    netstat_result = subprocess.run(
-                        f'netstat -ano | findstr :{self.webui_port}',
-                        shell=True,
-                        capture_output=True,
-                        text=True
-                    )
-                    lines = netstat_result.stdout.strip().split('\n')
-                    pids = set()
-                    for line in lines:
-                        if line:
-                            parts = line.split()
-                            if len(parts) >= 5:
-                                pid = parts[4]
-                                pids.add(pid)
-                    
-                    # 终止找到的进程
-                    for pid in pids:
-                        if pid != '0':  # 排除TIME_WAIT状态的连接
-                            logger.info(f"发现占用端口 {self.webui_port} 的进程 PID: {pid}")
-                            try:
-                                # 使用taskkill命令终止进程
-                                kill_result = subprocess.run(
-                                    f'taskkill /PID {pid} /F',
-                                    shell=True,
-                                    capture_output=True,
-                                    text=True
-                                )
-                                if kill_result.returncode == 0:
-                                    logger.info(f"已成功终止进程 {pid}")
-                                else:
-                                    logger.error(f"终止进程 {pid} 失败: {kill_result.stderr}")
-                            except Exception as kill_e:
-                                logger.error(f"终止进程 {pid} 失败: {kill_e}")
-                    
-                    # 等待一段时间后再次检查端口是否可用
-                    time.sleep(1)
-                    result = sock.connect_ex(('localhost', self.webui_port))
-                    port_available = result != 0
-                    if not port_available:
-                        logger.error(f"端口 {self.webui_port} 仍然被占用，无法启动WebUI服务")
-                        sock.close()
-                        return
-                except Exception as e:
-                    logger.error(f"释放端口失败: {e}")
-                    sock.close()
-                    return
             sock.close()
             
-            # 再次检查端口是否可用
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            result = sock.connect_ex(('localhost', self.webui_port))
-            port_available = result != 0
-            sock.close()
-            
-            if not port_available:
-                logger.error(f"端口 {self.webui_port} 仍然被占用，无法启动WebUI服务")
+            if result == 0:
+                logger.error(f"端口 {self.webui_port} 已被占用，无法启动WebUI服务")
+                logger.error(f"请修改配置文件中的 webui_port 为其他端口，或检查是否有其他程序占用该端口")
                 return
             
             from .webui.server import WebUIServer
             self.webui_server = WebUIServer(self.db_manager, port=self.webui_port)
-            # 设置 server_thread 属性，确保 stop 方法能够正确识别线程
             self.webui_server.server_thread = threading.Thread(target=self.webui_server.run, daemon=True, name='WebUI Server')
             self.webui_server.server_thread.start()
             logger.info(f"WebUI服务已启动，端口: {self.webui_port}")
@@ -240,29 +177,22 @@ class MemoryCapsulePlugin(Star):
             return f"更新失败: {e}"
 
     @filter.llm_tool(name="write_memory")
-    async def write_memory(self, event, content, category=None, tags=""):
+    async def write_memory(self, event, content):
         """
-        记下一个永久知识点
+        记下一个永久知识点。只需要提供要记住的内容，分类和标签会由插件自动处理。
         
         Args:
             content(str): 要记住的内容
-            category(str): 分类 (AI指定)
-            tags(str): 标签 (逗号分隔)
             
         Returns:
             str: 存储结果
         """
-        # 检查记忆宫殿是否启用
         if not self.config.get('memory_palace', True):
             return "记忆宫殿模块已禁用"
             
-        # 类型转换确保参数类型正确
         content = str(content)
-        if category is not None:
-            category = str(category)
-        tags = str(tags)
         try:
-            result = await asyncio.to_thread(self.db_manager.write_memory, content, category, tags)
+            result = await asyncio.to_thread(self.db_manager.write_memory, content)
             logger.info("存储记忆成功")
             return result
         except Exception as e:

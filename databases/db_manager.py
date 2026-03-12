@@ -701,11 +701,19 @@ class DatabaseManager:
                 category_match_score += self.search_weights.get('category_match', 2.0)
         score += category_match_score
         
-        # 4. 重要性分数
-        score += memory['importance'] * 0.5
+        # 4. 重要性分数 - 确保是数字类型
+        try:
+            importance = float(memory.get('importance', 5))
+            score += importance * 0.5
+        except (ValueError, TypeError):
+            score += 5 * 0.5  # 默认值
         
-        # 5. 访问次数（流行度）分数
-        score += memory['access_count'] * self.search_weights.get('popularity', 1.0) * 0.1
+        # 5. 访问次数（流行度）分数 - 确保是数字类型
+        try:
+            access_count = float(memory.get('access_count', 0))
+            score += access_count * self.search_weights.get('popularity', 1.0) * 0.1
+        except (ValueError, TypeError):
+            score += 0  # 默认值
         
         # 6. 完整匹配奖励
         if query and query.lower() in memory['description'].lower():

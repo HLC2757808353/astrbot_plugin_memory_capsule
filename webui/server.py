@@ -21,6 +21,7 @@ class WebUIServer:
         self.running = False
         self.version = self._get_version()
         self.server_thread = None
+        self._own_pid = os.getpid()
         self.setup_routes()
     
     def _get_version(self):
@@ -323,11 +324,13 @@ class WebUIServer:
             activities = self.db_manager.get_recent_activities(limit=limit)
             return jsonify(activities)
 
-        @self.app.route('/shutdown', methods=['POST'])
+        @self.app.route('/shutdown', methods=['GET', 'POST'])
         def shutdown():
             """关闭服务器的内部接口"""
-            # 对于现代 Flask 版本，直接返回成功消息
-            # 实际的关闭操作由 stop 方法中的进程终止来处理
+            shutdown_func = request.environ.get('werkzeug.server.shutdown')
+            if shutdown_func is None:
+                return 'Server shutdown not available'
+            shutdown_func()
             return 'Server shutting down...'
 
     def run(self):
@@ -349,52 +352,22 @@ class WebUIServer:
             self.running = False
 
     def stop(self):
-        """停止服务器并释放端口（确保线程结束）"""
+        """停止服务器"""
         if not self.running:
             logger.info("WebUI服务器未运行，无需停止。")
             return
 
         logger.info(f"正在停止 WebUI 服务器 (端口 {self.port})...")
         
-        # 1. 强制结束服务器进程（Windows 系统使用 taskkill 命令）
-        try:
-            import subprocess
-            # 使用 netstat 查找占用端口的进程
-            result = subprocess.run(
-                f'netstat -ano | findstr :{self.port}',
-                shell=True,
-                capture_output=True,
-                text=True
-            )
-            lines = result.stdout.strip().split('\n')
-            pids = set()
-            for line in lines:
-                if line:
-                    parts = line.split()
-                    if len(parts) >= 5:
-                        pid = parts[4]
-                        pids.add(pid)
-            
-            # 终止找到的进程
-            for pid in pids:
-                if pid != '0':  # 排除 TIME_WAIT 状态的连接
-                    logger.info(f"发现占用端口 {self.port} 的进程 PID: {pid}")
-                    try:
-                        # 使用 taskkill 命令终止进程
-                        kill_result = subprocess.run(
-                            f'taskkill /PID {pid} /F',
-                            shell=True,
-                            capture_output=True,
-                            text=True
-                        )
-                        if kill_result.returncode == 0:
-                            logger.info(f"已成功终止进程 {pid}")
-                        else:
-                            logger.error(f"终止进程 {pid} 失败: {kill_result.stderr}")
-                    except Exception as e:
-                        logger.error(f"终止进程 {pid} 失败: {e}")
-        except Exception as e:
-            logger.error(f"查找并终止进程失败: {e}")
-        
         self.running = False
-        logger.info(f"WebUI 服务器停止完成，端口 {self.port} 已释放。")
+        
+        try:
+            import urllib.request
+            urllib.request.urlopen(f'http://localhost:{self.port}/shutdown', timeout=2)
+        except Exception:
+            pass
+        
+        if self.server_thread and self.server_thread.is_alive():
+            self.server_thread.join(timeout=3)
+        
+        logger.info(f"WebUI 服务器已停止，端口 {self.port} 已释放。")
