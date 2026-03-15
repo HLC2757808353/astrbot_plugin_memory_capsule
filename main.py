@@ -191,8 +191,35 @@ class MemoryCapsulePlugin(Star):
             return "记忆宫殿模块已禁用"
             
         content = str(content)
+        category = None
+        
+        category_model = self.config.get('category_model', '')
+        if category_model and self.context:
+            try:
+                categories = await asyncio.to_thread(self.db_manager.get_memory_categories)
+                if categories:
+                    categories_str = '、'.join(categories)
+                    prompt = f"请从以下分类中为内容选择最合适的分类：{categories_str}\n\n内容：{content}\n\n请只返回分类名称，不要返回其他任何内容。"
+                    
+                    provider = self.context.get_provider_by_id(category_model)
+                    if provider:
+                        llm_resp = await provider.text_chat(
+                            prompt=prompt,
+                            system_prompt="你是一个分类助手，只需要从给定的分类列表中选择最合适的分类，并只返回分类名称。"
+                        )
+                        
+                        if llm_resp and llm_resp.completion_text:
+                            predicted_category = llm_resp.completion_text.strip()
+                            if predicted_category in categories:
+                                category = predicted_category
+                                logger.info(f"自动分类结果: {category}")
+                            else:
+                                logger.warning(f"大模型返回的分类 '{predicted_category}' 不在分类列表中")
+            except Exception as e:
+                logger.error(f"自动分类失败: {e}")
+        
         try:
-            result = await asyncio.to_thread(self.db_manager.write_memory, content)
+            result = await asyncio.to_thread(self.db_manager.write_memory, content, category)
             logger.info("存储记忆成功")
             return result
         except Exception as e:
