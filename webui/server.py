@@ -150,7 +150,6 @@ class WebUIServer:
                 user_id=data.get('user_id', ''),
                 relation_type=data.get('relation_type', ''),
                 summary_update=data.get('summary_update', ''),
-                intimacy_change=data.get('intimacy_change', 0),
                 nickname=data.get('nickname', ''),
                 first_met_location=data.get('first_met_location'),
                 known_contexts=data.get('known_contexts')

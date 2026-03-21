@@ -825,7 +825,7 @@ class DatabaseManager:
             logger.error(f"更新记忆失败: {e}")
             return f"更新失败: {e}"
 
-    def update_relationship(self, user_id, relation_type=None, summary_update=None, intimacy_change=None, nickname=None, first_met_location=None, known_contexts=None):
+    def update_relationship(self, user_id, relation_type=None, summary_update=None, nickname=None, first_met_location=None, known_contexts=None):
         """更新关系
         
         参数说明：
@@ -1009,11 +1009,10 @@ class DatabaseManager:
     def get_all_relationships(self, limit=100, offset=0):
         """获取所有关系"""
         try:
-            # 使用独立连接
             conn = self._get_connection()
             cursor = conn.cursor()
             
-            cursor.execute('SELECT user_id, nickname, relation_type, intimacy, summary, first_met_location, known_contexts, updated_at FROM relationships ORDER BY updated_at DESC LIMIT ? OFFSET ?', (limit, offset))
+            cursor.execute('SELECT user_id, nickname, relation_type, summary, first_met_location, known_contexts, updated_at FROM relationships ORDER BY updated_at DESC LIMIT ? OFFSET ?', (limit, offset))
             results = cursor.fetchall()
             conn.close()
             
@@ -1023,11 +1022,10 @@ class DatabaseManager:
                     "user_id": row[0],
                     "nickname": row[1],
                     "relation_type": row[2],
-                    "intimacy": row[3],
-                    "summary": row[4],
-                    "first_met_location": row[5],
-                    "known_contexts": row[6],
-                    "updated_at": row[7]
+                    "summary": row[3],
+                    "first_met_location": row[4],
+                    "known_contexts": row[5],
+                    "updated_at": row[6]
                 }
                 relationship_list.append(relationship)
             
