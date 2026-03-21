@@ -176,66 +176,48 @@ class DatabaseManager:
                 logger.error(f"添加memories列失败: {e}")
             
             try:
-                # 检查relationships表的列结构
                 cursor.execute('PRAGMA table_info(relationships)')
                 columns = [column[1] for column in cursor.fetchall()]
                 
-                # 确保relationships表的列结构正确
-                expected_columns = ['user_id', 'nickname', 'relation_type', 'intimacy', 'summary', 'first_met_location', 'known_contexts', 'updated_at']
+                expected_columns = ['user_id', 'nickname', 'relation_type', 'summary', 'first_met_location', 'known_contexts', 'updated_at']
                 
-                # 如果表结构不正确，重新创建表
                 if len(columns) != len(expected_columns) or not all(col in columns for col in expected_columns):
                     logger.info("relationships表结构不正确，重新创建...")
                     
-                    # 先备份数据
                     cursor.execute('SELECT * FROM relationships')
                     relationships_data = cursor.fetchall()
                     
-                    # 删除旧表
                     cursor.execute('DROP TABLE IF EXISTS relationships')
                     
-                    # 创建新表
                     cursor.execute('''
                     CREATE TABLE IF NOT EXISTS relationships (
-                        user_id TEXT PRIMARY KEY,       -- 对方 QQ 号
-                        nickname TEXT,                  -- AI 对 TA 的称呼
-                        relation_type TEXT,             -- 关系 (如: 朋友, 损友)
-                        intimacy INTEGER DEFAULT 0,     -- 好感度 (0-100)
-                        summary TEXT,                   -- 核心印象 (覆盖式更新，不追加)
-                        first_met_location TEXT,        -- 初次见面地点 (如: "QQ群:12345")
-                        known_contexts TEXT,            -- 遇到过的场景 (JSON列表)
+                        user_id TEXT PRIMARY KEY,
+                        nickname TEXT,
+                        relation_type TEXT,
+                        summary TEXT,
+                        first_met_location TEXT,
+                        known_contexts TEXT,
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                     ''')
                     
-                    # 恢复数据
                     for data in relationships_data:
                         try:
-                            # 根据数据长度确定插入方式
-                            if len(data) == 8:
-                                # 完整数据
+                            if len(data) >= 7:
                                 cursor.execute('''
-                                INSERT INTO relationships (user_id, nickname, relation_type, intimacy, summary, first_met_location, known_contexts, updated_at)
-                                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                                ''', data)
-                            elif len(data) == 7:
-                                # 缺少updated_at列
-                                cursor.execute('''
-                                INSERT INTO relationships (user_id, nickname, relation_type, intimacy, summary, first_met_location, known_contexts)
+                                INSERT INTO relationships (user_id, nickname, relation_type, summary, first_met_location, known_contexts, updated_at)
                                 VALUES (?, ?, ?, ?, ?, ?, ?)
-                                ''', data)
-                            elif len(data) == 6:
-                                # 缺少updated_at和known_contexts列
+                                ''', (data[0], data[1], data[2], data[4] if len(data) > 4 else '', data[5] if len(data) > 5 else '', data[6] if len(data) > 6 else '', data[7] if len(data) > 7 else None))
+                            elif len(data) >= 5:
                                 cursor.execute('''
-                                INSERT INTO relationships (user_id, nickname, relation_type, intimacy, summary, first_met_location)
-                                VALUES (?, ?, ?, ?, ?, ?)
-                                ''', data)
-                            else:
-                                # 其他情况，只插入必要字段
-                                cursor.execute('''
-                                INSERT INTO relationships (user_id, nickname, relation_type, intimacy, summary)
+                                INSERT INTO relationships (user_id, nickname, relation_type, summary, first_met_location)
                                 VALUES (?, ?, ?, ?, ?)
-                                ''', data[:5])
+                                ''', (data[0], data[1], data[2], data[4] if len(data) > 4 else '', data[5] if len(data) > 5 else ''))
+                            else:
+                                cursor.execute('''
+                                INSERT INTO relationships (user_id, nickname, relation_type, summary)
+                                VALUES (?, ?, ?, ?)
+                                ''', (data[0], data[1] if len(data) > 1 else '', data[2] if len(data) > 2 else '', data[4] if len(data) > 4 else ''))
                         except Exception as e:
                             logger.error(f"恢复关系数据失败: {e}")
                     
@@ -292,13 +274,12 @@ class DatabaseManager:
             # 创建关系表 (relationships) —— 名片夹
             cursor.execute('''
             CREATE TABLE IF NOT EXISTS relationships (
-                user_id TEXT PRIMARY KEY,       -- 对方 QQ 号
-                nickname TEXT,                  -- AI 对 TA 的称呼
-                relation_type TEXT,             -- 关系 (如: 朋友, 损友)
-                intimacy INTEGER DEFAULT 0,     -- 好感度 (0-100)
-                summary TEXT,                   -- 核心印象 (覆盖式更新，不追加)
-                first_met_location TEXT,        -- 初次见面地点 (如: "QQ群:12345")
-                known_contexts TEXT,            -- 遇到过的场景 (JSON列表)
+                user_id TEXT PRIMARY KEY,
+                nickname TEXT,
+                relation_type TEXT,
+                summary TEXT,
+                first_met_location TEXT,
+                known_contexts TEXT,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
             ''')
@@ -503,25 +484,55 @@ class DatabaseManager:
             logger.error(f"存储记忆失败: {e}")
             return f"存储失败: {e}"
 
-    def search_memory(self, query, category_filter=None, limit=5):
+    def _parse_relative_time(self, query):
+        """解析查询中的相对时间表达
+        
+        返回：
+        - (parsed_query, date_str): 处理后的查询和日期字符串
+        """
+        from datetime import datetime, timedelta
+        
+        today = datetime.now().date()
+        date_str = None
+        parsed_query = query
+        
+        relative_time_patterns = [
+            (r'今天', today.strftime('%Y-%m-%d')),
+            (r'昨天', (today - timedelta(days=1)).strftime('%Y-%m-%d')),
+            (r'前天', (today - timedelta(days=2)).strftime('%Y-%m-%d')),
+            (r'大前天', (today - timedelta(days=3)).strftime('%Y-%m-%d')),
+            (r'上周|上个星期', (today - timedelta(weeks=1)).strftime('%Y-%m-%d')),
+            (r'上个月', (today - timedelta(days=30)).strftime('%Y-%m')),
+        ]
+        
+        for pattern, date in relative_time_patterns:
+            if re.search(pattern, query):
+                date_str = date
+                break
+        
+        return parsed_query, date_str
+
+    def search_memory(self, query, category_filter=None, limit=None):
         """智能搜索记忆
         
         参数说明：
         - query: 搜索关键词或句子
         - category_filter: 分类过滤
-        - limit: 返回结果数量限制
+        - limit: 返回结果数量限制（默认使用配置）
         """
         try:
-            # 1. 检查缓存
+            if limit is None:
+                limit = self.config.get('search_max_results', 5)
+            
+            parsed_query, date_filter = self._parse_relative_time(query)
+            
             cache_key = f"search_{query}_{category_filter}_{limit}"
             if cache_key in self.cache:
                 logger.info(f"使用缓存的搜索结果: {query}")
                 return self.cache[cache_key]
             
-            # 2. 从查询中提取关键词
-            query_tags = self.extract_tags_optimized(query)
+            query_tags = self.extract_tags_optimized(parsed_query)
             
-            # 3. 扩展同义词
             expanded_terms = []
             if self.search_strategy.get('synonym_expansion', True):
                 for term in query_tags:
@@ -529,15 +540,15 @@ class DatabaseManager:
             else:
                 expanded_terms = query_tags
             
-            # 4. 确保查询本身也被包含在搜索中
-            if query:
-                expanded_terms.append(query)
+            if parsed_query:
+                expanded_terms.append(parsed_query)
             
-            # 5. 构建SQL查询
+            if date_filter:
+                expanded_terms.append(date_filter)
+            
             conn = self._get_connection()
             cursor = conn.cursor()
             
-            # 获取所有记忆以进行权重计算
             if category_filter:
                 cursor.execute('SELECT * FROM memories WHERE category = ?', (category_filter,))
             else:
@@ -545,44 +556,43 @@ class DatabaseManager:
             
             all_memories = cursor.fetchall()
             
-            # 6. 计算相关性分数
             scored_memories = []
             for row in all_memories:
                 if row:
                     try:
-                        # 从数据库读取标签并处理
                         tags_str = row[5] or ""
                         tags = tags_str.split(',') if tags_str else []
                         tags = [tag.strip() for tag in tags if tag.strip()]
                         
-                        # 使用正确的列索引获取数据
                         memory = {
                             "id": row[0],
-                            "category": row[1] or self.get_default_category(),  # 默认分类
-                            "tags": tags,  # 处理后的标签列表
-                            "description": row[6] or "无内容",  # 默认内容
-                            "importance": row[2] or 5,  # 从数据库读取重要性
+                            "category": row[1] or self.get_default_category(),
+                            "tags": tags,
+                            "description": row[6] or "无内容",
+                            "importance": row[2] or 5,
                             "created_at": row[3],
                             "updated_at": row[4],
                             "access_count": row[7],
-                            "source_platform": "Web"  # 默认来源
+                            "source_platform": "Web"
                         }
                         
-                        # 计算相关性分数
-                        score = self._calculate_relevance_score(memory, expanded_terms, query)
+                        score = self._calculate_relevance_score(memory, expanded_terms, parsed_query)
+                        
+                        if date_filter and memory.get('created_at'):
+                            created_at_str = str(memory['created_at'])
+                            if date_filter in created_at_str:
+                                score += 15.0
+                        
                         if score > 0:
                             memory['relevance_score'] = score
                             scored_memories.append(memory)
                     except Exception as e:
                         logger.error(f"处理记忆失败: {e}")
             
-            # 7. 按相关性分数排序
             scored_memories.sort(key=lambda x: x.get('relevance_score', 0), reverse=True)
             
-            # 8. 限制结果数量
             top_memories = scored_memories[:limit]
             
-            # 9. 更新访问次数
             for memory in top_memories:
                 memory_id = memory['id']
                 cursor.execute('UPDATE memories SET access_count = access_count + 1 WHERE id = ?', (memory_id,))
@@ -590,21 +600,32 @@ class DatabaseManager:
             conn.commit()
             conn.close()
             
-            # 10. 格式化返回结果
+            max_desc_length = 200
             formatted_results = []
             for i, memory in enumerate(top_memories, 1):
-                formatted_result = f"[{i}] 分类：{memory['category']}\n"
-                formatted_result += f"    标签：{', '.join(memory['tags']) if memory['tags'] else '无'}\n"
-                formatted_result += f"    描述：{memory['description']}\n"
+                desc = memory['description']
+                if len(desc) > max_desc_length:
+                    desc = desc[:max_desc_length] + "..."
+                
+                created_at = memory.get('created_at', '')
+                if created_at:
+                    try:
+                        from datetime import datetime
+                        dt = datetime.strptime(str(created_at), '%Y-%m-%d %H:%M:%S')
+                        time_str = dt.strftime('%m-%d %H:%M')
+                    except:
+                        time_str = str(created_at)[:10]
+                else:
+                    time_str = '未知'
+                
+                formatted_result = f"[{i}] {time_str} | {memory['category']}\n    内容：{desc}"
                 formatted_results.append(formatted_result)
             
-            # 11. 缓存结果
             self._update_cache(cache_key, formatted_results)
             
             return formatted_results
         except Exception as e:
             logger.error(f"搜索记忆失败: {e}")
-            # 出错时返回空列表
             return []
     
     def _update_cache(self, key, value):
@@ -804,14 +825,13 @@ class DatabaseManager:
             logger.error(f"更新记忆失败: {e}")
             return f"更新失败: {e}"
 
-    def update_relationship(self, user_id, relation_type=None, summary_update=None, intimacy_change=0, nickname=None, first_met_location=None, known_contexts=None):
+    def update_relationship(self, user_id, relation_type=None, summary_update=None, intimacy_change=None, nickname=None, first_met_location=None, known_contexts=None):
         """更新关系
         
         参数说明：
         - user_id: 目标用户 ID
         - relation_type: 新的关系定义
         - summary_update: 新的印象总结 (会覆盖旧的)
-        - intimacy_change: 好感度变化值 (如 +5, -10)
         - nickname: AI 对 TA 的称呼
         - first_met_location: 初次见面地点 (仅存储ID)
         - known_contexts: 多次相遇群组 (逗号分隔的群ID数组)
@@ -820,85 +840,63 @@ class DatabaseManager:
             conn = self._get_connection()
             cursor = conn.cursor()
             
-            # 检查是否存在记录
-            cursor.execute('SELECT nickname, relation_type, intimacy, summary, first_met_location, known_contexts FROM relationships WHERE user_id=?', (user_id,))
+            cursor.execute('SELECT nickname, relation_type, summary, first_met_location, known_contexts FROM relationships WHERE user_id=?', (user_id,))
             existing = cursor.fetchone()
             
             if existing:
-                # 更新现有记录
-                old_nickname, old_relation_type, old_intimacy, old_summary, old_first_met_location, old_known_contexts = existing
+                old_nickname, old_relation_type, old_summary, old_first_met_location, old_known_contexts = existing
                 
-                # 处理各字段
                 new_nickname = nickname or old_nickname
                 new_relation_type = relation_type or old_relation_type
-                new_intimacy = old_intimacy + intimacy_change
-                new_intimacy = max(0, min(100, new_intimacy))  # 限制在 0-100
                 new_summary = summary_update or old_summary
                 
-                # 处理初次见面地点（仅存储ID或使用"private"表示私聊认识）
                 if first_met_location:
-                    # 提取ID部分（如果包含群名称），如果是私聊认识可以使用"private"
                     new_first_met_location = first_met_location.split('+')[0].strip()
                 else:
                     new_first_met_location = old_first_met_location
                 
-                # 处理多次相遇群组（完全替换，不合并）
                 if known_contexts:
-                    # 提取ID部分（如果包含群名称）
                     new_groups = []
                     for group in known_contexts.split(','):
                         group = group.strip()
                         if group:
-                            # 提取ID部分
                             group_id = group.split('+')[0].strip()
                             new_groups.append(group_id)
                     new_known_contexts = ','.join(new_groups)
                 else:
                     new_known_contexts = old_known_contexts
                 
-                # 执行更新
                 cursor.execute('''
                 UPDATE relationships SET 
                     nickname = ?, 
                     relation_type = ?, 
-                    intimacy = ?, 
                     summary = ?, 
                     first_met_location = ?, 
                     known_contexts = ?, 
                     updated_at = CURRENT_TIMESTAMP
                 WHERE user_id = ?
-                ''', (new_nickname, new_relation_type, new_intimacy, new_summary, new_first_met_location, new_known_contexts, user_id))
+                ''', (new_nickname, new_relation_type, new_summary, new_first_met_location, new_known_contexts, user_id))
             else:
-                # 创建新记录，默认好感度为20
-                new_intimacy = 20 + intimacy_change
-                new_intimacy = max(0, min(100, new_intimacy))  # 限制在 0-100
-                
-                # 处理初次见面地点（仅存储ID或使用"private"表示私聊认识）
                 if first_met_location:
-                    # 提取ID部分（如果包含群名称），如果是私聊认识可以使用"private"
                     first_met_location = first_met_location.split('+')[0].strip()
                 
-                # 处理多次相遇群组（仅存储ID）
                 if known_contexts:
-                    # 提取ID部分（如果包含群名称）
                     new_groups = []
                     for group in known_contexts.split(','):
                         group = group.strip()
                         if group:
-                            # 提取ID部分
                             group_id = group.split('+')[0].strip()
                             new_groups.append(group_id)
                     known_contexts = ','.join(new_groups)
                 
                 cursor.execute('''
-                INSERT INTO relationships (user_id, nickname, relation_type, intimacy, summary, first_met_location, known_contexts)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                ''', (user_id, nickname or "", relation_type or "", new_intimacy, summary_update or "", first_met_location, known_contexts))
+                INSERT INTO relationships (user_id, nickname, relation_type, summary, first_met_location, known_contexts)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ''', (user_id, nickname or "", relation_type or "", summary_update or "", first_met_location, known_contexts))
             
             conn.commit()
             conn.close()
             
-            # 记录活动
             self._record_activity("更新关系", f"用户ID: {user_id}, 关系类型: {relation_type or '未知'}")
             
             return "关系更新成功"

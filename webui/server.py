@@ -184,11 +184,10 @@ class WebUIServer:
                     "user_id": r[0],
                     "nickname": r[1],
                     "relation_type": r[2],
-                    "intimacy": r[3],
-                    "summary": r[4],
-                    "first_met_location": r[5],
-                    "known_contexts": r[6],
-                    "updated_at": r[7]
+                    "summary": r[3],
+                    "first_met_location": r[4],
+                    "known_contexts": r[5],
+                    "updated_at": r[6]
                 }
                 relationship_list.append(relationship)
             return jsonify(relationship_list)

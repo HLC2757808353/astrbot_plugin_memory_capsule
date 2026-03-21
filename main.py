@@ -144,7 +144,7 @@ class MemoryCapsulePlugin(Star):
         logger.info("记忆胶囊插件已关闭")
 
     @filter.llm_tool(name="update_relationship")
-    async def update_relationship(self, event, user_id, relation_type=None, summary_update=None, intimacy_change=-40, nickname=None, first_met_location=None, known_contexts=None):
+    async def update_relationship(self, event, user_id, relation_type=None, summary_update=None, nickname=None, first_met_location=None, known_contexts=None):
         """
         更新对某人的印象或关系
         
@@ -152,7 +152,6 @@ class MemoryCapsulePlugin(Star):
             user_id(str): 目标用户 ID
             relation_type(str): 新的关系定义
             summary_update(str): 新的印象总结 (会覆盖旧的)
-            intimacy_change(int): 好感度变化值 (如 +5, -10)
             nickname(str): AI 对 TA 的称呼
             first_met_location(str): 初次见面地点(填写群id)
             known_contexts(str): 遇到过的场景(填写群id)
@@ -160,16 +159,14 @@ class MemoryCapsulePlugin(Star):
         Returns:
             str: 更新结果
         """
-        # 类型转换确保参数类型正确
         user_id = str(user_id)
         relation_type = str(relation_type) if relation_type is not None else None
         summary_update = str(summary_update) if summary_update is not None else None
-        intimacy_change = int(intimacy_change)
         nickname = str(nickname) if nickname is not None else None
         first_met_location = str(first_met_location) if first_met_location is not None else None
         known_contexts = str(known_contexts) if known_contexts is not None else None
         try:
-            result = await asyncio.to_thread(self.db_manager.update_relationship, user_id, relation_type, summary_update, intimacy_change, nickname, first_met_location, known_contexts)
+            result = await asyncio.to_thread(self.db_manager.update_relationship, user_id, relation_type, summary_update, None, nickname, first_met_location, known_contexts)
             logger.info(f"更新关系成功: {user_id}")
             return result
         except Exception as e:
@@ -227,28 +224,26 @@ class MemoryCapsulePlugin(Star):
             return f"存储失败: {e}"
 
     @filter.llm_tool(name="search_memory")
-    async def search_memory(self, event, query, category_filter=None, limit=5):
+    async def search_memory(self, event, query, category_filter=None, limit=None):
         """
         搜索过去的记忆
         
         Args:
             query(str): 搜索关键词或句子
-            category_filter(str): 分类过滤
-            limit(int): 返回结果数量限制
+            category_filter(str): 分类过滤（可选）
+            limit(int): 返回结果数量限制（可选，默认使用配置）
             
         Returns:
             list: 搜索结果列表
         """
-        # 检查记忆宫殿是否启用
         if not self.config.get('memory_palace', True):
             return []
             
-        # 类型转换确保参数类型正确
         query = str(query)
         category_filter = str(category_filter) if category_filter is not None else None
-        limit = int(limit)
+        if limit is not None:
+            limit = int(limit)
         try:
-            import asyncio
             results = await asyncio.to_thread(self.db_manager.search_memory, query, category_filter, limit)
             logger.info(f"搜索记忆成功，找到 {len(results)} 条结果")
             return results
@@ -465,7 +460,7 @@ class MemoryCapsulePlugin(Star):
                 summary = user_relation['summary'] or '无'
                 
                 # 构建关系信息格式
-                relation_context = f"\n\n<Relationship> 当前关系状态：\n- 用户ID: {user_relation['user_id']}\n- 昵称: {nickname}\n- 关系类型: {relation_type}\n- 好感度: {user_relation['intimacy']}\n- 初次见面地点: {first_met_location}\n- 多次相遇群组: {known_contexts}\n- 核心印象: {summary}\n</Relationship>\n"
+                relation_context = f"\n\n<Relationship> 当前关系状态：\n- 用户ID: {user_relation['user_id']}\n- 昵称: {nickname}\n- 关系类型: {relation_type}\n- 初次见面地点: {first_met_location}\n- 多次相遇群组: {known_contexts}\n- 核心印象: {summary}\n</Relationship>\n"
             else:
                 # 如果查询为空，返回指定格式
                 relation_context = f"\n\n<Relationship>当前对象未被记录在关系图谱里</Relationship>\n"
