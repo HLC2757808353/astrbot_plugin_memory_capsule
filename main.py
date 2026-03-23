@@ -167,7 +167,7 @@ class MemoryCapsulePlugin(Star):
         first_met_location = str(first_met_location) if first_met_location is not None else None
         known_contexts = str(known_contexts) if known_contexts is not None else None
         try:
-            result = await asyncio.to_thread(self.db_manager.update_relationship, user_id, relation_type, summary_update, None, nickname, first_met_location, known_contexts)
+            result = await asyncio.to_thread(self.db_manager.update_relationship, user_id, relation_type, summary_update, nickname, first_met_location, known_contexts)
             logger.info(f"更新关系成功: {user_id}")
             return result
         except Exception as e:
