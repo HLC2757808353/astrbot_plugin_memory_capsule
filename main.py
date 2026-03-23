@@ -19,6 +19,8 @@ class MemoryCapsulePlugin(Star):
         self.webui_port = config.get('webui_port', 5000) if config else 5000
         # 关系注入缓存
         self.relation_injection_cache = {}
+        # 上次对话的用户ID（用于检测用户切换）
+        self.last_relation_user_id = None
         # 关系注入刷新时间（默认1小时）
         self.relation_injection_refresh_time = config.get('relation_injection_refresh_time', 3600) if config else 3600
         logger.info(f"关系注入刷新时间配置: {self.relation_injection_refresh_time}秒")
@@ -444,6 +446,10 @@ class MemoryCapsulePlugin(Star):
         
         每次对话时，自动获取用户的关系信息并注入到系统提示词中
         无关系时提醒LLM
+        
+        缓存逻辑：
+        - 用户切换时立即刷新并注入
+        - 同一用户连续对话时按刷新时间间隔注入
         """
         try:
             # 获取用户信息
@@ -452,18 +458,32 @@ class MemoryCapsulePlugin(Star):
             # 检查缓存
             import time
             current_time = time.time()
-            cache_key = f"relation_injection_{user_id}"
+            cache_key = "relation_injection_last"
             
-            logger.debug(f"关系注入检查 - 用户: {user_id}, 缓存刷新时间: {self.relation_injection_refresh_time}秒, 缓存键: {cache_key}")
+            should_inject = False
             
-            if cache_key in self.relation_injection_cache:
+            # 逻辑：用户切换立即刷新，同用户按时间间隔
+            if user_id != self.last_relation_user_id:
+                # 用户切换了，立即注入
+                logger.info(f"检测到用户切换: {self.last_relation_user_id} -> {user_id}，立即注入关系")
+                should_inject = True
+            elif cache_key in self.relation_injection_cache:
+                # 同一用户，检查时间间隔
                 last_injection_time = self.relation_injection_cache[cache_key]
                 elapsed_time = current_time - last_injection_time
-                logger.debug(f"上次注入时间: {last_injection_time}, 已过时间: {elapsed_time:.1f}秒, 需等待: {self.relation_injection_refresh_time}秒")
-                if elapsed_time < self.relation_injection_refresh_time:
-                    # 缓存未过期，跳过注入
+                logger.debug(f"同一用户 {user_id}，上次注入时间: {last_injection_time}, 已过时间: {elapsed_time:.1f}秒, 需等待: {self.relation_injection_refresh_time}秒")
+                if elapsed_time >= self.relation_injection_refresh_time:
+                    # 时间间隔到了，重新注入
+                    logger.info(f"用户 {user_id} 的关系信息已超时（已过{elapsed_time:.0f}秒），重新注入")
+                    should_inject = True
+                else:
                     logger.info(f"用户 {user_id} 的关系信息在缓存期内（已过{elapsed_time:.0f}秒/{self.relation_injection_refresh_time}秒），跳过注入")
-                    return req
+            else:
+                # 首次对话，注入
+                should_inject = True
+            
+            if not should_inject:
+                return req
             
             # 查找用户关系信息
             import asyncio
@@ -522,6 +542,8 @@ class MemoryCapsulePlugin(Star):
             
             # 更新缓存
             self.relation_injection_cache[cache_key] = current_time
+            self.last_relation_user_id = user_id
+            logger.debug(f"关系注入缓存已更新，下次对话用户: {user_id}")
             
         except Exception as e:
             logger.error(f"注入关系信息失败: {e}")
