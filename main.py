@@ -21,6 +21,7 @@ class MemoryCapsulePlugin(Star):
         self.relation_injection_cache = {}
         # 关系注入刷新时间（默认1小时）
         self.relation_injection_refresh_time = config.get('relation_injection_refresh_time', 3600) if config else 3600
+        logger.info(f"关系注入刷新时间配置: {self.relation_injection_refresh_time}秒")
 
     async def initialize(self):
         """插件初始化方法"""
@@ -331,16 +332,36 @@ class MemoryCapsulePlugin(Star):
         Returns:
             str: 删除结果
         """
-        # 类型转换确保参数类型正确
         user_id = str(user_id)
         try:
-            import asyncio
             result = await asyncio.to_thread(self.db_manager.delete_relationship, user_id)
             logger.info(f"删除关系成功: {user_id}")
             return result
         except Exception as e:
             logger.error(f"删除关系失败: {e}")
             return f"删除失败: {e}"
+
+    @filter.llm_tool(name="search_relationship")
+    async def search_relationship(self, event, query, limit=3):
+        """
+        模糊搜索某人的关系信息。可以通过用户ID、昵称、关系类型等关键词搜索。
+        
+        Args:
+            query(str): 搜索关键词（可以是ID、昵称、关系类型等）
+            limit(int): 返回结果数量限制，默认3
+            
+        Returns:
+            list: 匹配的关系列表
+        """
+        query = str(query)
+        limit = int(limit)
+        try:
+            results = await asyncio.to_thread(self.db_manager.search_relationship, query, limit)
+            logger.info(f"搜索关系成功，找到 {len(results)} 条结果")
+            return results
+        except Exception as e:
+            logger.error(f"搜索关系失败: {e}")
+            return []
 
     @filter.llm_tool(name="backup_database")
     async def backup_database(self, event):
@@ -433,11 +454,15 @@ class MemoryCapsulePlugin(Star):
             current_time = time.time()
             cache_key = f"relation_injection_{user_id}"
             
+            logger.debug(f"关系注入检查 - 用户: {user_id}, 缓存刷新时间: {self.relation_injection_refresh_time}秒, 缓存键: {cache_key}")
+            
             if cache_key in self.relation_injection_cache:
                 last_injection_time = self.relation_injection_cache[cache_key]
-                if current_time - last_injection_time < self.relation_injection_refresh_time:
+                elapsed_time = current_time - last_injection_time
+                logger.debug(f"上次注入时间: {last_injection_time}, 已过时间: {elapsed_time:.1f}秒, 需等待: {self.relation_injection_refresh_time}秒")
+                if elapsed_time < self.relation_injection_refresh_time:
                     # 缓存未过期，跳过注入
-                    logger.info(f"用户 {user_id} 的关系信息在缓存期内，跳过注入")
+                    logger.info(f"用户 {user_id} 的关系信息在缓存期内（已过{elapsed_time:.0f}秒/{self.relation_injection_refresh_time}秒），跳过注入")
                     return req
             
             # 查找用户关系信息
@@ -500,7 +525,7 @@ class MemoryCapsulePlugin(Star):
             
         except Exception as e:
             logger.error(f"注入关系信息失败: {e}")
-        return event
+        return req
 
 # 外部接口，供其他插件调用
 # 注意：这些函数已在 __init__.py 中重新定义，使用单例模式

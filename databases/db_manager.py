@@ -1034,6 +1034,78 @@ class DatabaseManager:
             logger.error(f"获取关系失败: {e}")
             return []
     
+    def search_relationship(self, query, limit=5):
+        """模糊搜索关系
+        
+        参数说明：
+        - query: 搜索关键词（可以是ID、昵称、关系类型等）
+        - limit: 返回结果数量限制
+        
+        返回：
+        - 匹配的关系列表
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            
+            query_lower = query.lower()
+            
+            cursor.execute('SELECT user_id, nickname, relation_type, summary, first_met_location, known_contexts, updated_at FROM relationships')
+            all_results = cursor.fetchall()
+            conn.close()
+            
+            scored_results = []
+            for row in all_results:
+                score = 0
+                user_id = row[0] or ""
+                nickname = row[1] or ""
+                relation_type = row[2] or ""
+                summary = row[3] or ""
+                first_met_location = row[4] or ""
+                
+                if query == user_id:
+                    score += 100
+                
+                if query_lower == user_id.lower():
+                    score += 80
+                
+                if query_lower in nickname.lower():
+                    score += 50
+                    if nickname.lower().startswith(query_lower):
+                        score += 20
+                
+                if query_lower in relation_type.lower():
+                    score += 30
+                
+                if query_lower in summary.lower():
+                    score += 10
+                
+                if query_lower in first_met_location.lower():
+                    score += 15
+                
+                if score > 0:
+                    relationship = {
+                        "user_id": row[0],
+                        "nickname": row[1],
+                        "relation_type": row[2],
+                        "summary": row[3],
+                        "first_met_location": row[4],
+                        "known_contexts": row[5],
+                        "updated_at": row[6],
+                        "match_score": score
+                    }
+                    scored_results.append(relationship)
+            
+            scored_results.sort(key=lambda x: x.get('match_score', 0), reverse=True)
+            
+            for r in scored_results:
+                del r['match_score']
+            
+            return scored_results[:limit]
+        except Exception as e:
+            logger.error(f"搜索关系失败: {e}")
+            return []
+    
     def get_relationships_count(self):
         """获取关系总数"""
         try:
