@@ -600,30 +600,24 @@ class DatabaseManager:
             conn.commit()
             conn.close()
             
-            max_desc_length = 200
-            formatted_results = []
-            for i, memory in enumerate(top_memories, 1):
-                desc = memory['description']
-                if len(desc) > max_desc_length:
-                    desc = desc[:max_desc_length] + "..."
-                
-                created_at = memory.get('created_at', '')
-                if created_at:
-                    try:
-                        from datetime import datetime
-                        dt = datetime.strptime(str(created_at), '%Y-%m-%d %H:%M:%S')
-                        time_str = dt.strftime('%m-%d %H:%M')
-                    except:
-                        time_str = str(created_at)[:10]
-                else:
-                    time_str = '未知'
-                
-                formatted_result = f"[{i}] {memory['category']}\n    内容：{desc}"
-                formatted_results.append(formatted_result)
+            # 返回完整的 memory 对象数组，包含 created_at 字段
+            return_results = []
+            for memory in top_memories:
+                return_results.append({
+                    "id": memory.get('id'),
+                    "category": memory.get('category'),
+                    "content": memory.get('description'),
+                    "tags": memory.get('tags'),
+                    "importance": memory.get('importance'),
+                    "created_at": memory.get('created_at'),
+                    "updated_at": memory.get('updated_at'),
+                    "access_count": memory.get('access_count'),
+                    "source_platform": memory.get('source_platform')
+                })
             
-            self._update_cache(cache_key, formatted_results)
+            self._update_cache(cache_key, return_results)
             
-            return formatted_results
+            return return_results
         except Exception as e:
             logger.error(f"搜索记忆失败: {e}")
             return []

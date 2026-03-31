@@ -754,10 +754,13 @@
                         const card = document.createElement('div');
                         card.className = `memory-card ${memory.category}`;
                         
-                        // 处理标签
+                        // 处理标签（兼容数组和字符串两种格式）
                         let tagsHtml = '';
                         if (memory.tags) {
-                            const tags = memory.tags.split(',');
+                            let tags = memory.tags;
+                            if (typeof tags === 'string') {
+                                tags = tags.split(',');
+                            }
                             tags.forEach(tag => {
                                 tag = tag.trim();
                                 if (tag) {
@@ -1062,10 +1065,13 @@
                 const card = document.createElement('div');
                 card.className = `memory-card ${memory.category}`;
                 
-                // 处理标签
+                // 处理标签（兼容数组和字符串两种格式）
                 let tagsHtml = '';
                 if (memory.tags) {
-                    const tags = memory.tags.split(',');
+                    let tags = memory.tags;
+                    if (typeof tags === 'string') {
+                        tags = tags.split(',');
+                    }
                     tags.forEach(tag => {
                         tag = tag.trim();
                         if (tag) {
