@@ -197,17 +197,22 @@ class WebUIServer:
             try:
                 # 读取配置文件
                 config_path = os.path.join(os.path.dirname(__file__), "..", "_conf_schema.json")
+                logger.info(f"尝试读取配置文件: {config_path}")
                 if os.path.exists(config_path):
                     with open(config_path, 'r', encoding='utf-8') as f:
                         import json
                         config = json.load(f)
+                        logger.info(f"配置文件读取成功，配置项: {list(config.keys())}")
                         # 提取默认值，返回扁平化的配置
-                        return jsonify({
+                        result = {
                             'webui_port': config.get('webui_port', {}).get('default', 5000),
                             'backup_interval': config.get('backup_interval', {}).get('default', 24),
                             'backup_retention': config.get('backup_max_count', {}).get('default', 10)
-                        })
+                        }
+                        logger.info(f"返回设置: {result}")
+                        return jsonify(result)
                 else:
+                    logger.warning(f"配置文件不存在: {config_path}，使用默认配置")
                     # 返回默认配置
                     return jsonify({
                         'webui_port': 5000,
@@ -216,11 +221,13 @@ class WebUIServer:
                     })
             except Exception as e:
                 logger.error(f"获取设置失败: {e}")
+                import traceback
+                logger.error(f"错误详情: {traceback.format_exc()}")
                 return jsonify({
                     'webui_port': 5000,
                     'backup_interval': 24,
                     'backup_retention': 10
-                })
+                }), 500
 
         @self.app.route('/api/settings', methods=['POST'])
         def api_save_settings(self):

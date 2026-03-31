@@ -1,381 +1,353 @@
-# AstrBot 记忆胶囊插件
+# 记忆胶囊插件
 
-## 一、插件介绍
+<div align="center">
 
-记忆胶囊是 AstrBot 的一个核心插件，用于**存储和管理所有插件产生的记忆数据**，包括视频观后感、小说阅读笔记、关系互动记录等。
+[![AstrBot 版本](https://img.shields.io/badge/AstrBot-v4.x-blue.svg)](https://github.com/AstrBotDevs/AstrBot)
+[![Python 版本](https://img.shields.io/badge/Python-3.8+-green.svg)](https://www.python.org/)
+[![许可证](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-### 核心功能
+*一个为 AstrBot 打造的长期记忆与关系管理系统*
 
-- **永久存储**：将重要信息永久存储到本地 SQLite 数据库
-- **智能分类**：自动按插件名称、数据类型、时间等维度分类
-- **关系管理**：记录和管理与用户的关系，包括好感度和印象
-- **多插件支持**：提供统一接口供其他插件存储数据
-- **WebUI管理**：提供可视化界面查看和管理记忆数据
-- **自动备份**：定期自动备份数据库，防止数据丢失
-- **记忆宫殿**：智能记忆管理系统，支持标签提取、同义词扩展、智能搜索
-- **记忆宫殿开关**：可在配置中启用或禁用记忆宫殿模块
-- **数据迁移**：自动将旧数据迁移到新的表结构
-- **智能搜索**：支持关键词搜索、分类过滤、热度排序
+</div>
 
-## 二、安装方法
+---
 
-### 2.1 自动安装
+## 📖 简介
 
-在 AstrBot 插件管理界面中搜索 "记忆胶囊" 并点击安装。
+记忆胶囊是一个强大的 AstrBot 插件，为 AI 提供**持久化记忆存储**和**智能关系管理**能力。让 AI 能够在多轮对话中记住重要信息，并在适当的时候检索和利用这些记忆。
 
-### 2.2 手动安装
+### 核心特性
 
-1. 下载本插件的压缩包
-2. 解压到 AstrBot 的插件目录 `data/plugins/` 下
-3. 重启 AstrBot
+- 🧠 **记忆宫殿** - 像人类一样存储和检索长期记忆
+- 🔗 **关系图谱** - 记录用户印象，管理社交关系
+- 🔍 **智能搜索** - 语义匹配 + 标签 + 分类 + 拼音模糊搜索
+- 💉 **上下文注入** - 自动将记忆注入 AI 对话上下文
+- 🎨 **WebUI 管理** - 可视化管理和配置插件
+- 🔄 **自动备份** - 数据库自动备份，防止数据丢失
 
-## 三、使用方法
+---
 
-### 3.1 用户命令
+## ✨ 功能详解
 
-在聊天中发送以下命令：
+### 1. 记忆宫殿 (Memory Palace)
 
-- `/memory test` - 测试记忆胶囊是否正常运行
-- `/memory status` - 查看记忆胶囊的运行状态
+让 AI 能够"记住"重要的事情，像人类的长期记忆一样存储和检索。
 
-### 3.2 WebUI 管理
+**AI 可用的工具：**
 
-插件启动后，WebUI 服务会自动运行，访问以下地址：
-
-- **地址**：http://localhost:5000
-- **功能**：
-  - 查看系统状态和存储统计
-  - 管理笔记数据（添加、删除）
-  - 查看关系记录和好感度
-
-## 四、插件开发接口
-
-### 4.1 存储记忆
-
-其他插件可以通过以下接口存储记忆：
-
-```python
-from astrbot_plugin_memory_capsule import get_memory_manager
-
-# 获取记忆管理器实例
-db_manager = get_memory_manager()
-
-# 存储记忆
-result = db_manager.write_memory(
-    content="记忆内容",              # 记忆正文
-    category="日常",                # 分类（默认 "日常"）
-    tags="标签1,标签2",            # 标签（逗号分隔）
-    target_user_id="用户ID",         # 如果是关于特定人的记忆，填这里
-    source_platform="Web",         # 来源（默认 "Web"）
-    source_context="场景",          # 场景
-    importance=5                    # 重要性（1-10，默认 5）
-)
-print(result)  # 返回存储结果
-```
-
-### 4.2 搜索记忆
-
-```python
-from astrbot_plugin_memory_capsule import get_memory_manager
-
-# 获取记忆管理器实例
-db_manager = get_memory_manager()
-
-# 搜索记忆
-results = db_manager.search_memory(
-    query="搜索关键词",             # 搜索关键词或句子
-    target_user_id="用户ID"         # 限定搜索某人的相关记忆（可选）
-)
-
-for item in results:
-    print(f"{item['category']}: {item['content']}")
-```
-
-### 4.3 管理关系
-
-```python
-from astrbot_plugin_memory_capsule import get_memory_manager
-
-# 获取记忆管理器实例
-db_manager = get_memory_manager()
-
-# 更新关系
-result = db_manager.update_relationship(
-    user_id="用户ID",               # 目标用户 ID
-    relation_type="朋友",          # 新的关系定义
-    summary_update="核心印象",      # 新的印象总结
-    intimacy_change=5,             # 好感度变化值（如 +5, -10）
-    nickname="昵称",               # AI 对 TA 的称呼
-    first_met_time="2026-01-01 12:00:00",  # 初次见面时间
-    first_met_location="QQ群:12345",  # 初次见面地点
-    known_contexts="QQ群:12345"     # 遇到过的场景
-)
-print(result)  # 返回更新结果
-```
-
-### 4.4 其他方法
-
-```python
-from astrbot_plugin_memory_capsule import get_memory_manager
-
-# 获取记忆管理器实例
-db_manager = get_memory_manager()
-
-# 获取所有记忆
-all_memories = db_manager.get_all_memories(limit=20)
-
-# 获取所有关系
-all_relationships = db_manager.get_all_relationships()
-
-# 删除记忆
-delete_result = db_manager.delete_memory(memory_id)
-
-# 删除关系
-delete_relation_result = db_manager.delete_relationship(user_id)
-
-# 备份数据库
-backup_result = db_manager.backup()
-
-# 从备份恢复
-restore_result = db_manager.restore_from_backup(backup_filename)
-
-# 获取最近活动
-activities = db_manager.get_recent_activities(limit=10)
-```
-
-## 五、数据存储结构
-
-### 5.1 记忆表 (`memories`)
-
-| 字段名 | 类型 | 描述 |
+| 工具名 | 功能 | 说明 |
 |--------|------|------|
-| id | INTEGER | 主键，自增 |
-| user_id | TEXT | 关联对象（如果是关于某人的记忆） |
-| source_platform | TEXT | 来源（QQ, Bilibili, Web） |
-| source_context | TEXT | 场景（群号, 视频ID） |
-| category | TEXT | 分类（社交, 知识, 娱乐, 日记） |
-| tags | TEXT | 标签（方便检索） |
-| content | TEXT | 记忆正文 |
-| importance | INTEGER | 重要性（1-10） |
-| access_count | INTEGER | 被搜索到的次数（用于热度统计） |
-| created_at | TIMESTAMP | 创建时间 |
-| updated_at | TIMESTAMP | 更新时间 |
+| `write_memory` | 存储记忆 | 自动提取标签和分类 | |
+| `search_memory` | 搜索记忆 | 支持多维度精确检索 |
+| `delete_memory` | 删除记忆 | 移除不需要的记忆 |
+| `get_all_memories` | 获取所有记忆 | 查看记忆库内容 |
 
-### 5.2 关系表 (`relationships`)
+**智能特性：**
+- 🔖 **自动标签提取** - 使用 jieba 分词自动提取关键词作为标签
+- 🏷️ **自动分类** - 可选 LLM 自动分类（需配置分类模型）
+- 📅 **时间衰减** - 越新的记忆权重越高
+- 🔤 **拼音模糊搜索** - 输入 `beijing` 也能找到「北京」
 
-| 字段名 | 类型 | 描述 |
+**搜索策略：**
+```
+支持 AND/OR 匹配模式
+同义词扩展（如：电脑 ↔ 计算机）
+分类过滤
+自动回退机制
+```
+
+---
+
+### 2. 关系图谱 (Relationship Graph)
+
+记录 AI 与用户的交互历史，构建"社交记忆"。
+
+**AI 可用的工具：**
+
+| 工具名 | 功能 | 说明 |
 |--------|------|------|
-| user_id | TEXT | 对方 QQ 号（主键） |
-| nickname | TEXT | AI 对 TA 的称呼 |
-| relation_type | TEXT | 关系（如: 朋友, 损友） |
-| intimacy | INTEGER | 好感度（0-100） |
-| tags | TEXT | 印象标签（如: "幽默,程序员"） |
-| summary | TEXT | 核心印象（覆盖式更新，不追加） |
-| first_met_time | TIMESTAMP | 初次见面时间 |
-| first_met_location | TEXT | 初次见面地点（如: "QQ群:12345"） |
-| known_contexts | TEXT | 遇到过的场景（JSON列表） |
-| updated_at | TIMESTAMP | 更新时间 |
+| `update_relationship` | 更新关系 | 记录印象、昵称、关系类型等 |
+| `search_relationship` | 搜索关系 | 通过 ID、昵称、关系类型等搜索 |
+| `get_all_relationships` | 获取所有关系 | 查看关系库 |
+| `delete_relationship` | 删除关系 | 移除关系记录 |
 
-### 5.3 标签表 (`tags`)
+**关系信息包括：**
+- 👤 用户 ID
+- 📝 AI 给用户的昵称
+- 💭 关系类型（朋友、陌生人、熟人...）
+- 📍 初次见面地点
+- 🏠 多次相遇群组
+- 🎯 核心印象总结
 
-| 字段名 | 类型 | 描述 |
-|--------|------|------|
-| memory_id | INTEGER | 关联哪条记忆 |
-| tag | TEXT | 标签内容 |
-| source | TEXT | 来源：auto=自动，manual=手动 |
-| created_at | TIMESTAMP | 创建时间 |
+**自动上下文注入：**
+每次对话时，AI 会自动获取当前用户的关系信息并注入到上下文中，无需手动触发。
 
-### 5.4 同义词表 (`synonyms`)
+**注入方式（可配置）：**
+- 系统提示词追加
+- 用户提示词前置
+- 上下文列表插入
 
-| 字段名 | 类型 | 描述 |
-|--------|------|------|
-| word | TEXT | 基础词（总是较小的词） |
-| synonym | TEXT | 同义词（总是较大的词） |
-| source | TEXT | 来源：rule=规则，learned=学习 |
-| strength | FLOAT | 同义强度（0.0-1.0） |
+**缓存机制：**
+- 用户切换立即刷新
+- 同一用户按时间间隔刷新（默认 1 小时）
 
-### 5.5 活动记录表 (`activities`)
+---
 
-| 字段名 | 类型 | 描述 |
-|--------|------|------|
-| id | INTEGER | 主键，自增 |
-| action | TEXT | 操作类型（添加记忆, 更新关系, 删除记忆等） |
-| details | TEXT | 操作详情 |
-| created_at | TIMESTAMP | 创建时间 |
+### 3. WebUI 管理界面
 
-## 六、备份与恢复
+提供可视化的管理面板，方便查看和管理记忆与关系。
 
-### 6.1 自动备份
+**访问地址：** `http://localhost:5000`（端口可配置）
 
-- **频率**：每 24 小时自动备份一次
-- **位置**：`data/backups/` 目录
-- **保留**：最多保留 10 个最新备份
+**功能模块：**
 
-### 6.2 手动备份
+```
+📚 记忆管理
+   ├── 浏览所有记忆
+   ├── 查看记忆详情
+   ├── 测试搜索功能
+   └── 记忆统计分析
 
-通过 WebUI 或 API 执行手动备份：
+🔗 关系管理
+   ├── 查看所有关系
+   ├── 关系详情
+   └── 关系搜索
+
+⚙️ 系统配置
+   ├── 搜索权重调整
+   ├── 搜索策略配置
+   └── 注入方式设置
+
+💾 数据管理
+   ├── 数据库备份
+   └── 备份恢复
+```
+
+---
+
+### 4. 跨插件数据存储
+
+其他插件可以通过接口在记忆胶囊中存储和查询数据。
 
 ```python
-db_manager = get_memory_manager()
-result = db_manager.backup()
-print(result)
+from astrbot_plugin_memory_capsule import store_plugin_data, query_plugin_data
+
+# 存储数据
+store_plugin_data("笔记内容", metadata={"type": "note", "tags": ["工作"]})
+
+# 查询数据
+results = query_plugin_data("关键词")
 ```
 
-### 6.3 从备份恢复
+---
 
-```python
-db_manager = get_memory_manager()
-result = db_manager.restore_from_backup("memory_20260223_000000.db")
-print(result)
+## 🚀 安装
+
+### 方式一：从源码安装
+
+```bash
+# 克隆插件仓库
+git clone https://github.com/HLC2757808353/astrbot_plugin_memory_capsule.git
+
+# 将插件目录复制到 AstrBot 插件目录
+cp -r astrbot_plugin_memory_capsule <你的AstrBot路径>/data/plugins/
 ```
 
-## 七、示例代码
+### 方式二：从插件市场安装
 
-### 7.1 刷视频插件示例
+在 AstrBot WebUI 的插件管理页面搜索「记忆胶囊」并安装。
 
-```python
-from astrbot_plugin_memory_capsule import get_memory_manager
+---
 
-def process_video(video_url):
-    # 处理视频，生成观后感
-    summary = generate_summary(video_url)
-    
-    # 获取记忆管理器实例
-    db_manager = get_memory_manager()
-    
-    # 存储到记忆胶囊
-    result = db_manager.write_memory(
-        content=summary,
-        category="娱乐",
-        tags="视频,观后感",
-        source_platform="Bilibili",
-        source_context=video_url,
-        importance=7
-    )
-    
-    return f"视频处理完成，{result}"
+## 📦 依赖
+
+### 必需依赖
+
+```bash
+pip install jieba pypinyin
 ```
 
-### 7.2 小说阅读插件示例
+### 可选依赖
 
-```python
-from astrbot_plugin_memory_capsule import get_memory_manager
+```bash
+# 字符串相似度计算（提升搜索准确性）
+pip install python-Levenshtein
 
-def read_chapter(novel_name, chapter):
-    # 读取章节，生成笔记
-    notes = generate_notes(novel_name, chapter)
-    
-    # 获取记忆管理器实例
-    db_manager = get_memory_manager()
-    
-    # 存储到记忆胶囊
-    result = db_manager.write_memory(
-        content=notes,
-        category="知识",
-        tags="小说,阅读笔记",
-        source_platform="Web",
-        source_context=f"{novel_name}:第{chapter}章",
-        importance=6
-    )
-    
-    return f"章节阅读完成，{result}"
+# 缓存序列化加速
+pip install msgpack
 ```
 
-### 7.3 关系管理示例
+---
 
-```python
-from astrbot_plugin_memory_capsule import get_memory_manager
+## ⚙️ 配置
 
-def update_user_relation(user_id, message):
-    # 分析消息，提取关系信息
-    relation_type = analyze_relation_type(message)
-    summary = generate_impression_summary(message)
-    intimacy_change = calculate_intimacy_change(message)
-    
-    # 获取记忆管理器实例
-    db_manager = get_memory_manager()
-    
-    # 更新关系
-    result = db_manager.update_relationship(
-        user_id=user_id,
-        relation_type=relation_type,
-        summary_update=summary,
-        intimacy_change=intimacy_change
-    )
-    
-    return f"关系更新完成，{result}"
+插件支持丰富的配置项，通过 `metadata.yaml` 同级的 `_conf_schema.json` 文件或 WebUI 进行配置。
+
+### 基础配置
+
+| 配置项 | 类型 | 默认值 | 说明 |
+|--------|------|--------|------|
+| `webui_port` | int | 5000 | WebUI 服务端口 |
+| `memory_palace` | bool | true | 是否启用记忆宫殿 |
+| `relation_injection` | bool | true | 是否启用关系注入 |
+| `context_inject_position` | string | user_prompt | 注入方式 |
+| `relation_injection_refresh_time` | int | 3600 | 关系注入刷新间隔（秒） |
+
+### 记忆宫殿配置
+
+| 配置项 | 类型 | 默认值 | 说明 |
+|--------|------|--------|------|
+| `category_model` | string | "" | 自动分类使用的模型 ID |
+| `max_extracted_tags` | int | 10 | 自动提取的最大标签数 |
+| `search_default_limit` | int | 5 | 默认搜索结果数量 |
+
+### 搜索配置
+
+| 配置项 | 类型 | 默认值 | 说明 |
+|--------|------|--------|------|
+| `search_weights` | object | 见下方 | 搜索权重配置 |
+| `search_strategy` | object | 见下方 | 搜索策略配置 |
+| `max_cache_size` | int | 1000 | 缓存大小限制 |
+
+**默认搜索权重：**
+```json
+{
+  "tag_match": 5.0,
+  "recent_boost": 3.0,
+  "mid_boost": 2.0,
+  "popularity": 1.0,
+  "category_match": 2.0,
+  "full_match_bonus": 10.0
+}
 ```
 
-## 八、常见问题
-
-### 8.1 WebUI 无法访问
-
-- 检查插件是否正常启动
-- 检查端口 5000 是否被占用
-- 尝试重启 AstrBot
-
-### 8.2 数据存储失败
-
-- 检查插件目录是否有写入权限
-- 检查磁盘空间是否充足
-- 查看 AstrBot 日志获取详细错误信息
-
-### 8.3 备份失败
-
-- 检查 `data/backups/` 目录是否存在且有写入权限
-- 检查磁盘空间是否充足
-
-## 九、版本历史
-
-- **v0.4.1** - 记忆宫殿优化版
-  - 实现记忆宫殿模块，支持智能标签提取和同义词扩展
-  - 添加记忆宫殿开关功能，可在配置中启用或禁用
-  - 优化数据库结构，添加 tags 和 synonyms 表
-  - 实现数据迁移功能，自动将旧数据迁移到新表结构
-  - 支持智能搜索，包括关键词搜索、分类过滤、热度排序
-  - 优化关系信息注入格式，使用 <Relationship> 标签
-  - 修复多个 bug，提高系统稳定性
-
-- **v0.0.1** - 初始版本
-  - 实现基本的存储和查询功能
-  - 添加 WebUI 管理界面
-  - 实现自动备份功能
-
-## 十、开发与贡献
-
-欢迎提交 Issue 和 Pull Request 来改进本插件！
-
-### 开发环境
-
-- Python 3.8+
-- 依赖：Flask（WebUI）
-
-### 目录结构
-
-```
-astrbot_plugin_memory_capsule/
-├── main.py                 # 插件入口
-├── __init__.py             # 模块初始化
-├── _conf_schema.json       # 配置文件
-├── databases/              # 数据库管理
-│   ├── __init__.py
-│   ├── db_manager.py       # 数据库核心操作
-│   └── backup.py           # 备份功能
-├── webui/                  # WebUI 管理
-│   ├── __init__.py
-│   ├── server.py           # Flask 服务器
-│   └── templates/          # HTML 模板
-│       ├── index.html      # 仪表盘
-│       ├── memories.html   # 记忆宫殿
-│       ├── relationships.html # 关系图谱
-│       ├── settings.html   # 系统设置
-│       └── notes.html      # 笔记页面
-├── data/                   # 数据存储
-│   ├── memory.db           # SQLite 数据库
-│   └── backups/            # 备份文件
-└── README.md               # 使用文档
+**默认搜索策略：**
+```json
+{
+  "match_type": "AND",
+  "synonym_expansion": true,
+  "time_decay": true,
+  "category_filter": false,
+  "enable_fallback": true
+}
 ```
 
-## 十一、许可证
+### 备份配置
 
-本插件采用 MIT 许可证，详见 LICENSE 文件。
+| 配置项 | 类型 | 默认值 | 说明 |
+|--------|------|--------|------|
+| `backup_interval` | int | 24 | 自动备份间隔（小时） |
+| `backup_max_count` | int | 10 | 最大备份保留数量 |
+
+---
+
+## 🤖 AI 使用指南
+
+### 触发记忆存储
+
+当 AI 判断需要记住某事时，可以调用 `write_memory` 工具：
+
+```
+用户：Python 是一种广泛使用的高级编程语言
+AI：（调用 write_memory 存储这个知识点）
+```
+
+### 检索记忆
+
+需要回忆某些信息时：
+
+```
+用户：你之前跟我提过什么关于 Python 的知识？
+AI：（调用 search_memory 搜索"Python"）
+```
+
+### 更新用户印象
+
+每次交互后，AI 可以更新对用户的印象：
+
+```
+用户：我今天学会了用 Python 写爬虫
+AI：（调用 update_relationship 更新印象）
+```
+
+---
+
+## 🔧 故障排除
+
+### WebUI 无法访问
+
+1. 检查端口是否被占用：`netstat -ano | grep 5000`
+2. 查看日志中的错误信息
+3. 修改 `webui_port` 配置为其他端口
+
+### 搜索结果不准确
+
+1. 调整 `search_weights` 权重配置
+2. 尝试不同的 `search_strategy`
+3. 增加 `search_default_limit` 限制
+
+### 依赖缺失
+
+```bash
+# 安装必需依赖
+pip install jieba pypinyin
+
+# 安装可选依赖
+pip install python-Levenshtein msgpack
+```
+
+---
+
+## 📝 更新日志
+
+### v0.7.9
+- 新增智能标签提取（基于 jieba 分词）
+- 新增拼音模糊搜索
+- 优化搜索权重系统
+- 新增同义词扩展功能
+- WebUI 界面重构
+- 新增搜索策略配置
+- 关系注入缓存优化
+
+### 早期版本
+- 基础记忆存储和检索
+- 关系图谱功能
+- 基础 WebUI
+- 自动上下文注入
+
+---
+
+## 🤝 贡献
+
+欢迎提交 Issue 和 Pull Request！
+
+---
+
+## 📄 许可证
+
+MIT License
+
+---
+
+## 👤 作者
+
+**引灯续昼**
+
+- GitHub: [HLC2757808353](https://github.com/HLC2757808353)
+- 项目地址: [astrbot_plugin_memory_capsule](https://github.com/HLC2757808353/astrbot_plugin_memory_capsule)
+
+---
+
+## 🙏 致谢
+
+- [AstrBot](https://github.com/AstrBotDevs/AstrBot) - 强大的聊天机器人框架
+- [jieba](https://github.com/fxsjy/jieba) - 中文分词库
+- [pypinyin](https://github.com/mozillazg/python-pinyin) - 拼音转换库
+
+---
+
+<div align="center">
+
+*如果这个插件对你有帮助，欢迎 Star ⭐*
+
+</div>

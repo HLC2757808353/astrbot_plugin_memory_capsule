@@ -149,15 +149,28 @@ class MemoryCapsulePlugin(Star):
     @filter.llm_tool(name="update_relationship")
     async def update_relationship(self, event, user_id, relation_type=None, summary_update=None, nickname=None, first_met_location=None, known_contexts=None):
         """
-        更新对某人的印象或关系
+        【关系图谱】用于记录人与人之间的关系、印象、约定等与人相关的信息。
+        
+        适用场景：
+        - 对某人的印象、评价、看法
+        - 人的生日、习惯、喜好、忌讳
+        - 人与人之间的关系（朋友、群友、管理员等）
+        - 与人的约定、承诺、欠条、待还事项
+        - 初次见面地点、共同群组
+        - 对方说过的重要的话、承诺
+        
+        不适用：
+        - 客观知识/技能/笔记 → 用 write_memory
+        - 群规、网址、配置信息 → 用 write_memory
+        - 各类客观事实 → 用 write_memory
         
         Args:
             user_id(str): 目标用户 ID
-            relation_type(str): 新的关系定义
-            summary_update(str): 新的印象总结 (会覆盖旧的)
-            nickname(str): AI 对 TA 的称呼
-            first_met_location(str): 初次见面地点(填写群id)
-            known_contexts(str): 遇到过的场景(填写群id)
+            relation_type(str): 关系定义（如：群友、伙伴、朋友等可以自己添加自身所认为的关系）
+            summary_update(str): 对此人的印象总结、发生过的重要事情（会覆盖旧的）
+            nickname(str): AI 对此人的称呼
+            first_met_location(str): 初次见面地点/群ID
+            known_contexts(str): 共同所在的群组/场景
             
         Returns:
             str: 更新结果
@@ -179,10 +192,22 @@ class MemoryCapsulePlugin(Star):
     @filter.llm_tool(name="write_memory")
     async def write_memory(self, event, content):
         """
-        记下一个永久知识点。只需要提供要记住的内容，分类和标签会由插件自动处理。
+        【记忆宫殿·小本本】用于记录客观事实、知识、技能等非人际信息。
+        
+        适用场景：
+        - 技术笔记、学习资料
+        - 工作任务、待办事项
+        - 网址、密码、配置信息
+        - 群规、公告、重要通知
+        - 各类客观事实和知识点
+        
+        不适用：
+        - 人的印象/评价 → 用 update_relationship
+        - 人的小事/生日/习惯 → 用 update_relationship
+        - 人际间的承诺/欠条/约定 → 用 update_relationship
         
         Args:
-            content(str): 要记住的内容
+            content(str): 要记住的客观内容（不要包含对人的主观评价）
             
         Returns:
             str: 存储结果
@@ -214,9 +239,17 @@ class MemoryCapsulePlugin(Star):
                                 category = predicted_category
                                 logger.info(f"自动分类结果: {category}")
                             else:
-                                logger.warning(f"大模型返回的分类 '{predicted_category}' 不在分类列表中")
+                                logger.warning(f"大模型返回的分类 '{predicted_category}' 不在分类列表中，使用默认分类")
+                        else:
+                            logger.warning("大模型分类返回为空，使用默认分类")
+                    else:
+                        logger.warning("未找到配置的分类模型，使用默认分类")
+                else:
+                    logger.warning("未配置分类列表，使用默认分类")
             except Exception as e:
                 logger.error(f"自动分类失败: {e}")
+        else:
+            logger.debug("未配置分类模型，记忆将使用默认分类")
         
         try:
             result = await asyncio.to_thread(self.db_manager.write_memory, content, category)

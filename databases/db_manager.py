@@ -618,7 +618,7 @@ class DatabaseManager:
                 else:
                     time_str = '未知'
                 
-                formatted_result = f"[{i}] {time_str} | {memory['category']}\n    内容：{desc}"
+                formatted_result = f"[{i}] {memory['category']}\n    内容：{desc}"
                 formatted_results.append(formatted_result)
             
             self._update_cache(cache_key, formatted_results)
