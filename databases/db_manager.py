@@ -553,11 +553,6 @@ class DatabaseManager:
         - details: 操作详情
         """
         try:
-            # 输入验证
-            content, category, tags, importance = self.validate_memory_input(
-                content, category, tags, importance
-            )
-            
             conn = self._get_connection()
             cursor = conn.cursor()
             cursor.execute('INSERT INTO activities (action, details) VALUES (?, ?)', (action, details))
@@ -719,19 +714,37 @@ class DatabaseManager:
         """构建FTS5查询语句
         
         将用户查询转换为FTS5的MATCH语法
+        
+        注意事项：
+        - FTS5对特殊字符敏感，需要过滤
+        - 中文长句需要拆分为关键词
+        - 避免使用FTS5保留字（AND, OR, NOT等）
         """
+        import re
+        
         terms = []
         
+        # 添加分词后的标签（更可靠）
         for tag in query_tags:
             if len(tag) >= 2:
-                terms.append(tag)
+                # 过滤FTS5特殊字符
+                clean_tag = re.sub(r'[\"*():]', '', tag)
+                if clean_tag and len(clean_tag) >= 2:
+                    terms.append(clean_tag)
         
+        # 对于原始查询文本，只添加短文本或拆分后的词
         if query_text and len(query_text) >= 2:
-            terms.append(query_text)
+            # 如果查询文本较短（<=10个字符），直接添加
+            if len(query_text) <= 10:
+                clean_query = re.sub(r'[\"*():]', '', query_text)
+                if clean_query:
+                    terms.append(clean_query)
+            # 否则不添加原始文本（依赖分词结果即可）
         
         if not terms:
             return None
         
+        # 用空格连接，FTS5默认是AND逻辑
         fts_query = ' '.join(terms)
         return fts_query
     
@@ -787,19 +800,19 @@ class DatabaseManager:
             conn = self._get_connection()
             cursor = conn.cursor()
             
-            placeholder = ' OR '.join(['content LIKE ?' * len(query_terms)])
+            placeholders = ' OR '.join(['content LIKE ?'] * len(query_terms))
             params = [f'%{term}%' for term in query_terms]
             
             if category_filter:
                 cursor.execute(f'''
                     SELECT id FROM memories 
-                    WHERE category = ? AND ({placeholder})
+                    WHERE category = ? AND ({placeholders})
                     LIMIT ?
                 ''', [category_filter] + params + [limit])
             else:
                 cursor.execute(f'''
                     SELECT id FROM memories 
-                    WHERE {placeholder}
+                    WHERE {placeholders}
                     LIMIT ?
                 ''', params + [limit])
             
