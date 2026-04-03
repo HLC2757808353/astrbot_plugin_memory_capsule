@@ -336,6 +336,12 @@
             font-weight: bold;
         }
         
+        .memory-access-count {
+            font-size: 12px;
+            color: #2196f3;
+            font-weight: bold;
+        }
+        
         .memory-content {
             margin-bottom: 15px;
             line-height: 1.5;
@@ -555,6 +561,15 @@
                                 <button class="btn btn-primary" onclick="searchMemories()">搜索</button>
                             </div>
                         </div>
+                        <div class="filter-group">
+                            <label class="filter-label">排序方式</label>
+                            <select class="filter-control" id="sort-by" onchange="changeSortOrder()">
+                                <option value="access_count_desc">调用次数 (多→少)</option>
+                                <option value="importance_desc">重要程度 (高→低)</option>
+                                <option value="created_at_desc">记录时间 (新→旧)</option>
+                                <option value="created_at_old">记录时间 (旧→新)</option>
+                            </select>
+                        </div>
                     </div>
                     
                     <!-- 记忆卡片流 -->
@@ -744,6 +759,8 @@
                 const memories = data.memories;
                 totalPages = data.total_pages || 1;
                 
+                currentMemories = memories;  // 保存当前数据用于排序
+                
                 const grid = document.getElementById('memories-grid');
                 grid.innerHTML = '';
                 
@@ -772,6 +789,7 @@
                         card.innerHTML = `
                             <div class="memory-header">
                                 <div class="memory-importance">重要性: ${memory.importance}</div>
+                                <div class="memory-access-count">调用次数: ${memory.access_count || 0}</div>
                             </div>
                             <div class="memory-meta">
                                 <span class="memory-category">分类: ${memory.category}</span>
@@ -1305,6 +1323,91 @@
             } catch (error) {
                 console.error('加载分类列表失败:', error);
             }
+        }
+        
+        let currentMemories = [];
+        
+        async function changeSortOrder() {
+            const sortBy = document.getElementById('sort-by').value;
+            
+            if (!currentMemories || currentMemories.length === 0) {
+                await loadMemories(currentPage);
+                return;
+            }
+            
+            switch(sortBy) {
+                case 'access_count_desc':
+                    currentMemories.sort((a, b) => (b.access_count || 0) - (a.access_count || 0));
+                    break;
+                case 'importance_desc':
+                    currentMemories.sort((a, b) => (b.importance || 1) - (a.importance || 1));
+                    break;
+                case 'created_at_desc':
+                    currentMemories.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+                    break;
+                case 'created_at_old':
+                    currentMemories.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+                    break;
+                default:
+                    currentMemories.sort((a, b) => (b.access_count || 0) - (a.access_count || 0));
+            }
+            
+            displaySortedMemories(currentMemories);
+        }
+        
+        function displaySortedMemories(memories) {
+            const grid = document.getElementById('memories-grid');
+            grid.innerHTML = '';
+            
+            if (!memories || memories.length === 0) {
+                grid.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; padding: 40px; color: #999;">暂无记忆数据</div>';
+                return;
+            }
+            
+            memories.forEach(memory => {
+                const card = document.createElement('div');
+                card.className = `memory-card ${memory.category}`;
+                
+                let tagsHtml = '';
+                if (memory.tags) {
+                    let tags = memory.tags;
+                    if (typeof tags === 'string') {
+                        tags = tags.split(',');
+                    }
+                    tags.forEach(tag => {
+                        tag = tag.trim();
+                        if (tag) {
+                            tagsHtml += `<span class="tag">${tag}</span>`;
+                        }
+                    });
+                }
+                
+                card.innerHTML = `
+                    <div class="memory-header">
+                        <div class="memory-importance">重要性: ${memory.importance}</div>
+                        <div class="memory-access-count">调用次数: ${memory.access_count || 0}</div>
+                    </div>
+                    <div class="memory-meta">
+                        <span class="memory-category">分类: ${memory.category}</span>
+                        <span class="memory-date">${formatDate(memory.created_at)}</span>
+                    </div>
+                    <div class="memory-content">${memory.content || '无内容'}</div>
+                    <div class="memory-tags">${tagsHtml || '无'}</div>
+                    <div class="memory-actions">
+                        <input type="checkbox" class="memory-checkbox" data-id="${memory.id}">
+                        <button class="btn btn-outline" onclick="editMemory('${memory.id}')">修改</button>
+                        <button class="btn btn-outline" onclick="deleteMemory('${memory.id}')">删除</button>
+                        <button class="btn btn-outline" onclick="increaseImportance('${memory.id}')">加权</button>
+                    </div>
+                `;
+                
+                grid.appendChild(card);
+            });
+            
+            const checkboxes = document.querySelectorAll('.memory-checkbox');
+            checkboxes.forEach(checkbox => {
+                checkbox.addEventListener('change', updateSelectedMemories);
+            });
         }
     </script>
 </body>

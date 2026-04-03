@@ -2,6 +2,7 @@ import sqlite3
 import os
 import json
 import re
+import time
 from datetime import datetime
 
 # 容错处理
@@ -12,44 +13,152 @@ except ImportError:
     logger = logging.getLogger(__name__)
     logging.basicConfig(level=logging.INFO)
 
-# 导入分词库
-try:
-    import jieba
-    import jieba.posseg as pseg
-except ImportError:
-    logger.warning("jieba库未安装，标签提取功能将受限")
-    jieba = None
-    pseg = None
+# 导入分词库（延迟加载，节省启动内存）
+_jieba_initialized = False
+_jieba_instance = None
+_pseg_instance = None
 
-# 导入拼音库
-try:
-    import pypinyin
-except ImportError:
-    logger.warning("pypinyin库未安装，拼音匹配功能将受限")
-    pypinyin = None
+def _get_jieba():
+    """延迟获取jieba实例（首次调用时才加载）"""
+    global _jieba_initialized, _jieba_instance, _pseg_instance
+    
+    if not _jieba_initialized:
+        try:
+            import jieba
+            import jieba.posseg as pseg
+            _jieba_instance = jieba
+            _pseg_instance = pseg
+            _jieba_initialized = True
+            logger.info("jieba分词库已延迟加载")
+        except ImportError:
+            logger.warning("jieba库未安装，标签提取功能将受限")
+    
+    return _jieba_instance, _pseg_instance
+
+
+# 导入拼音库（延迟加载）
+_pypinyin_initialized = False
+_pypinyin_instance = None
+
+def _get_pypinyin():
+    """延迟获取pypinyin实例"""
+    global _pypinyin_initialized, _pypinyin_instance
+    
+    if not _pypinyin_initialized:
+        try:
+            from pypinyin import pypinyin as pypy
+            _pypinyin_instance = pypy
+            _pypinyin_initialized = True
+        except ImportError:
+            logger.warning("pypinyin库未安装，拼音匹配功能将受限")
+    
+    return _pypinyin_instance
+
 
 from .backup import BackupManager
 
+
+class TTLCache:
+    """带过期时间的LRU缓存"""
+    
+    def __init__(self, max_size=1000, default_ttl=300):
+        """
+        参数：
+        - max_size: 最大缓存条目数
+        - default_ttl: 默认过期时间（秒），默认5分钟
+        """
+        self.cache = {}
+        self.max_size = max_size
+        self.default_ttl = default_ttl
+    
+    def get(self, key):
+        """获取缓存值，如果已过期则删除并返回None"""
+        if key in self.cache:
+            item = self.cache[key]
+            current_time = time.time()
+            
+            if current_time < item['expires_at']:
+                return item['value']
+            else:
+                del self.cache[key]
+                return None
+        
+        return None
+    
+    def set(self, key, value, ttl=None):
+        """设置缓存值
+        
+        参数：
+        - key: 缓存键
+        - value: 缓存值
+        - ttl: 过期时间（秒），使用默认值如果未指定
+        """
+        if len(self.cache) >= self.max_size:
+            self._evict_oldest()
+        
+        expires_at = time.time() + (ttl or self.default_ttl)
+        self.cache[key] = {
+            'value': value,
+            'expires_at': expires_at,
+            'created_at': time.time()
+        }
+    
+    def _evict_oldest(self):
+        """淘汰最旧的缓存条目"""
+        if not self.cache:
+            return
+        
+        oldest_key = min(self.cache.keys(), 
+                        key=lambda k: self.cache[k]['created_at'])
+        del self.cache[oldest_key]
+    
+    def invalidate(self, key):
+        """使指定缓存失效"""
+        if key in self.cache:
+            del self.cache[key]
+    
+    def clear(self):
+        """清空所有缓存"""
+        self.cache.clear()
+    
+    def __contains__(self, key):
+        """检查键是否存在且未过期"""
+        return self.get(key) is not None
+    
+    def __len__(self):
+        """返回当前缓存大小（仅有效条目）"""
+        current_time = time.time()
+        valid_items = {k: v for k, v in self.cache.items() 
+                      if current_time < v['expires_at']}
+        return len(valid_items)
+
+class MemoryColumn:
+    """记忆表列索引常量"""
+    ID = 0
+    CATEGORY = 1
+    IMPORTANCE = 2
+    CREATED_AT = 3
+    UPDATED_AT = 4
+    TAGS = 5
+    CONTENT = 6
+    ACCESS_COUNT = 7
+
+
 class DatabaseManager:
     def __init__(self, config=None, context=None):
-        # 将数据库文件存储在插件目录的上上个目录中，确保跨平台兼容
-        # 路径：d:\Astrbot\AstrBot\data\memory_capsule.db
         app_data_dir = os.path.join(os.path.dirname(__file__), "..", "..")
         os.makedirs(app_data_dir, exist_ok=True)
         self.db_path = os.path.join(app_data_dir, "memory_capsule.db")
         self.config = config or {}
         self.context = context
-        # 使用新的备份配置路径
         backup_config = {
             'interval': self.config.get('backup_interval', 24),
             'max_count': self.config.get('backup_max_count', 10)
         }
         self.backup_manager = BackupManager(self.db_path, backup_config)
         
-        # 初始化数据库结构
         self._initialize_database_structure()
         
-        # 初始化搜索权重配置
         self.search_weights = self.config.get('search_weights', {
             'tag_match': 5.0,
             'recent_boost': 3.0,
@@ -59,7 +168,6 @@ class DatabaseManager:
             'full_match_bonus': 10.0
         })
         
-        # 初始化搜索策略配置
         self.search_strategy = self.config.get('search_strategy', {
             'match_type': 'AND',
             'synonym_expansion': True,
@@ -68,9 +176,12 @@ class DatabaseManager:
             'enable_fallback': True
         })
         
-        # 初始化缓存
-        self.cache = {}
-        self.cache_max_size = self.config.get('max_cache_size', 1000)
+        # 初始化TTL缓存（5分钟过期）
+        cache_ttl = self.config.get('cache_ttl', 300)
+        self.cache = TTLCache(
+            max_size=self.config.get('max_cache_size', 1000),
+            default_ttl=cache_ttl
+        )
     
     def extract_tags_optimized(self, content):
         """智能标签提取器
@@ -79,9 +190,12 @@ class DatabaseManager:
         """
         tags = []
         
+        # 延迟获取jieba实例
+        _, pseg_instance = _get_jieba()
+        
         # 策略1：jieba分词提取名词（最可靠）
-        if pseg:
-            words = pseg.cut(content)
+        if pseg_instance:
+            words = pseg_instance.cut(content)
             for word, flag in words:
                 if flag.startswith('n') and len(word) >= 2:  # 只取2字以上的名词
                     tags.append(word)
@@ -332,6 +446,22 @@ class DatabaseManager:
             )
             ''')
             
+            # 创建身份别名映射表 (identity_aliases) —— 智能身份识别
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS identity_aliases (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL,              -- 关联的用户ID（主键）
+                alias TEXT NOT NULL,               -- 别名/昵称/群名
+                alias_type TEXT DEFAULT 'nickname', -- 别名类型: nickname/group_name/platform_id
+                source_context TEXT,                -- 来源场景（哪个群/平台看到的）
+                is_current INTEGER DEFAULT 1,       -- 是否为当前使用的名称 (1=是, 0=历史)
+                first_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES relationships(user_id) ON DELETE CASCADE,
+                UNIQUE(user_id, alias, source_context)  -- 同一用户在同一场景下别名唯一
+            )
+            ''')
+            
             # 建立索引加速搜索
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_mem_cate ON memories(category)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_mem_time ON memories(created_at)')
@@ -340,6 +470,12 @@ class DatabaseManager:
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_tags_memory ON tags(memory_id)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_synonyms_word ON synonyms(word)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_synonyms_synonym ON synonyms(synonym)')
+            
+            # 身份映射表索引
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_alias_user ON identity_aliases(user_id)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_alias_name ON identity_aliases(alias)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_alias_type ON identity_aliases(alias_type)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_alias_current ON identity_aliases(is_current)')
             
             # 全文搜索虚拟表 (SQLite FTS5)
             try:
@@ -417,6 +553,11 @@ class DatabaseManager:
         - details: 操作详情
         """
         try:
+            # 输入验证
+            content, category, tags, importance = self.validate_memory_input(
+                content, category, tags, importance
+            )
+            
             conn = self._get_connection()
             cursor = conn.cursor()
             cursor.execute('INSERT INTO activities (action, details) VALUES (?, ?)', (action, details))
@@ -425,14 +566,76 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"记录活动失败: {e}")
 
-    def write_memory(self, content, category=None, tags="", importance=5):
+    def validate_memory_input(self, content, category=None, tags=None, importance=None):
+        """输入验证和清理
+        
+        参数说明：
+        - content: 记忆内容
+        - category: 分类
+        - tags: 标签
+        - importance: 重要性
+        
+        返回值：
+        - (content, category, tags, importance): 验证后的值
+        - 或抛出 ValueError 异常
+        """
+        # 1. 内容验证
+        if not content or not str(content).strip():
+            raise ValueError("记忆内容不能为空")
+        
+        content = str(content).strip()
+        
+        if len(content) > 10000:
+            raise ValueError(f"记忆内容过长（{len(content)}字符），请控制在10000字以内")
+        
+        if len(content) < 2:
+            raise ValueError("记忆内容过短，至少需要2个字符")
+        
+        # 2. 清理危险字符（防XSS）
+        import re
+        content = re.sub(r'<script.*?>.*?</script>', '', content, flags=re.I | re.S)
+        content = re.sub(r'on\w+\s*=', '', content)  # 移除事件处理器
+        
+        # 3. 分类验证
+        valid_categories = self.get_memory_categories()
+        if category and category not in valid_categories:
+            logger.warning(f"未知分类 '{category}'，将使用默认分类")
+            category = None
+        
+        # 4. 重要性范围验证
+        if importance is not None:
+            try:
+                importance = int(importance)
+                if importance < 1 or importance > 10:
+                    logger.warning(f"重要性值 {importance} 超出范围(1-10)，已自动调整为有效值")
+                    importance = max(1, min(10, importance))
+            except (ValueError, TypeError):
+                logger.warning(f"重要性值格式错误，使用默认值1")
+                importance = 1
+        else:
+            importance = 1
+        
+        # 5. 标签清理
+        if tags:
+            tag_list = [t.strip() for t in str(tags).split(',') if t.strip()]
+            # 过滤长度不合法的标签
+            tag_list = [t for t in tag_list if 1 <= len(t) <= 20]
+            # 去重并限制数量
+            tag_list = list(dict.fromkeys(tag_list))[:15]
+            tags = ','.join(tag_list)
+        else:
+            tags = ""
+        
+        return content, category, tags, importance
+
+    def write_memory(self, content, category=None, tags="", importance=1):
         """存储记忆
         
         参数说明：
         - content: 记忆内容
         - category: 分类 (AI指定)
         - tags: 标签 (逗号分隔)
-        - importance: 重要性 (默认 5)
+        - importance: 重要性 (默认 1)
         """
         try:
             conn = self._get_connection()
@@ -512,8 +715,109 @@ class DatabaseManager:
         
         return parsed_query, date_str
 
+    def _build_fts_query(self, query_text, query_tags):
+        """构建FTS5查询语句
+        
+        将用户查询转换为FTS5的MATCH语法
+        """
+        terms = []
+        
+        for tag in query_tags:
+            if len(tag) >= 2:
+                terms.append(tag)
+        
+        if query_text and len(query_text) >= 2:
+            terms.append(query_text)
+        
+        if not terms:
+            return None
+        
+        fts_query = ' '.join(terms)
+        return fts_query
+    
+    def _fts_search(self, fts_query, category_filter=None, limit=50):
+        """使用FTS5进行快速预筛选
+        
+        返回候选记忆ID列表
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            
+            if category_filter:
+                cursor.execute('''
+                    SELECT m.id FROM memories m
+                    JOIN memories_fts f ON m.id = f.rowid
+                    WHERE memories_fts MATCH ? AND m.category = ?
+                    LIMIT ?
+                ''', (fts_query, category_filter, limit))
+            else:
+                cursor.execute('''
+                    SELECT m.id FROM memories m
+                    JOIN memories_fts f ON m.id = f.rowid
+                    WHERE memories_fts MATCH ?
+                    LIMIT ?
+                ''', (fts_query, limit))
+            
+            results = [row[0] for row in cursor.fetchall()]
+            conn.close()
+            
+            return results
+        except Exception as e:
+            logger.error(f"FTS5搜索失败: {e}")
+            return []
+    
+    def _fallback_search(self, query_terms, category_filter=None, limit=50):
+        """回退到传统LIKE搜索（当FTS5不可用时）"""
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            
+            if category_filter:
+                cursor.execute('SELECT id FROM memories WHERE category = ?', (category_filter,))
+            else:
+                cursor.execute('SELECT id FROM memories')
+            
+            all_ids = [row[0] for row in cursor.fetchall()]
+            conn.close()
+            
+            if not query_terms:
+                return all_ids[:limit]
+            
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            
+            placeholder = ' OR '.join(['content LIKE ?' * len(query_terms)])
+            params = [f'%{term}%' for term in query_terms]
+            
+            if category_filter:
+                cursor.execute(f'''
+                    SELECT id FROM memories 
+                    WHERE category = ? AND ({placeholder})
+                    LIMIT ?
+                ''', [category_filter] + params + [limit])
+            else:
+                cursor.execute(f'''
+                    SELECT id FROM memories 
+                    WHERE {placeholder}
+                    LIMIT ?
+                ''', params + [limit])
+            
+            results = [row[0] for row in cursor.fetchall()]
+            conn.close()
+            
+            return results if results else all_ids[:limit]
+        except Exception as e:
+            logger.error(f"回退搜索失败: {e}")
+            return []
+    
     def search_memory(self, query, category_filter=None, limit=None):
-        """智能搜索记忆
+        """智能搜索记忆（FTS5预筛选 + 精细评分）
+        
+        优化后的搜索流程：
+        1. FTS5全文索引快速预筛选（毫秒级）
+        2. 对候选结果进行多维度相关性评分
+        3. 返回Top N结果
         
         参数说明：
         - query: 搜索关键词或句子
@@ -538,7 +842,7 @@ class DatabaseManager:
                 for term in query_tags:
                     expanded_terms.extend(self.get_all_synonyms(term))
             else:
-                expanded_terms = query_tags
+                expanded_terms = list(query_tags)
             
             if parsed_query:
                 expanded_terms.append(parsed_query)
@@ -546,37 +850,51 @@ class DatabaseManager:
             if date_filter:
                 expanded_terms.append(date_filter)
             
+            candidate_ids = []
+            
+            fts_query = self._build_fts_query(parsed_query, query_tags)
+            
+            if fts_query:
+                candidate_ids = self._fts_search(fts_query, category_filter, limit * 3)
+                
+                if not candidate_ids and self.search_strategy.get('enable_fallback', True):
+                    logger.info("FTS5未找到结果，使用回退搜索")
+                    candidate_ids = self._fallback_search(expanded_terms, category_filter, limit * 3)
+            else:
+                candidate_ids = self._fallback_search(expanded_terms, category_filter, limit * 3)
+            
+            if not candidate_ids:
+                return []
+            
             conn = self._get_connection()
             cursor = conn.cursor()
             
-            if category_filter:
-                cursor.execute('SELECT * FROM memories WHERE category = ?', (category_filter,))
-            else:
-                cursor.execute('SELECT * FROM memories')
-            
-            all_memories = cursor.fetchall()
+            placeholders = ','.join(['?' * len(candidate_ids)])
+            cursor.execute(f'SELECT * FROM memories WHERE id IN ({",".join(["?"]*len(candidate_ids))})', tuple(candidate_ids))
+            candidate_memories = cursor.fetchall()
+            conn.close()
             
             scored_memories = []
-            for row in all_memories:
+            for row in candidate_memories:
                 if row:
                     try:
-                        tags_str = row[5] or ""
+                        tags_str = row[MemoryColumn.TAGS] or ""
                         tags = tags_str.split(',') if tags_str else []
                         tags = [tag.strip() for tag in tags if tag.strip()]
                         
                         memory = {
-                            "id": row[0],
-                            "category": row[1] or self.get_default_category(),
+                            "id": row[MemoryColumn.ID],
+                            "category": row[MemoryColumn.CATEGORY] or self.get_default_category(),
                             "tags": tags,
-                            "description": row[6] or "无内容",
-                            "importance": row[2] or 5,
-                            "created_at": row[3],
-                            "updated_at": row[4],
-                            "access_count": row[7],
+                            "description": row[MemoryColumn.CONTENT] or "无内容",
+                            "importance": row[MemoryColumn.IMPORTANCE] or 1,
+                            "created_at": row[MemoryColumn.CREATED_AT],
+                            "updated_at": row[MemoryColumn.UPDATED_AT],
+                            "access_count": row[MemoryColumn.ACCESS_COUNT],
                             "source_platform": "Web"
                         }
                         
-                        score = self._calculate_relevance_score(memory, expanded_terms, parsed_query)
+                        score = self._calculate_relevance_score_v2(memory, expanded_terms, parsed_query)
                         
                         if date_filter and memory.get('created_at'):
                             created_at_str = str(memory['created_at'])
@@ -591,16 +909,29 @@ class DatabaseManager:
             
             scored_memories.sort(key=lambda x: x.get('relevance_score', 0), reverse=True)
             
-            top_memories = scored_memories[:limit]
+            # 应用MMR多样性策略（如果配置启用）
+            mmr_enabled = self.config.get('mmr_enabled', True)
+            if mmr_enabled and len(scored_memories) > limit:
+                lambda_param = self.config.get('mmr_lambda', 0.7)
+                top_memories = self._apply_mmr_diversity(
+                    scored_memories, 
+                    parsed_query, 
+                    lambda_param=lambda_param, 
+                    top_k=limit
+                )
+                logger.info(f"MMR多样性筛选完成，从{len(scored_memories)}条中选择了{len(top_memories)}条")
+            else:
+                top_memories = scored_memories[:limit]
             
-            for memory in top_memories:
-                memory_id = memory['id']
-                cursor.execute('UPDATE memories SET access_count = access_count + 1 WHERE id = ?', (memory_id,))
+            if top_memories:
+                conn = self._get_connection()
+                cursor = conn.cursor()
+                for memory in top_memories:
+                    memory_id = memory['id']
+                    cursor.execute('UPDATE memories SET access_count = access_count + 1 WHERE id = ?', (memory_id,))
+                conn.commit()
+                conn.close()
             
-            conn.commit()
-            conn.close()
-            
-            # 返回完整的 memory 对象数组，包含 created_at 字段
             return_results = []
             for memory in top_memories:
                 return_results.append({
@@ -622,23 +953,18 @@ class DatabaseManager:
             logger.error(f"搜索记忆失败: {e}")
             return []
     
-    def _update_cache(self, key, value):
-        """更新缓存
+    def _update_cache(self, key, value, ttl=None):
+        """更新缓存（使用TTLCache）
         
         参数说明：
         - key: 缓存键
         - value: 缓存值
+        - ttl: 过期时间（秒），可选
         """
-        # 检查缓存大小
-        if len(self.cache) >= self.cache_max_size:
-            # 删除最旧的缓存项
-            oldest_key = next(iter(self.cache))
-            del self.cache[oldest_key]
-        # 添加新缓存
-        self.cache[key] = value
+        self.cache.set(key, value, ttl)
     
     def _calculate_relevance_score(self, memory, terms, query):
-        """计算记忆与查询的相关性分数
+        """计算记忆与查询的相关性分数（V1版本-保留兼容）
         
         参数说明：
         - memory: 记忆对象
@@ -662,7 +988,7 @@ class DatabaseManager:
         content_match_score = 0
         for term in terms:
             if term.lower() in content:
-                content_match_score += self.search_weights.get('tag_match', 5.0) * 0.8  # 内容匹配权重稍低
+                content_match_score += self.search_weights.get('tag_match', 5.0) * 0.8
         score += content_match_score
         
         # 3. 分类匹配分数
@@ -678,20 +1004,167 @@ class DatabaseManager:
             importance = float(memory.get('importance', 5))
             score += importance * 0.5
         except (ValueError, TypeError):
-            score += 5 * 0.5  # 默认值
+            score += 5 * 0.5
         
         # 5. 访问次数（流行度）分数 - 确保是数字类型
         try:
             access_count = float(memory.get('access_count', 0))
             score += access_count * self.search_weights.get('popularity', 1.0) * 0.1
         except (ValueError, TypeError):
-            score += 0  # 默认值
+            score += 0
         
         # 6. 完整匹配奖励
         if query and query.lower() in memory['description'].lower():
             score += self.search_weights.get('full_match_bonus', 10.0)
         
         return score
+    
+    def _calculate_relevance_score_v2(self, memory, terms, query):
+        """计算记忆与查询的相关性分数（V2优化版本）
+        
+        优化点：
+        1. 降低基础分（importance默认值从5改为1）
+        2. 使用对数压缩access_count（防止"富者越富"）
+        3. 调整权重配比，更注重内容相关性
+        
+        参数说明：
+        - memory: 记忆对象
+        - terms: 扩展后的关键词列表
+        - query: 原始查询
+        
+        返回值：
+        - 相关性分数
+        """
+        import math
+        
+        score = 0
+        
+        # 1. 标签匹配分数（核心指标）
+        tag_match_score = 0
+        matched_tags = []
+        for term in terms:
+            for tag in memory['tags']:
+                if term.lower() in tag.lower():
+                    tag_match_score += self.search_weights.get('tag_match', 5.0)
+                    if term not in matched_tags:
+                        matched_tags.append(term)
+        
+        score += tag_match_score
+        
+        # 2. 内容匹配分数（次要指标）
+        content = memory['description'].lower()
+        content_match_score = 0
+        matched_content_terms = []
+        for term in terms:
+            if term.lower() in content:
+                content_match_score += self.search_weights.get('tag_match', 5.0) * 0.8
+                if term not in matched_content_terms:
+                    matched_content_terms.append(term)
+        
+        score += content_match_score
+        
+        # 3. 分类匹配分数（辅助指标）
+        category = memory['category'].lower()
+        category_match_score = 0
+        for term in terms:
+            if term.lower() in category:
+                category_match_score += self.search_weights.get('category_match', 2.0)
+        score += category_match_score
+        
+        # 4. 重要性分数（降低基础分，默认值从5改为1）
+        try:
+            importance = float(memory.get('importance', 1))
+            score += importance * 0.3  # 系数从0.5降到0.3
+        except (ValueError, TypeError):
+            score += 1 * 0.3  # 默认值改为1
+        
+        # 5. 访问次数（使用对数压缩，防止热门记忆霸占）
+        try:
+            access_count = float(memory.get('access_count', 0))
+            if access_count > 0:
+                log_score = math.log10(access_count + 1) * self.search_weights.get('popularity', 1.0) * 0.5
+                score += min(log_score, 3.0)  # 上限3分，防止过高
+        except (ValueError, TypeError):
+            score += 0
+        
+        # 6. 完整匹配奖励（保持不变）
+        if query and query.lower() in memory['description'].lower():
+            score += self.search_weights.get('full_match_bonus', 10.0)
+        
+        return score
+    
+    def _calculate_text_similarity(self, text1, text2):
+        """计算两个文本的相似度（简化版Jaccard相似度）
+        
+        参数：
+        - text1: 文本1
+        - text2: 文本2
+        
+        返回值：
+        - 相似度 (0.0-1.0)
+        """
+        if not text1 or not text2:
+            return 0.0
+        
+        words1 = set(text1.lower().split())
+        words2 = set(text2.lower().split())
+        
+        if not words1 or not words2:
+            return 0.0
+        
+        intersection = words1 & words2
+        union = words1 | words2
+        
+        return len(intersection) / len(union)
+    
+    def _apply_mmr_diversity(self, scored_memories, query, lambda_param=0.7, top_k=5):
+        """使用MMR（最大边际相关性）策略选择多样化结果
+        
+        MMR公式：MMR = λ × Relevance(d,q) - (1-λ) × Similarity(d,d_selected)
+        
+        参数：
+        - scored_memories: 已评分的记忆列表 [{memory, relevance_score}, ...]
+        - query: 查询文本
+        - lambda_param: 平衡参数 (0-1)，默认0.7
+        - top_k: 返回数量
+        
+        返回值：
+        - 多样化后的记忆列表
+        """
+        if len(scored_memories) <= top_k:
+            return scored_memories
+        
+        selected = []
+        remaining = list(scored_memories)
+        
+        while len(selected) < top_k and remaining:
+            best_mmr_score = -float('inf')
+            best_candidate = None
+            best_idx = -1
+            
+            for idx, candidate in enumerate(remaining):
+                relevance = candidate.get('relevance_score', 0)
+                
+                max_similarity_to_selected = 0
+                for sel in selected:
+                    sim = self._calculate_text_similarity(
+                        candidate.get('memory', {}).get('description', ''),
+                        sel.get('memory', {}).get('description', '')
+                    )
+                    max_similarity_to_selected = max(max_similarity_to_selected, sim)
+                
+                mmr_score = lambda_param * relevance - (1 - lambda_param) * max_similarity_to_selected
+                
+                if mmr_score > best_mmr_score:
+                    best_mmr_score = mmr_score
+                    best_candidate = candidate
+                    best_idx = idx
+            
+            if best_candidate:
+                selected.append(best_candidate)
+                remaining.pop(best_idx)
+        
+        return selected
     
     def get_recent_memories(self, limit=5):
         """获取最近的记忆"""
@@ -898,6 +1371,372 @@ class DatabaseManager:
             logger.error(f"更新关系失败: {e}")
             return f"更新失败: {e}"
     
+    # ==================== 身份映射系统方法 ====================
+    
+    def add_identity_alias(self, user_id, alias, alias_type='nickname', source_context=None):
+        """添加或更新用户别名（最多保留3个）
+        
+        参数：
+        - user_id: 用户唯一标识
+        - alias: 别名/昵称
+        - alias_type: 别名类型 (nickname/group_name/platform_id)
+        - source_context: 来源场景（群ID等）
+        
+        策略：
+        - 每个用户最多保存N个别名（默认3个，可通过配置 max_aliases_per_user 修改）
+        - 新别名加入时，如果已满则删除最旧的
+        - 当前使用的别名标记为 is_current=1
+        
+        返回值：
+        - 操作结果字符串
+        """
+        # 从配置读取最大别名数（默认3）
+        MAX_ALIASES_PER_USER = self.config.get('max_aliases_per_user', 3)
+        
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            
+            # 检查是否已存在相同的别名
+            cursor.execute('''
+                SELECT id FROM identity_aliases 
+                WHERE user_id = ? AND alias = ? AND (source_context = ? OR source_context IS NULL)
+            ''', (user_id, alias, source_context))
+            existing = cursor.fetchone()
+            
+            if existing:
+                # 更新最后使用时间，并设为当前
+                cursor.execute('''
+                    UPDATE identity_aliases 
+                    SET last_seen_at = CURRENT_TIMESTAMP, is_current = 1
+                    WHERE id = ?
+                ''', (existing[0],))
+                
+                # 将同类型的其他别名标记为非当前
+                cursor.execute('''
+                    UPDATE identity_aliases 
+                    SET is_current = 0 
+                    WHERE user_id = ? AND id != ? AND alias_type = ?
+                ''', (user_id, existing[0], alias_type))
+                
+                result = f"别名已更新: {alias}"
+            
+            else:
+                # 检查当前用户的别名数量
+                cursor.execute('''
+                    SELECT COUNT(*) FROM identity_aliases 
+                    WHERE user_id = ?
+                ''', (user_id,))
+                current_count = cursor.fetchone()[0]
+                
+                if current_count >= MAX_ALIASES_PER_USER:
+                    # 已达到上限，删除最旧的别名（非当前使用的）
+                    cursor.execute('''
+                        DELETE FROM identity_aliases 
+                        WHERE user_id = ? AND id IN (
+                            SELECT id FROM identity_aliases 
+                            WHERE user_id = ? AND is_current = 0
+                            ORDER BY last_seen_at ASC 
+                            LIMIT 1
+                        )
+                    ''', (user_id, user_id))
+                    logger.info(f"用户 {user_id} 别名已达上限({MAX_ALIASES_PER_USER})，已删除最旧别名")
+                
+                # 插入新别名
+                cursor.execute('''
+                    INSERT INTO identity_aliases (user_id, alias, alias_type, source_context, is_current)
+                    VALUES (?, ?, ?, ?, 1)
+                ''', (user_id, alias, alias_type, source_context))
+                
+                result = f"新别名已添加: {alias} (当前共{min(current_count + 1, MAX_ALIASES_PER_USER)}/{MAX_ALIASES_PER_USER}个)"
+            
+            conn.commit()
+            conn.close()
+            
+            self._record_activity("添加别名", f"用户:{user_id}, 别名:{alias}")
+            logger.info(f"身份映射更新: {user_id} -> {alias} ({alias_type})")
+            
+            return result
+        except Exception as e:
+            logger.error(f"添加别名失败: {e}")
+            return f"添加别名失败: {e}"
+    
+    def get_user_aliases(self, user_id, include_history=False):
+        """获取用户的所有别名
+        
+        参数：
+        - user_id: 用户ID
+        - include_history: 是否包含历史别名
+        
+        返回值：
+        - 别名列表 [{alias, type, is_current, source_context}, ...]
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            
+            if include_history:
+                cursor.execute('''
+                    SELECT alias, alias_type, is_current, source_context, first_seen_at, last_seen_at
+                    FROM identity_aliases 
+                    WHERE user_id = ?
+                    ORDER BY is_current DESC, last_seen_at DESC
+                ''', (user_id,))
+            else:
+                cursor.execute('''
+                    SELECT alias, alias_type, is_current, source_context, first_seen_at, last_seen_at
+                    FROM identity_aliases 
+                    WHERE user_id = ? AND is_current = 1
+                    ORDER BY last_seen_at DESC
+                ''', (user_id,))
+            
+            results = cursor.fetchall()
+            conn.close()
+            
+            aliases = []
+            for row in results:
+                aliases.append({
+                    'alias': row[0],
+                    'type': row[1],
+                    'is_current': bool(row[2]),
+                    'source_context': row[3],
+                    'first_seen_at': row[4],
+                    'last_seen_at': row[5]
+                })
+            
+            return aliases
+        except Exception as e:
+            logger.error(f"获取用户别名失败: {e}")
+            return []
+    
+    def smart_resolve_identity(self, query):
+        """智能解析身份（支持多种输入格式）
+        
+        支持的输入：
+        - 用户ID: "QQ_123456" / "123456"
+        - 昵称: "小明"
+        - 群名称: "Python学习群"
+        - 群ID: "group_789"
+        
+        参数：
+        - query: 查询关键词
+        
+        返回值：
+        - 匹配结果列表 [{user_id, nickname, match_type, match_score}, ...]
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            results = []
+            
+            query_lower = str(query).lower().strip()
+            
+            if not query_lower:
+                return results
+            
+            # 策略1：精确匹配用户ID
+            cursor.execute('''
+                SELECT r.user_id, r.nickname, r.relation_type, r.summary
+                FROM relationships r
+                WHERE r.user_id = ?
+            ''', (query,))
+            exact_id_match = cursor.fetchone()
+            if exact_id_match:
+                results.append({
+                    'user_id': exact_id_match[0],
+                    'nickname': exact_id_match[1],
+                    'relation_type': exact_id_match[2],
+                    'summary': exact_id_match[3],
+                    'match_type': 'exact_id',
+                    'match_score': 100
+                })
+            
+            # 策略2：精确匹配昵称/别名
+            cursor.execute('''
+                SELECT ia.user_id, r.nickname, ia.alias, ia.alias_type
+                FROM identity_aliases ia
+                LEFT JOIN relationships r ON ia.user_id = r.user_id
+                WHERE LOWER(ia.alias) = ?
+                AND ia.is_current = 1
+            ''', (query_lower,))
+            exact_name_matches = cursor.fetchall()
+            for match in exact_name_matches:
+                existing = next((r for r in results if r['user_id'] == match[0]), None)
+                if not existing:
+                    results.append({
+                        'user_id': match[0],
+                        'nickname': match[1] or match[2],
+                        'relation_type': None,
+                        'summary': None,
+                        'match_type': 'exact_name',
+                        'match_score': 95
+                    })
+            
+            # 策略3：模糊匹配昵称/别名（包含关系）
+            cursor.execute('''
+                SELECT ia.user_id, r.nickname, ia.alias, ia.alias_type
+                FROM identity_aliases ia
+                LEFT JOIN relationships r ON ia.user_id = r.user_id
+                WHERE LOWER(ia.alias) LIKE ?
+                AND ia.is_current = 1
+                LIMIT 10
+            ''', (f'%{query_lower}%',))
+            fuzzy_matches = cursor.fetchall()
+            for match in fuzzy_matches:
+                existing = next((r for r in results if r['user_id'] == match[0]), None)
+                if not existing:
+                    alias = match[2] or ''
+                    similarity = self._calculate_string_similarity(query_lower, alias.lower())
+                    if similarity > 0.5:
+                        results.append({
+                            'user_id': match[0],
+                            'nickname': match[1] or alias,
+                            'relation_type': None,
+                            'summary': None,
+                            'match_type': 'fuzzy_name',
+                            'match_score': int(similarity * 80)
+                        })
+            
+            # 策略4：在关系的 summary/known_contexts 中搜索
+            cursor.execute('''
+                SELECT user_id, nickname, relation_type, summary, known_contexts
+                FROM relationships
+                WHERE LOWER(summary) LIKE ? OR LOWER(known_contexts) LIKE ?
+                LIMIT 5
+            ''', (f'%{query_lower}%', f'%{query_lower}%'))
+            context_matches = cursor.fetchall()
+            for match in context_matches:
+                existing = next((r for r in results if r['user_id'] == match[0]), None)
+                if not existing:
+                    results.append({
+                        'user_id': match[0],
+                        'nickname': match[1],
+                        'relation_type': match[2],
+                        'summary': match[3],
+                        'match_type': 'context',
+                        'match_score': 60
+                    })
+            
+            conn.close()
+            
+            # 按分数排序
+            results.sort(key=lambda x: x.get('match_score', 0), reverse=True)
+            
+            return results[:5]  # 返回Top 5匹配
+            
+        except Exception as e:
+            logger.error(f"智能身份解析失败: {e}")
+            return []
+    
+    def _calculate_string_similarity(self, s1, s2):
+        """计算两个字符串的相似度"""
+        if not s1 or not s2:
+            return 0.0
+        
+        s1, s2 = s1.lower(), s2.lower()
+        
+        # 完全包含
+        if s1 in s2 or s2 in s1:
+            return 1.0
+        
+        # Jaccard相似度
+        words1 = set(s1.split())
+        words2 = set(s2.split())
+        
+        if not words1 or not words2:
+            return 0.0
+        
+        intersection = words1 & words2
+        union = words1 | words2
+        
+        return len(intersection) / len(union)
+    
+    def get_relationship_with_identity(self, user_id_or_alias):
+        """获取关系信息（支持ID和别名查询）
+        
+        这是 get_relationship_by_user_id 的增强版，
+        支持通过别名查找用户。
+        
+        参数：
+        - user_id_or_alias: 用户ID或别名
+        
+        返回值：
+        - 关系字典，如果不存在则返回None
+        """
+        # 先尝试直接用ID查询
+        relation = self.get_relationship_by_user_id(user_id_or_alias)
+        if relation:
+            return relation
+        
+        # 如果不是，尝试作为别名解析
+        matches = self.smart_resolve_identity(user_id_or_alias)
+        if matches and len(matches) > 0:
+            best_match = matches[0]
+            if best_match['match_score'] >= 70:  # 高置信度匹配
+                return self.get_relationship_by_user_id(best_match['user_id'])
+        
+        return None
+    
+    def update_relationship_enhanced(self, user_id, relation_type=None, 
+                                       summary_update=None, nickname=None, 
+                                       first_met_location=None, known_contexts=None,
+                                       aliases=None):
+        """增强版的关系更新（同时处理别名）
+        
+        参数：
+        - user_id: 用户ID
+        - relation_type: 关系定义
+        - summary_update: 印象总结
+        - nickname: 当前昵称（会自动记录到别名表）
+        - first_met_location: 初次见面地点
+        - known_contexts: 已知场景（群组列表）
+        - aliases: 额外的别名列表
+        
+        返回值：
+        - 操作结果
+        """
+        try:
+            # 先调用原始的更新方法
+            result = self.update_relationship(
+                user_id, relation_type, summary_update, 
+                nickname, first_met_location, known_contexts
+            )
+            
+            # 如果提供了昵称，自动添加到别名表
+            if nickname:
+                self.add_identity_alias(user_id, nickname, 'nickname')
+            
+            # 处理额外的别名
+            if aliases:
+                if isinstance(aliases, str):
+                    aliases = [aliases]
+                
+                for alias in aliases:
+                    if alias and alias.strip():
+                        self.add_identity_alias(user_id, alias.strip(), 'nickname')
+            
+            # 解析并记录群组信息到别名表
+            if known_contexts:
+                group_list = [g.strip() for g in str(known_contexts).split(',') if g.strip()]
+                for group_id in group_list:
+                    # 尝试提取群名称（如果有）
+                    group_name = None
+                    if '_' in group_id:
+                        parts = group_id.split('_', 1)
+                        if len(parts) > 1 and parts[1]:
+                            group_name = parts[1]
+                    
+                    if group_name:
+                        self.add_identity_alias(user_id, group_name, 'group_name', group_id)
+                    else:
+                        self.add_identity_alias(user_id, group_id, 'platform_id', None)
+            
+            return result + " (已同步更新身份映射)"
+            
+        except Exception as e:
+            logger.error(f"增强版关系更新失败: {e}")
+            return f"更新失败: {e}"
+
     def get_all_tags(self):
         """获取所有标签"""
         try:
@@ -1027,6 +1866,44 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"获取关系失败: {e}")
             return []
+    
+    def get_relationship_by_user_id(self, user_id):
+        """根据用户ID精确查询关系信息
+        
+        参数：
+        - user_id: 用户ID
+        
+        返回：
+        - 关系字典，如果不存在则返回None
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                SELECT user_id, nickname, relation_type, summary, first_met_location, known_contexts, updated_at 
+                FROM relationships 
+                WHERE user_id = ?
+            ''', (user_id,))
+            
+            row = cursor.fetchone()
+            conn.close()
+            
+            if row:
+                return {
+                    "user_id": row[0],
+                    "nickname": row[1],
+                    "relation_type": row[2],
+                    "summary": row[3],
+                    "first_met_location": row[4],
+                    "known_contexts": row[5],
+                    "updated_at": row[6]
+                }
+            
+            return None
+        except Exception as e:
+            logger.error(f"根据用户ID查询关系失败: {e}")
+            return None
     
     def search_relationship(self, query, limit=5):
         """模糊搜索关系

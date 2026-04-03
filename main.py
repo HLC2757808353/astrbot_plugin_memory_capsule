@@ -181,9 +181,15 @@ class MemoryCapsulePlugin(Star):
         nickname = str(nickname) if nickname is not None else None
         first_met_location = str(first_met_location) if first_met_location is not None else None
         known_contexts = str(known_contexts) if known_contexts is not None else None
+        
         try:
-            result = await asyncio.to_thread(self.db_manager.update_relationship, user_id, relation_type, summary_update, nickname, first_met_location, known_contexts)
-            logger.info(f"更新关系成功: {user_id}")
+            # 使用增强版的关系更新（自动同步别名到映射表）
+            result = await asyncio.to_thread(
+                self.db_manager.update_relationship_enhanced,
+                user_id, relation_type, summary_update, 
+                nickname, first_met_location, known_contexts
+            )
+            logger.info(f"更新关系成功: {user_id} (已同步身份映射)")
             return result
         except Exception as e:
             logger.error(f"更新关系失败: {e}")
@@ -217,6 +223,7 @@ class MemoryCapsulePlugin(Star):
             
         content = str(content)
         category = None
+        importance = 1
         
         category_model = self.config.get('category_model', '')
         if category_model and self.context:
@@ -224,35 +231,69 @@ class MemoryCapsulePlugin(Star):
                 categories = await asyncio.to_thread(self.db_manager.get_memory_categories)
                 if categories:
                     categories_str = '、'.join(categories)
-                    prompt = f"请从以下分类中为内容选择最合适的分类：{categories_str}\n\n内容：{content}\n\n请只返回分类名称，不要返回其他任何内容。"
+                    prompt = f"""请分析以下内容，完成两个任务：
+
+任务1：从分类列表中选择最合适的分类
+可选分类：{categories_str}
+
+任务2：评估内容的重要性（1-10分）
+评分标准：
+- 1-3分：普通记录，日常信息，临时性内容
+- 4-6分：有一定参考价值，可能再次用到
+- 7-8分：重要信息，关键知识点，需要牢记
+- 9-10分：极其重要，核心信息，不可遗忘
+
+内容：{content}
+
+请严格按以下JSON格式返回，不要包含其他内容：
+{{"category": "分类名称", "importance": 数字}}
+"""
                     
                     provider = self.context.get_provider_by_id(category_model)
                     if provider:
                         llm_resp = await provider.text_chat(
                             prompt=prompt,
-                            system_prompt="你是一个分类助手，只需要从给定的分类列表中选择最合适的分类，并只返回分类名称。"
+                            system_prompt="你是一个智能分析助手，擅长内容分类和重要性评估。请严格按照要求的JSON格式返回结果。"
                         )
                         
                         if llm_resp and llm_resp.completion_text:
-                            predicted_category = llm_resp.completion_text.strip()
-                            if predicted_category in categories:
-                                category = predicted_category
-                                logger.info(f"自动分类结果: {category}")
-                            else:
-                                logger.warning(f"大模型返回的分类 '{predicted_category}' 不在分类列表中，使用默认分类")
+                            import json
+                            response_text = llm_resp.completion_text.strip()
+                            
+                            try:
+                                result_json = json.loads(response_text)
+                                
+                                predicted_category = result_json.get('category')
+                                if predicted_category and predicted_category in categories:
+                                    category = predicted_category
+                                    logger.info(f"自动分类结果: {category}")
+                                else:
+                                    logger.warning(f"大模型返回的分类 '{predicted_category}' 不在分类列表中，使用默认分类")
+                                
+                                predicted_importance = result_json.get('importance')
+                                if predicted_importance is not None:
+                                    try:
+                                        importance = int(predicted_importance)
+                                        importance = max(1, min(10, importance))
+                                        logger.info(f"自动评估重要性: {importance}")
+                                    except (ValueError, TypeError):
+                                        logger.warning(f"重要性值格式错误: {predicted_importance}，使用默认值1")
+                                        
+                            except json.JSONDecodeError:
+                                logger.warning(f"无法解析LLM返回的JSON: {response_text}，使用默认值")
                         else:
-                            logger.warning("大模型分类返回为空，使用默认分类")
+                            logger.warning("大模型分析返回为空，使用默认分类和重要性")
                     else:
                         logger.warning("未找到配置的分类模型，使用默认分类")
                 else:
-                    logger.warning("未配置分类列表，使用默认分类")
+                    logger.warning("未配置分类列表，记忆将使用默认分类和重要性")
             except Exception as e:
-                logger.error(f"自动分类失败: {e}")
+                logger.error(f"自动分析失败: {e}")
         else:
-            logger.debug("未配置分类模型，记忆将使用默认分类")
+            logger.debug("未配置分类模型，记忆将使用默认分类和重要性")
         
         try:
-            result = await asyncio.to_thread(self.db_manager.write_memory, content, category)
+            result = await asyncio.to_thread(self.db_manager.write_memory, content, category, importance=importance)
             logger.info("存储记忆成功")
             return result
         except Exception as e:
@@ -518,30 +559,23 @@ class MemoryCapsulePlugin(Star):
             if not should_inject:
                 return req
             
-            # 查找用户关系信息
+            # 查找用户关系信息（使用增强版查询，支持别名匹配）
             import asyncio
-            relationships = await asyncio.to_thread(self.db_manager.get_all_relationships)
-            user_relation = None
+            user_relation = await asyncio.to_thread(self.db_manager.get_relationship_with_identity, user_id)
             
-            for relation in relationships:
-                if relation['user_id'] == user_id:
-                    user_relation = relation
-                    break
+            # 获取用户的别名列表（用于更自然的称呼）
+            user_aliases = await asyncio.to_thread(self.db_manager.get_user_aliases, user_id)
             
-            # 构建关系信息上下文
+            # 构建自然化的关系上下文
             if user_relation:
-                # 确保所有字段都有值
-                nickname = user_relation['nickname'] or '未知'
-                first_met_location = user_relation['first_met_location'] or '未知'
-                known_contexts = user_relation['known_contexts'] or '未知'
-                relation_type = user_relation['relation_type'] or '未知'
-                summary = user_relation['summary'] or '无'
-                
-                # 构建关系信息格式
-                relation_context = f"\n\n<Relationship> 当前关系状态：\n- 用户ID: {user_relation['user_id']}\n- 昵称: {nickname}\n- 关系类型: {relation_type}\n- 初次见面地点: {first_met_location}\n- 多次相遇群组: {known_contexts}\n- 核心印象: {summary}\n</Relationship>\n"
+                relation_context = self._build_natural_relation_context(
+                    user_relation, 
+                    user_aliases,
+                    user_id
+                )
             else:
-                # 如果查询为空，返回指定格式
-                relation_context = f"\n\n<Relationship>当前对象未被记录在关系图谱里</Relationship>\n"
+                # 如果查询为空，返回友好的提示格式
+                relation_context = f"\n\n💬 [备注] 这位是新朋友，你可以通过 update_relationship 工具记录下关于TA的信息。\n"
                 logger.info(f"用户 {user_id} 暂无关系信息")
             
             # 检查配置，确定注入方式
@@ -581,6 +615,105 @@ class MemoryCapsulePlugin(Star):
         except Exception as e:
             logger.error(f"注入关系信息失败: {e}")
         return req
+    
+    def _build_natural_relation_context(self, relation, aliases=None, user_id=None):
+        """构建自然化的关系上下文（让AI感觉像在和朋友聊天）
+        
+        根据关系深浅动态调整注入风格：
+        - 新认识的朋友：简洁介绍
+        - 老朋友：温馨提醒 + 重要约定/印象
+        - 有待办事项：重点标注
+        
+        参数：
+        - relation: 关系字典
+        - aliases: 用户别名列表
+        - user_id: 用户ID
+        
+        返回值：
+        - 格式化后的关系上下文字符串
+        """
+        if not relation:
+            return ""
+        
+        nickname = relation.get('nickname') or '朋友'
+        relation_type = relation.get('relation_type') or '朋友'
+        summary = relation.get('summary') or ''
+        first_met = relation.get('first_met_location') or ''
+        known_contexts = relation.get('known_contexts') or ''
+        updated_at = relation.get('updated_at') or ''
+        
+        # 只使用当前昵称（简洁为主，不显示历史别名）
+        # AI内部可以通过 get_user_aliases 查看完整别名列表
+        display_name = nickname  # 只显示1个当前名字
+        
+        # 计算关系深浅（基于更新时间和信息完整度）
+        from datetime import datetime
+        days_since_update = 0
+        if updated_at:
+            try:
+                update_time = datetime.strptime(str(updated_at)[:19], '%Y-%m-%d %H:%M:%S')
+                days_since_update = (datetime.now() - update_time).days
+            except:
+                pass
+        
+        info_completeness = sum([
+            bool(summary),
+            bool(first_met),
+            bool(known_contexts),
+            bool(relation_type and relation_type != '未知')
+        ])
+        
+        # 根据关系深浅选择注入风格
+        if info_completeness <= 1 and (not updated_at or days_since_update > 30):
+            # 风格A：新朋友或很久没联系 —— 简洁介绍
+            context = f"""
+📝 [关于对话对象]
+你正在和【{display_name}】聊天，TA是你的{relation_type}。
+你们认识不久，可以多了解TA并记录下来。
+"""
+        
+        elif info_completeness >= 3 and days_since_update < 7:
+            # 风格B：老朋友且最近活跃 —— 温馨提醒 + 详细信息
+            context_parts = [
+                f"\n👤 [当前对话者] {display_name}",
+                f"",
+                f"🏷️ 关系定位: {relation_type}"
+            ]
+            
+            if summary:
+                context_parts.append(f"💭 印象笔记: {summary}")
+            
+            if first_met:
+                context_parts.append(f"📍 相识于: {first_met}")
+            
+            if known_contexts:
+                contexts_list = known_contexts.split(',')[:3]
+                contexts_str = '、'.join(contexts_list)
+                context_parts.append(f"👥 共同场景: {contexts_str}")
+            
+            # 检查是否有重要关键词（约定、承诺等）
+            important_keywords = ['约定', '承诺', '重要', '记得', '提醒', '待办']
+            has_important = any(kw in str(summary) for kw in important_keywords)
+            
+            if has_important:
+                context_parts.append("")
+                context_parts.append("⚠️ 注意: 你们之间有重要的约定或事项，请留意！")
+            
+            context = '\n'.join(context_parts) + '\n'
+        
+        else:
+            # 风格C：普通关系 —— 平衡的信息量
+            context = f"""
+📋 [人物档案]
+• 称呼: {display_name}
+• 关系: {relation_type}
+"""
+            if summary:
+                context += f"• 特点: {summary}\n"
+            if known_contexts:
+                context += f"• 出没地: {known_contexts.split(',')[0] if ',' in known_contexts else known_contexts}\n"
+        
+        return context
 
 # 外部接口，供其他插件调用
 # 注意：这些函数已在 __init__.py 中重新定义，使用单例模式
