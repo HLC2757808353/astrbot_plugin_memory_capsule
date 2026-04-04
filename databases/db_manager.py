@@ -752,6 +752,7 @@ class DatabaseManager:
         - FTS5对特殊字符敏感，需要过滤
         - 中文长句需要拆分为关键词
         - 避免使用FTS5保留字（AND, OR, NOT等）
+        - 日期格式(2026-04-04)中的-是FTS5特殊字符，需要过滤
         """
         import re
         
@@ -760,8 +761,8 @@ class DatabaseManager:
         # 添加分词后的标签（更可靠）
         for tag in query_tags:
             if len(tag) >= 2:
-                # 过滤FTS5特殊字符
-                clean_tag = re.sub(r'[\"*():]', '', tag)
+                # 过滤FTS5特殊字符（包括-，因为它是列名分隔符）
+                clean_tag = re.sub(r'[\"*():\-]', '', tag)
                 if clean_tag and len(clean_tag) >= 2:
                     terms.append(clean_tag)
         
@@ -769,8 +770,9 @@ class DatabaseManager:
         if query_text and len(query_text) >= 2:
             # 如果查询文本较短（<=10个字符），直接添加
             if len(query_text) <= 10:
-                clean_query = re.sub(r'[\"*():]', '', query_text)
-                if clean_query:
+                # 过滤FTS5特殊字符（包括-）
+                clean_query = re.sub(r'[\"*():\-]', '', query_text)
+                if clean_query and len(clean_query) >= 2:
                     terms.append(clean_query)
             # 否则不添加原始文本（依赖分词结果即可）
         
@@ -813,46 +815,64 @@ class DatabaseManager:
             logger.error(f"FTS5搜索失败: {e}")
             return []
     
-    def _fallback_search(self, query_terms, category_filter=None, limit=50):
-        """回退到传统LIKE搜索（当FTS5不可用时）"""
+    def _fallback_search(self, query_terms, category_filter=None, limit=50, date_filter=None):
+        """回退到传统LIKE搜索（当FTS5不可用时）
+        
+        参数：
+        - query_terms: 搜索词列表
+        - category_filter: 分类过滤
+        - limit: 结果数量限制
+        - date_filter: 日期过滤（如 '2026-04-04'）
+        """
         try:
             conn = self._get_connection()
             cursor = conn.cursor()
             
-            if category_filter:
-                cursor.execute('SELECT id FROM memories WHERE category = ?', (category_filter,))
-            else:
-                cursor.execute('SELECT id FROM memories')
+            if not query_terms and not date_filter:
+                if category_filter:
+                    cursor.execute('SELECT id FROM memories WHERE category = ? LIMIT ?', (category_filter, limit))
+                else:
+                    cursor.execute('SELECT id FROM memories LIMIT ?', (limit,))
+                results = [row[0] for row in cursor.fetchall()]
+                conn.close()
+                return results
             
-            all_ids = [row[0] for row in cursor.fetchall()]
-            conn.close()
-            
-            if not query_terms:
-                return all_ids[:limit]
-            
-            conn = self._get_connection()
-            cursor = conn.cursor()
-            
-            placeholders = ' OR '.join(['content LIKE ?'] * len(query_terms))
-            params = [f'%{term}%' for term in query_terms]
+            # 构建查询条件
+            conditions = []
+            params = []
             
             if category_filter:
-                cursor.execute(f'''
-                    SELECT id FROM memories 
-                    WHERE category = ? AND ({placeholders})
-                    LIMIT ?
-                ''', [category_filter] + params + [limit])
+                conditions.append('category = ?')
+                params.append(category_filter)
+            
+            if query_terms:
+                # 搜索 content 和 tags 字段
+                content_conditions = []
+                for term in query_terms:
+                    # 跳过看起来像日期的term（日期在created_at里搜索）
+                    if re.match(r'^\d{4}-?\d{2}-?\d{2}$', term) or re.match(r'^\d{6,}$', term):
+                        continue
+                    content_conditions.append('(content LIKE ? OR tags LIKE ?)')
+                    params.extend([f'%{term}%', f'%{term}%'])
+                if content_conditions:
+                    conditions.append(f'({" OR ".join(content_conditions)})')
+            
+            if date_filter:
+                # 日期过滤：搜索 created_at 字段
+                conditions.append('created_at LIKE ?')
+                params.append(f'%{date_filter}%')
+            
+            if not conditions:
+                cursor.execute('SELECT id FROM memories LIMIT ?', (limit,))
             else:
-                cursor.execute(f'''
-                    SELECT id FROM memories 
-                    WHERE {placeholders}
-                    LIMIT ?
-                ''', params + [limit])
+                sql = f'SELECT id FROM memories WHERE {" AND ".join(conditions)} LIMIT ?'
+                params.append(limit)
+                cursor.execute(sql, params)
             
             results = [row[0] for row in cursor.fetchall()]
             conn.close()
             
-            return results if results else all_ids[:limit]
+            return results
         except Exception as e:
             logger.error(f"回退搜索失败: {e}")
             return []
@@ -905,9 +925,9 @@ class DatabaseManager:
                 
                 if not candidate_ids and self.search_strategy.get('enable_fallback', True):
                     logger.info("FTS5未找到结果，使用回退搜索")
-                    candidate_ids = self._fallback_search(expanded_terms, category_filter, limit * 3)
+                    candidate_ids = self._fallback_search(expanded_terms, category_filter, limit * 3, date_filter)
             else:
-                candidate_ids = self._fallback_search(expanded_terms, category_filter, limit * 3)
+                candidate_ids = self._fallback_search(expanded_terms, category_filter, limit * 3, date_filter)
             
             if not candidate_ids:
                 return []
