@@ -280,17 +280,17 @@ class DatabaseManager:
                 cursor.execute('PRAGMA table_info(memories)')
                 columns = [column[1] for column in cursor.fetchall()]
                 
-                # 添加缺失的created_at列
+                # 添加缺失的created_at列（不能用CURRENT_TIMESTAMP，用NULL）
                 if 'created_at' not in columns:
                     logger.info("添加缺失的created_at列...")
-                    cursor.execute('ALTER TABLE memories ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP')
+                    cursor.execute('ALTER TABLE memories ADD COLUMN created_at TIMESTAMP')
                     conn.commit()
                     logger.info("成功添加created_at列")
                 
                 # 添加缺失的updated_at列
                 if 'updated_at' not in columns:
                     logger.info("添加缺失的updated_at列...")
-                    cursor.execute('ALTER TABLE memories ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP')
+                    cursor.execute('ALTER TABLE memories ADD COLUMN updated_at TIMESTAMP')
                     conn.commit()
                     logger.info("成功添加updated_at列")
                 
