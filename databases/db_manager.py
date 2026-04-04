@@ -133,19 +133,20 @@ class TTLCache:
         return len(valid_items)
 
 class MemoryColumn:
-    """记忆表列索引常量 - 必须与数据库CREATE TABLE语句完全一致！
+    """记忆表列索引常量 - 必须与SELECT语句的列顺序完全一致！
     
-    数据库表结构 (db_manager.py 第403-412行):
-    CREATE TABLE memories (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,  -- 索引 0
-        category TEXT,                          -- 索引 1
-        content TEXT NOT NULL,                  -- 索引 2
-        tags TEXT,                              -- 索引 3
-        importance INTEGER DEFAULT 5,           -- 索引 4
-        created_at TIMESTAMP,                    -- 索引 5
-        updated_at TIMESTAMP,                    -- 索引 6
-        access_count INTEGER DEFAULT 0          -- 索引 7
-    )
+    重要：由于历史数据库迁移问题，物理表列顺序可能与CREATE TABLE不同。
+    因此所有查询必须使用显式列名：SELECT id, category, content, tags, importance, created_at, updated_at, access_count
+    
+    索引对应：
+    0 = id
+    1 = category  
+    2 = content
+    3 = tags
+    4 = importance
+    5 = created_at
+    6 = updated_at
+    7 = access_count
     """
     ID = 0
     CATEGORY = 1
@@ -900,8 +901,8 @@ class DatabaseManager:
             conn = self._get_connection()
             cursor = conn.cursor()
             
-            placeholders = ','.join(['?' * len(candidate_ids)])
-            cursor.execute(f'SELECT * FROM memories WHERE id IN ({",".join(["?"]*len(candidate_ids))})', tuple(candidate_ids))
+            cursor.execute(f'''SELECT id, category, content, tags, importance, created_at, updated_at, access_count 
+                              FROM memories WHERE id IN ({",".join(["?"]*len(candidate_ids))})''', tuple(candidate_ids))
             candidate_memories = cursor.fetchall()
             conn.close()
             
@@ -1203,26 +1204,29 @@ class DatabaseManager:
         try:
             conn = self._get_connection()
             cursor = conn.cursor()
-            cursor.execute('SELECT * FROM memories ORDER BY created_at DESC LIMIT ?', (limit,))
+            cursor.execute('''SELECT id, category, content, tags, importance, created_at, updated_at, access_count 
+                              FROM memories ORDER BY created_at DESC LIMIT ?''', (limit,))
             results = cursor.fetchall()
             conn.close()
             
             memory_list = []
             for row in results:
-                # 确保row不是None
                 if row:
                     try:
-                        # 使用正确的列索引获取数据
+                        tags_str = row[3] or ""
+                        tags = tags_str.split(',') if tags_str else []
+                        tags = [tag.strip() for tag in tags if tag.strip()]
+                        
                         memory = {
                             "id": row[0],
-                            "category": row[1] or self.get_default_category(),  # 默认分类
-                            "importance": row[2] or 5,  # 从数据库读取重要性
-                            "created_at": row[3],
-                            "updated_at": row[4],
-                            "tags": row[5] or "",  # 从数据库读取标签
-                            "content": row[6] or "无内容",  # 默认内容
-                            "access_count": row[7],
-                            "source_platform": "Web"  # 默认来源
+                            "category": row[1] or self.get_default_category(),
+                            "content": row[2] or "无内容",
+                            "tags": tags,
+                            "importance": row[4] or 5,
+                            "created_at": row[5],
+                            "updated_at": row[6],
+                            "access_count": row[7] or 0,
+                            "source_platform": "Web"
                         }
                         memory_list.append(memory)
                     except Exception as e:
@@ -1819,30 +1823,35 @@ class DatabaseManager:
     def get_all_memories(self, limit=100, offset=0, category=None):
         """获取所有记忆"""
         try:
-            # 使用独立连接
             conn = self._get_connection()
             cursor = conn.cursor()
             
             if category:
-                cursor.execute('SELECT * FROM memories WHERE category=? ORDER BY created_at DESC LIMIT ? OFFSET ?', (category, limit, offset))
+                cursor.execute('''SELECT id, category, content, tags, importance, created_at, updated_at, access_count 
+                                  FROM memories WHERE category=? ORDER BY created_at DESC LIMIT ? OFFSET ?''', (category, limit, offset))
             else:
-                cursor.execute('SELECT * FROM memories ORDER BY created_at DESC LIMIT ? OFFSET ?', (limit, offset))
+                cursor.execute('''SELECT id, category, content, tags, importance, created_at, updated_at, access_count 
+                                  FROM memories ORDER BY created_at DESC LIMIT ? OFFSET ?''', (limit, offset))
             
             results = cursor.fetchall()
             conn.close()
             
             memory_list = []
             for row in results:
+                tags_str = row[3] or ""
+                tags = tags_str.split(',') if tags_str else []
+                tags = [tag.strip() for tag in tags if tag.strip()]
+                
                 memory = {
                     "id": row[0],
-                    "category": row[1] or self.get_default_category(),  # 默认分类
-                    "importance": row[2] or 5,  # 从数据库读取重要性
-                    "created_at": row[3],
-                    "updated_at": row[4],
-                    "tags": row[5] or "",  # 从数据库读取标签
-                    "content": row[6] or "无内容",  # 默认内容
-                    "access_count": row[7],
-                    "source_platform": "Web"  # 默认来源
+                    "category": row[1] or self.get_default_category(),
+                    "content": row[2] or "无内容",
+                    "tags": tags,
+                    "importance": row[4] or 5,
+                    "created_at": row[5],
+                    "updated_at": row[6],
+                    "access_count": row[7] or 0,
+                    "source_platform": "Web"
                 }
                 memory_list.append(memory)
             
