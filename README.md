@@ -1,331 +1,248 @@
-# 记忆胶囊插件
+# 记忆胶囊 🧠
 
 <div align="center">
 
-[![AstrBot 版本](https://img.shields.io/badge/AstrBot-v4.x-blue.svg)](https://github.com/AstrBotDevs/AstrBot)
-[![Python 版本](https://img.shields.io/badge/Python-3.8+-green.svg)](https://www.python.org/)
-[![许可证](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![AstrBot](https://img.shields.io/badge/AstrBot-v4.x-blue.svg)](https://github.com/AstrBotDevs/AstrBot)
+[![Python](https://img.shields.io/badge/Python-3.8+-green.svg)](https://www.python.org/)
+[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Version](https://img.shields.io/badge/version-v0.9.5-red.svg)]()
 
-*一个为 AstrBot 打造的长期记忆与关系管理系统*
+*为 AI 赋予持久记忆与智能关系管理能力*
 
 </div>
 
 ---
 
-## 📖 简介
+## ✨ 这是什么？
 
-记忆胶囊是一个强大的 AstrBot 插件，为 AI 提供**持久化记忆存储**和**智能关系管理**能力。让 AI 能够在多轮对话中记住重要信息，并在适当的时候检索和利用这些记忆。
+**记忆胶囊**是一个功能丰富的 AstrBot 插件，让 AI 拥有"长期记忆"。它不仅能记住知识，还能记住人。
 
-### 核心特性
-
-- 🧠 **记忆宫殿** - 像人类一样存储和检索长期记忆
-- 🔗 **关系图谱** - 记录用户印象，管理社交关系
-- 🔍 **智能搜索** - 语义匹配 + 标签 + 分类 + 拼音模糊搜索
-- 💉 **上下文注入** - 自动将记忆注入 AI 对话上下文
-- 🎨 **WebUI 管理** - 可视化管理和配置插件
-- 🔄 **自动备份** - 数据库自动备份，防止数据丢失
+想象一下：AI 能记得你上次聊了什么、你的喜好、你们的约定...就像一个真正的朋友。💬
 
 ---
 
-## ✨ 功能详解
+## 🎯 核心功能
 
-### 1. 记忆宫殿 (Memory Palace)
+### 📚 记忆宫殿
+- **智能存储** - 自动提取标签、分类、评估重要性
+- **多维搜索** - 关键词 + 标签 + 分类 + 时间范围 + 拼音模糊匹配
+- **FTS5全文索引** - 毫秒级快速检索
+- **MMR多样性筛选** - 避免返回过多相似结果
 
-让 AI 能够"记住"重要的事情，像人类的长期记忆一样存储和检索。
+### 🔗 关系图谱
+- **人物档案** - 昵称、关系类型、印象总结、初次见面地点
+- **身份映射** - 自动识别同一用户在不同群组的身份（跨群关联）
+- **自动注入** - 对话时自动将用户信息注入AI上下文
+- **智能缓存** - 用户切换立即刷新，同用户按时间隔更新
 
-**AI 可用的工具：**
+### 🎨 WebUI 管理面板
+- **可视化操作** - 浏览、搜索、编辑记忆和关系
+- **密码保护** - 首次启动生成临时Token，可自定义登录密码
+- **数据管理** - 一键备份/恢复数据库
+- **系统配置** - 调整搜索权重、清理策略等
 
-| 工具名 | 功能 | 说明 |
-|--------|------|------|
-| `write_memory` | 存储记忆 | 自动提取标签和分类 | |
-| `search_memory` | 搜索记忆 | 支持多维度精确检索 |
-| `delete_memory` | 删除记忆 | 移除不需要的记忆 |
-| `get_all_memories` | 获取所有记忆 | 查看记忆库内容 |
-
-**智能特性：**
-- 🔖 **自动标签提取** - 使用 jieba 分词自动提取关键词作为标签
-- 🏷️ **自动分类** - 可选 LLM 自动分类（需配置分类模型）
-- 📅 **时间衰减** - 越新的记忆权重越高
-- 🔤 **拼音模糊搜索** - 输入 `beijing` 也能找到「北京」
-
-**搜索策略：**
-```
-支持 AND/OR 匹配模式
-同义词扩展（如：电脑 ↔ 计算机）
-分类过滤
-自动回退机制
-```
+### 💾 数据安全
+- **阶梯式备份** - 小时/天/周/月四级备份策略
+- **自动清理** - 按时间或数量自动清理旧记忆
+- **数据迁移** - 自动检测并升级旧版数据库结构
 
 ---
 
-### 2. 关系图谱 (Relationship Graph)
+## 🚀 快速开始
 
-记录 AI 与用户的交互历史，构建"社交记忆"。
-
-**AI 可用的工具：**
-
-| 工具名 | 功能 | 说明 |
-|--------|------|------|
-| `update_relationship` | 更新关系 | 记录印象、昵称、关系类型等 |
-| `search_relationship` | 搜索关系 | 通过 ID、昵称、关系类型等搜索 |
-| `get_all_relationships` | 获取所有关系 | 查看关系库 |
-| `delete_relationship` | 删除关系 | 移除关系记录 |
-
-**关系信息包括：**
-- 👤 用户 ID
-- 📝 AI 给用户的昵称
-- 💭 关系类型（朋友、陌生人、熟人...）
-- 📍 初次见面地点
-- 🏠 多次相遇群组
-- 🎯 核心印象总结
-
-**自动上下文注入：**
-每次对话时，AI 会自动获取当前用户的关系信息并注入到上下文中，无需手动触发。
-
-**注入方式（可配置）：**
-- 系统提示词追加
-- 用户提示词前置
-- 上下文列表插入
-
-**缓存机制：**
-- 用户切换立即刷新
-- 同一用户按时间间隔刷新（默认 1 小时）
-
----
-
-### 3. WebUI 管理界面
-
-提供可视化的管理面板，方便查看和管理记忆与关系。
-
-**访问地址：** `http://localhost:5000`（端口可配置）
-
-**功能模块：**
-
-```
-📚 记忆管理
-   ├── 浏览所有记忆
-   ├── 查看记忆详情
-   ├── 测试搜索功能
-   └── 记忆统计分析
-
-🔗 关系管理
-   ├── 查看所有关系
-   ├── 关系详情
-   └── 关系搜索
-
-⚙️ 系统配置
-   ├── 搜索权重调整
-   ├── 搜索策略配置
-   └── 注入方式设置
-
-💾 数据管理
-   ├── 数据库备份
-   └── 备份恢复
-```
-
----
-
-### 4. 跨插件数据存储
-
-其他插件可以通过接口在记忆胶囊中存储和查询数据。
-
-```python
-from astrbot_plugin_memory_capsule import store_plugin_data, query_plugin_data
-
-# 存储数据
-store_plugin_data("笔记内容", metadata={"type": "note", "tags": ["工作"]})
-
-# 查询数据
-results = query_plugin_data("关键词")
-```
-
----
-
-## 🚀 安装
-
-### 方式一：从源码安装
+### 安装插件
 
 ```bash
-# 克隆插件仓库
+# 方式1: Git克隆
 git clone https://github.com/HLC2757808353/astrbot_plugin_memory_capsule.git
+# 复制到 AstrBot 插件目录
+cp -r astrbot_plugin_memory_capsule <AstrBot路径>/data/plugins/
 
-# 将插件目录复制到 AstrBot 插件目录
-cp -r astrbot_plugin_memory_capsule <你的AstrBot路径>/data/plugins/
+# 方式2: 插件市场安装
+# 在 AstrBot WebUI 搜索「记忆胶囊」并安装
 ```
 
-### 方式二：从插件市场安装
-
-在 AstrBot WebUI 的插件管理页面搜索「记忆胶囊」并安装。
-
----
-
-## 📦 依赖
-
-### 必需依赖
+### 安装依赖
 
 ```bash
 pip install jieba pypinyin
-```
 
-### 可选依赖
-
-```bash
-# 字符串相似度计算（提升搜索准确性）
-pip install python-Levenshtein
-
-# 缓存序列化加速
-pip install msgpack
-```
-
----
-
-## ⚙️ 配置
-
-插件支持丰富的配置项，通过 `metadata.yaml` 同级的 `_conf_schema.json` 文件或 WebUI 进行配置。
-
-### 基础配置
-
-| 配置项 | 类型 | 默认值 | 说明 |
-|--------|------|--------|------|
-| `webui_port` | int | 5000 | WebUI 服务端口 |
-| `memory_palace` | bool | true | 是否启用记忆宫殿 |
-| `relation_injection` | bool | true | 是否启用关系注入 |
-| `context_inject_position` | string | user_prompt | 注入方式 |
-| `relation_injection_refresh_time` | int | 3600 | 关系注入刷新间隔（秒） |
-
-### 记忆宫殿配置
-
-| 配置项 | 类型 | 默认值 | 说明 |
-|--------|------|--------|------|
-| `category_model` | string | "" | 自动分类使用的模型 ID |
-| `max_extracted_tags` | int | 10 | 自动提取的最大标签数 |
-| `search_default_limit` | int | 5 | 默认搜索结果数量 |
-
-### 搜索配置
-
-| 配置项 | 类型 | 默认值 | 说明 |
-|--------|------|--------|------|
-| `search_weights` | object | 见下方 | 搜索权重配置 |
-| `search_strategy` | object | 见下方 | 搜索策略配置 |
-| `max_cache_size` | int | 1000 | 缓存大小限制 |
-
-**默认搜索权重：**
-```json
-{
-  "tag_match": 5.0,
-  "recent_boost": 3.0,
-  "mid_boost": 2.0,
-  "popularity": 1.0,
-  "category_match": 2.0,
-  "full_match_bonus": 10.0
-}
-```
-
-**默认搜索策略：**
-```json
-{
-  "match_type": "AND",
-  "synonym_expansion": true,
-  "time_decay": true,
-  "category_filter": false,
-  "enable_fallback": true
-}
-```
-
-### 备份配置
-
-| 配置项 | 类型 | 默认值 | 说明 |
-|--------|------|--------|------|
-| `backup_interval` | int | 24 | 自动备份间隔（小时） |
-| `backup_max_count` | int | 10 | 最大备份保留数量 |
-
----
-
-## 🤖 AI 使用指南
-
-### 触发记忆存储
-
-当 AI 判断需要记住某事时，可以调用 `write_memory` 工具：
-
-```
-用户：Python 是一种广泛使用的高级编程语言
-AI：（调用 write_memory 存储这个知识点）
-```
-
-### 检索记忆
-
-需要回忆某些信息时：
-
-```
-用户：你之前跟我提过什么关于 Python 的知识？
-AI：（调用 search_memory 搜索"Python"）
-```
-
-### 更新用户印象
-
-每次交互后，AI 可以更新对用户的印象：
-
-```
-用户：我今天学会了用 Python 写爬虫
-AI：（调用 update_relationship 更新印象）
-```
-
----
-
-## 🔧 故障排除
-
-### WebUI 无法访问
-
-1. 检查端口是否被占用：`netstat -ano | grep 5000`
-2. 查看日志中的错误信息
-3. 修改 `webui_port` 配置为其他端口
-
-### 搜索结果不准确
-
-1. 调整 `search_weights` 权重配置
-2. 尝试不同的 `search_strategy`
-3. 增加 `search_default_limit` 限制
-
-### 依赖缺失
-
-```bash
-# 安装必需依赖
-pip install jieba pypinyin
-
-# 安装可选依赖
+# 可选（提升体验）
 pip install python-Levenshtein msgpack
 ```
 
+### 启动后...
+
+1. 查看 AstrBot 日志，找到 WebUI 地址和临时密码
+2. 打开浏览器访问 `http://localhost:5000`（默认端口）
+3. 输入临时密码首次登录
+4. 在设置页面修改为自定义密码 ✅
+
+> **提示**：WebUI端口可在配置中修改，默认5000
+
 ---
 
-## 📝 更新日志
+## 🤖 AI 如何使用？
 
-### v0.7.9
-- 新增智能标签提取（基于 jieba 分词）
-- 新增拼音模糊搜索
-- 优化搜索权重系统
-- 新增同义词扩展功能
-- WebUI 界面重构
-- 新增搜索策略配置
-- 关系注入缓存优化
+插件会自动为 AI 注册以下工具，AI 可以自主决定何时使用：
 
-### 早期版本
+| 工具 | 用途 |
+|------|------|
+| `write_memory` | "这个知识点很重要，我记下来" |
+| `search_memory` | "用户问的事情我之前记过吗？" |
+| `delete_memory` | "这条记忆过时了，删掉吧" |
+| `update_relationship` | "原来TA喜欢Python啊，记录一下" |
+| `search_relationship` | "这个人是谁来着？查一下" |
+
+**无需手动触发** - AI 会根据对话内容智能判断是否需要调用这些工具！
+
+---
+
+## ⚙️ 配置说明
+
+在 `_conf_schema.json` 或 WebUI 中可以调整：
+
+### 常用配置项
+
+```json
+{
+  "webui_port": 5000,                    // WebUI端口号
+  "memory_palace": true,                 // 启用记忆宫殿
+  "memory_categories": [                 // 自定义分类
+    "技术笔记", "生活记录", "学习资料", "个人想法"
+  ],
+  "context_inject_position": "user_prompt", // 关系信息注入位置
+  "relation_injection_refresh_time": 3600,   // 注入刷新间隔(秒)
+  "backup_interval": 24,                  // 备份间隔(小时)
+  "cache_ttl": 300                       // 缓存过期时间(秒)
+}
+```
+
+### 高级配置
+
+- **搜索权重** - 调整标签匹配、时间衰减、重要性等权重
+- **搜索策略** - AND/OR模式、同义词扩展、分类过滤
+- **MMR参数** - 平衡相关性和结果多样性 (0-1)
+- **清理策略** - unaccessed(未访问) / oldest(最旧) / random(随机)
+
+详细配置说明请查看 [`_conf_schema.json`](_conf_schema.json)
+
+---
+
+## 📁 文件结构
+
+```
+astrbot_plugin_memory_capsule/
+├── main.py                 # 主插件逻辑
+├── __init__.py             # 外部接口
+├── metadata.yaml           # 插件元信息
+├── _conf_schema.json       # 配置 schema
+├── databases/
+│   ├── db_manager.py       # 数据库管理核心
+│   └── backup.py           # 备份管理
+├── webui/
+│   ├── server.py           # Flask Web服务
+│   └── templates/          # HTML模板
+└── data/
+    ├── memory.db           # SQLite数据库
+    └── backups/            # 备份文件目录
+        ├── auth.json       # 登录认证信息（自动生成）
+        └── *.db            # 备份文件
+```
+
+---
+
+## 🔐 安全性说明
+
+### WebUI 认证机制
+
+**首次使用流程：**
+1. 启动时自动生成随机临时Token（显示在日志中）
+2. 使用临时Token首次登录WebUI
+3. 强制要求设置自定义密码
+4. 之后使用自定义密码登录
+
+**安全特性：**
+- ✅ 密码哈希存储（不存明文）
+- ✅ Session会话管理
+- ✅ 每个实例独立认证（拷贝插件不影响原实例）
+- ✅ 插件更新不丢失密码（密码存在data目录）
+
+**关于多实例部署：**
+每个 AstrBot 实例都有独立的 `data/auth.json` 文件，互不影响。即使别人复制你的插件代码，也会有自己独立的认证系统。
+
+---
+
+## 🛠️ 故障排除
+
+### 常见问题
+
+<details>
+<summary><b>❌ WebUI 无法访问</b></summary>
+
+1. 检查端口占用：`netstat -ano | findstr 5000`
+2. 查看日志中的错误信息
+3. 尝试修改 `webui_port` 配置
+</details>
+
+<details>
+<summary><b>❌ 忘记 WebUI 密码</b></summary>
+
+删除 `data/auth.json` 文件，重启插件即可重新生成临时Token
+</details>
+
+<details>
+<summary><b>❌ 搜索结果不准确</b></summary>
+
+1. 调整搜索权重配置
+2. 开启同义词扩展
+3. 增加 `max_extracted_tags` 数量
+</details>
+
+<details>
+<summary><b>❌ 依赖安装失败</b></summary>
+
+```bash
+# 使用国内镜像源加速
+pip install jieba pypinyin -i https://pypi.tuna.tsinghua.edu.cn/simple
+```
+</details>
+
+---
+
+## 📊 版本历史
+
+### v0.9.5 (当前版本)
+- ✨ 新增 WebUI 密码认证系统
+- ✨ 新增身份映射系统（跨群身份识别）
+- ✨ 新增 MMR 多样性搜索算法
+- ✨ 新增 FTS5 全文搜索引擎
+- ✨ 新增阶梯式备份策略
+- ✨ 新增 TTL 缓存机制
+- 🐛 修复多个已知问题
+- ⚡ 性能优化和代码重构
+
+### v0.7.x
 - 基础记忆存储和检索
 - 关系图谱功能
-- 基础 WebUI
+- WebUI 管理界面
 - 自动上下文注入
 
 ---
 
-## 🤝 贡献
+## 🤝 参与贡献
 
 欢迎提交 Issue 和 Pull Request！
+
+- 🐛 发现Bug？ → [提交Issue](https://github.com/HLC2757808353/astrbot_plugin_memory_capsule/issues)
+- 💡 有新想法？ → 发起讨论或直接PR
+- 📝 改进文档？ → 欢迎完善README和注释
 
 ---
 
 ## 📄 许可证
 
-MIT License
+[MIT License](LICENSE)
 
 ---
 
@@ -333,7 +250,7 @@ MIT License
 
 **引灯续昼**
 
-- GitHub: [HLC2757808353](https://github.com/HLC2757808353)
+- GitHub: [@HLC2757808353](https://github.com/HLC2757808353)
 - 项目地址: [astrbot_plugin_memory_capsule](https://github.com/HLC2757808353/astrbot_plugin_memory_capsule)
 
 ---
@@ -348,6 +265,8 @@ MIT License
 
 <div align="center">
 
-*如果这个插件对你有帮助，欢迎 Star ⭐*
+**如果觉得有用，给个 ⭐ 吧！**
+
+*Made with ❤️ by 引灯续昼*
 
 </div>

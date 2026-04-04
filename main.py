@@ -7,7 +7,7 @@ import os
 import threading
 import asyncio
 
-@register("memory_capsule", "引灯续昼", "记忆胶囊插件，用于存储和检索记忆", "v0.0.1", "https://github.com/HLC2757808353/astrbot_plugin_memory_capsule")
+@register("memory_capsule", "引灯续昼", "记忆胶囊插件，用于存储和检索记忆", "v0.9.5", "https://github.com/HLC2757808353/astrbot_plugin_memory_capsule")
 class MemoryCapsulePlugin(Star):
     def __init__(self, context: Context, config=None):
         super().__init__(context)
@@ -110,11 +110,16 @@ class MemoryCapsulePlugin(Star):
                 logger.error(f"请修改配置文件中的 webui_port 为其他端口，或检查是否有其他程序占用该端口")
                 return
             
+            # 获取data目录路径（用于存储认证信息）
+            data_dir = os.path.join(os.path.dirname(__file__), "data")
+            
             from .webui.server import WebUIServer
-            self.webui_server = WebUIServer(self.db_manager, port=self.webui_port)
+            self.webui_server = WebUIServer(self.db_manager, port=self.webui_port, data_dir=data_dir)
             self.webui_server.server_thread = threading.Thread(target=self.webui_server.run, daemon=True, name='WebUI Server')
             self.webui_server.server_thread.start()
             logger.info(f"WebUI服务已启动，端口: {self.webui_port}")
+            logger.info(f"访问地址: http://localhost:{self.webui_port}")
+            logger.info("⚠️  首次使用请查看上方日志中的临时Token进行登录")
         except Exception as e:
             logger.error(f"启动WebUI服务失败: {e}")
 
