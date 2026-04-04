@@ -18,7 +18,7 @@ from .version import get_plugin_version
 
 
 class WebUIServer:
-    def __init__(self, db_manager, port=5000, data_dir=None):
+    def __init__(self, db_manager, port=5000, data_dir=None, existing_auth=None):
         self.app = Flask(__name__)
         self.app.secret_key = os.urandom(24).hex()  # 用于Session签名
         
@@ -29,11 +29,12 @@ class WebUIServer:
         self.server_thread = None
         self._own_pid = os.getpid()
         
-        # 初始化认证管理器
-        if data_dir:
+        # 初始化认证管理器（支持传入已有实例，避免重复生成Token）
+        if existing_auth:
+            self.auth_manager = existing_auth
+        elif data_dir:
             self.auth_manager = AuthManager(data_dir)
         else:
-            # 默认使用插件data目录
             default_data_dir = os.path.join(os.path.dirname(__file__), "..", "..", "data")
             self.auth_manager = AuthManager(default_data_dir)
         

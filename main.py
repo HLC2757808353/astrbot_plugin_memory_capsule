@@ -98,30 +98,115 @@ class MemoryCapsulePlugin(Star):
 
     def _start_webui(self):
         """启动WebUI服务"""
+        
+        # 🎯 关键改进：先生成Token和认证信息（无论端口是否被占用）
+        data_dir = os.path.join(os.path.dirname(__file__), "data")
+        
+        try:
+            from .webui.auth import AuthManager
+            auth_manager = AuthManager(data_dir)
+            logger.info(f"✅ 认证信息已生成（Token见上方日志）")
+        except Exception as e:
+            logger.error(f"生成认证信息失败: {e}")
+            auth_manager = None
+        
+        # 然后检查端口并启动服务器
         try:
             import socket
             
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            result = sock.connect_ex(('localhost', self.webui_port))
+            result = sock.connect_ex(('127.0.0.1', self.webui_port))
             sock.close()
             
             if result == 0:
-                logger.error(f"端口 {self.webui_port} 已被占用，无法启动WebUI服务")
-                logger.error(f"请修改配置文件中的 webui_port 为其他端口，或检查是否有其他程序占用该端口")
-                return
-            
-            # 获取data目录路径（用于存储认证信息）
-            data_dir = os.path.join(os.path.dirname(__file__), "data")
+                # 端口被占用 - 尝试自动清理旧进程
+                logger.warning(f"⚠️  端口 {self.webui_port} 已被占用，尝试自动释放...")
+                
+                if self._force_release_port(self.webui_port):
+                    logger.info(f"✅ 端口 {self.webui_port} 已成功释放")
+                else:
+                    logger.error(f"❌ 端口 {self.webui_port} 无法自动释放")
+                    logger.error(f"   请手动终止占用该端口的进程，或修改 webui_port 配置")
+                    logger.error(f"   Windows: netstat -ano | findstr :{self.webui_port}")
+                    logger.error(f"   Linux: lsof -i :{self.webui_port}")
+                    return
             
             from .webui.server import WebUIServer
-            self.webui_server = WebUIServer(self.db_manager, port=self.webui_port, data_dir=data_dir)
-            self.webui_server.server_thread = threading.Thread(target=self.webui_server.run, daemon=True, name='WebUI Server')
+            self.webui_server = WebUIServer(
+                self.db_manager, 
+                port=self.webui_port, 
+                data_dir=data_dir,
+                existing_auth=auth_manager  # 复用已创建的AuthManager
+            )
+            self.webui_server.server_thread = threading.Thread(
+                target=self.webui_server.run, 
+                daemon=True, 
+                name='WebUI Server'
+            )
             self.webui_server.server_thread.start()
-            logger.info(f"WebUI服务已启动，端口: {self.webui_port}")
-            logger.info(f"访问地址: http://localhost:{self.webui_port}")
-            logger.info("⚠️  首次使用请查看上方日志中的临时Token进行登录")
+            logger.info(f"🌐 WebUI服务已启动")
+            logger.info(f"   地址: http://127.0.0.1:{self.webui_port}")
+            
         except Exception as e:
             logger.error(f"启动WebUI服务失败: {e}")
+            import traceback
+            logger.debug(traceback.format_exc())
+    
+    def _force_release_port(self, port, timeout=5):
+        """强制释放指定端口
+        
+        尝试策略：
+        1. 发送HTTP shutdown请求给旧服务
+        2. 等待进程退出
+        3. 验证端口是否释放
+        
+        Args:
+            port: 端口号
+            timeout: 等待超时（秒）
+            
+        Returns:
+            bool: 是否成功释放
+        """
+        import urllib.request
+        import time
+        
+        try:
+            # 方法1：尝试优雅关闭旧服务
+            logger.info(f"   尝试向 http://127.0.0.1:{port}/shutdown 发送关闭请求...")
+            try:
+                req = urllib.request.Request(
+                    f'http://127.0.0.1:{port}/shutdown',
+                    method='POST',
+                    data=b''
+                )
+                urllib.request.urlopen(req, timeout=2)
+                logger.info(f"   ✅ 已发送关闭请求")
+            except Exception as e:
+                logger.debug(f"   关闭请求失败（可能不是我们的服务）: {e}")
+            
+            # 等待端口释放
+            logger.info(f"   等待 {timeout} 秒让端口释放...")
+            start_time = time.time()
+            
+            while time.time() - start_time < timeout:
+                time.sleep(0.5)
+                
+                # 检查端口是否已释放
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                result = sock.connect_ex(('127.0.0.1', port))
+                sock.close()
+                
+                if result != 0:
+                    logger.info(f"   ✅ 确认端口 {port} 已释放")
+                    return True
+            
+            # 超时了还没释放
+            logger.warning(f"   ⏰ 等待超时，端口仍未释放")
+            return False
+            
+        except Exception as e:
+            logger.error(f"   强制释放端口时出错: {e}")
+            return False
 
     @filter.command("memory")
     async def memory_command(self, event: AstrMessageEvent):
@@ -141,7 +226,7 @@ class MemoryCapsulePlugin(Star):
         """插件销毁方法（增强版 - 确保资源完全释放）
         
         执行流程：
-        1. 停止WebUI服务器（释放端口）
+        1. 停止WebUI服务器（释放端口）- 即使引用丢失也要尝试
         2. 关闭数据库连接
         3. 清理缓存
         4. 确认所有资源已释放
@@ -158,6 +243,14 @@ class MemoryCapsulePlugin(Star):
                 logger.info("✅ WebUI服务器已停止")
             except Exception as e:
                 logger.error(f"停止WebUI服务器时出错: {e}")
+        else:
+            # 🔑 关键改进：即使webui_server是None，也尝试释放端口
+            logger.info("⚠️  WebUI服务器引用为空，但仍然尝试释放端口...")
+            try:
+                if hasattr(self, 'webui_port') and self.webui_port:
+                    self._force_release_port(self.webui_port, timeout=3)
+            except Exception as e:
+                logger.debug(f"强制释放端口时出错: {e}")
         
         # 2. 关闭数据库连接
         if self.db_manager:
