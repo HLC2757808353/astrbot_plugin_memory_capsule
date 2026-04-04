@@ -7,11 +7,26 @@ __all__ = [
     "query_plugin_data"
 ]
 
-# 版本信息
-__version__ = "v0.9.5"
-
 # 插件名称
 __plugin_name__ = "记忆胶囊"
+
+# 版本信息（从 metadata.yaml 动态读取，唯一真相源）
+def __get_version():
+    """延迟获取版本号"""
+    try:
+        from .webui.version import get_plugin_version
+        return get_plugin_version()
+    except Exception:
+        return "v0.0.0"
+
+# 使用属性方式动态获取版本（兼容 import 方式）
+class _VersionProxy:
+    def __str__(self):
+        return __get_version()
+    def __repr__(self):
+        return f"'{__get_version()}'"
+
+__version__ = _VersionProxy()
 
 # 全局数据库管理器实例
 _manager_instance = None

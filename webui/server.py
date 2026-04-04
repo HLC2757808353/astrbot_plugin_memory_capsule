@@ -2,7 +2,6 @@ from flask import Flask, render_template, jsonify, request, make_response, sessi
 from functools import wraps
 import threading
 import time
-import yaml
 import os
 import socket
 
@@ -15,6 +14,7 @@ except ImportError:
     logging.basicConfig(level=logging.INFO)
 
 from .auth import AuthManager
+from .version import get_plugin_version
 
 
 class WebUIServer:
@@ -25,7 +25,7 @@ class WebUIServer:
         self.db_manager = db_manager
         self.port = port
         self.running = False
-        self.version = self._get_version()
+        self.version = get_plugin_version()  # 从metadata.yaml动态读取
         self.server_thread = None
         self._own_pid = os.getpid()
         
@@ -41,17 +41,6 @@ class WebUIServer:
         self.public_routes = ['/login', '/api/login', '/api/auth/status']
         
         self.setup_routes()
-    
-    def _get_version(self):
-        """从metadata.yaml读取版本号"""
-        try:
-            metadata_path = os.path.join(os.path.dirname(__file__), "..", "metadata.yaml")
-            with open(metadata_path, 'r', encoding='utf-8') as f:
-                metadata = yaml.safe_load(f)
-                return metadata.get('version', 'v0.9.5')
-        except Exception as e:
-            logger.error(f"读取版本号失败: {e}")
-            return 'v0.9.5'
     
     def _require_auth(self, f):
         """认证装饰器 - 验证用户是否已登录"""
@@ -85,16 +74,14 @@ class WebUIServer:
             """登录页面"""
             if request.method == 'POST':
                 data = request.json or request.form
-                password = data.get('password', '')
+                token = data.get('password', '')
                 
-                session_token = self.auth_manager.authenticate(password)
+                session_token = self.auth_manager.authenticate(token)
                 
                 if session_token:
                     response = jsonify({
                         'success': True,
-                        'message': '登录成功',
-                        'redirect': '/',
-                        'password_set': self.auth_manager.is_password_set()
+                        'message': '登录成功'
                     })
                     response.set_cookie(
                         'session_token',
@@ -107,8 +94,7 @@ class WebUIServer:
                 else:
                     return jsonify({
                         'success': False,
-                        'message': '密码错误或Token已过期',
-                        'password_set': self.auth_manager.is_password_set()
+                        'message': 'Token错误，请检查输入'
                     }), 401
             
             # GET请求返回登录页面
@@ -123,15 +109,14 @@ class WebUIServer:
         def api_login():
             """API登录接口"""
             data = request.json or {}
-            password = data.get('password', '')
+            token = data.get('password', '')
             
-            session_token = self.auth_manager.authenticate(password)
+            session_token = self.auth_manager.authenticate(token)
             
             if session_token:
                 response = jsonify({
                     'success': True,
-                    'message': '登录成功',
-                    'password_set': self.auth_manager.is_password_set()
+                    'message': '登录成功'
                 })
                 response.set_cookie(
                     'session_token',
@@ -143,8 +128,7 @@ class WebUIServer:
             else:
                 return jsonify({
                     'success': False,
-                    'message': '密码错误',
-                    'password_set': self.auth_manager.is_password_set()
+                    'message': 'Token错误'
                 }), 401
         
         @self.app.route('/api/logout', methods=['POST'])
@@ -166,38 +150,13 @@ class WebUIServer:
             status['is_logged_in'] = is_logged_in
             return jsonify(status)
         
-        @self.app.route('/api/auth/password', methods=['POST'])
-        def api_set_password():
-            """设置新密码（需要已登录）"""
-            session_token = request.cookies.get('session_token') or request.headers.get('X-Session-Token')
-            
-            if not session_token or not self.auth_manager.validate_session(session_token):
-                return jsonify({'success': False, 'message': '未授权'}), 401
-            
-            data = request.json or {}
-            new_password = data.get('new_password', '')
-            
-            if self.auth_manager.set_password(new_password):
-                # 密码设置成功，更新session
-                response = jsonify({
-                    'success': True,
-                    'message': '密码设置成功，请重新登录'
-                })
-                response.delete_cookie('session_token')
-                return response
-            else:
-                return jsonify({
-                    'success': False,
-                    'message': '密码不符合要求（4-64个字符）'
-                }), 400
-        
         @self.app.route('/api/auth/reset', methods=['POST'])
         def api_reset_auth():
-            """重置认证系统（危险操作，仅用于忘记密码时）
+            """重新生成Token（用于忘记Token时）
             
-            注意：这会删除所有密码配置，生成新的临时Token
+            注意：这会使当前Token失效，新Token会打印到日志中
             """
-            result = self.auth_manager.reset_auth()
+            result = self.auth_manager.regenerate_token()
             return jsonify(result)
         
         # ====== 需要认证的路由 ======
@@ -493,12 +452,10 @@ class WebUIServer:
         self.running = True
         try:
             logger.info(f"WebUI服务启动中... (端口: {self.port})")
-            logger.info(f"访问地址: http://localhost:{self.port}")
             
-            if not self.auth_manager.is_password_set():
-                logger.warning("⚠️  尚未设置登录密码！请查看上方日志中的临时Token")
+            # Token已在AuthManager初始化时打印到日志
             
-            self.app.run(host='0.0.0.0', port=self.port, debug=False, use_reloader=False, threaded=True)
+            self.app.run(host='127.0.0.1', port=self.port, debug=False, use_reloader=False, threaded=True)
         except OSError as e:
             if "Address already in use" in str(e):
                 logger.error(f"端口 {self.port} 已被占用，请检查是否有残留进程或修改端口配置。")
@@ -510,22 +467,77 @@ class WebUIServer:
             self.running = False
 
     def stop(self):
-        """停止服务器"""
-        if not self.running:
+        """停止服务器（增强版 - 确保端口释放）
+        
+        停止策略：
+        1. 先尝试优雅关闭（通过shutdown端点）
+        2. 等待线程结束
+        3. 如果超时，强制终止
+        4. 最终确认端口已释放
+        """
+        if not self.running and (not self.server_thread or not self.server_thread.is_alive()):
             logger.info("WebUI服务器未运行，无需停止。")
             return
 
         logger.info(f"正在停止 WebUI 服务器 (端口 {self.port})...")
         
+        # 标记为停止状态
         self.running = False
         
+        # 方法1：尝试优雅关闭（通过内部shutdown端点）
         try:
             import urllib.request
-            urllib.request.urlopen(f'http://localhost:{self.port}/shutdown', timeout=2)
-        except Exception:
-            pass
+            req = urllib.request.Request(
+                f'http://127.0.0.1:{self.port}/shutdown',
+                method='POST',
+                data=b''
+            )
+            urllib.request.urlopen(req, timeout=3)
+            logger.info("已发送优雅关闭请求")
+        except Exception as e:
+            logger.debug(f"优雅关闭请求失败（可能服务器未正常启动）: {e}")
         
+        # 方法2：等待服务器线程结束
         if self.server_thread and self.server_thread.is_alive():
-            self.server_thread.join(timeout=3)
+            logger.info("等待WebUI服务器线程结束...")
+            
+            try:
+                # 第一次等待（给5秒时间优雅关闭）
+                self.server_thread.join(timeout=5)
+                
+                if self.server_thread.is_alive():
+                    logger.warning("服务器线程未在5秒内结束，尝试强制终止...")
+                    
+                    # Flask没有提供直接的terminate方法，但我们可以通过设置daemon=True来让主进程退出时自动清理
+                    # 这里我们只能记录警告，实际清理会在进程退出时发生
+                    logger.warning(f"⚠️  服务器线程仍在运行，将在进程退出时自动清理")
+                    
+                else:
+                    logger.info("✅ WebUI服务器线程已正常结束")
+                    
+            except Exception as e:
+                logger.error(f"等待服务器线程时出错: {e}")
         
-        logger.info(f"WebUI 服务器已停止，端口 {self.port} 已释放。")
+        # 方法3：验证端口是否真正释放
+        self._verify_port_released()
+        
+        logger.info(f"WebUI 服务器停止流程完成，端口 {self.port} 应已释放")
+    
+    def _verify_port_released(self):
+        """验证端口是否已释放"""
+        import socket
+        
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(1)
+            result = sock.connect_ex(('127.0.0.1', self.port))
+            sock.close()
+            
+            if result == 0:
+                logger.warning(f"⚠️  端口 {self.port} 可能仍未释放！旧进程可能还在运行")
+                logger.warning("   如果遇到端口占用问题，请检查是否有残留的Python进程")
+            else:
+                logger.info(f"✅ 确认端口 {self.port} 已成功释放")
+                
+        except Exception as e:
+            logger.debug(f"验证端口状态时出错: {e}")

@@ -1,6 +1,5 @@
 import os
 import json
-import hashlib
 import secrets
 import time
 from datetime import datetime, timedelta
@@ -15,19 +14,19 @@ except ImportError:
 
 
 class AuthManager:
-    """WebUI认证管理器
+    """WebUI认证管理器（纯Token模式）
     
-    功能：
-    - 首次启动生成临时Token
-    - 支持用户设置自定义密码
-    - 密码哈希存储（不存明文）
-    - Session会话管理
+    简化版：只使用临时Token，不设置永久密码
+    - 每次启动生成新的随机Token
+    - Token仅在启动时打印到日志一次
+    - 忘记Token只需重启插件
+    - Session有效期24小时
     """
     
     def __init__(self, data_dir):
         """
         参数：
-        - data_dir: 数据目录路径（用于存储 auth.json）
+        - data_dir: 数据目录路径（用于存储配置）
         """
         self.data_dir = data_dir
         self.auth_file = os.path.join(data_dir, "auth.json")
@@ -38,87 +37,62 @@ class AuthManager:
         # Session过期时间（默认24小时）
         self.session_timeout = 86400
         
-        # 加载或初始化认证配置
-        self.config = self._load_or_init_auth()
+        # 生成新的Token（每次实例化都重新生成）
+        self.config = self._generate_new_token()
     
-    def _load_or_init_auth(self):
-        """加载现有认证配置，如果不存在则初始化"""
-        if os.path.exists(self.auth_file):
-            try:
-                with open(self.auth_file, 'r', encoding='utf-8') as f:
-                    config = json.load(f)
-                logger.info(f"已加载认证配置: {self.auth_file}")
-                return config
-            except Exception as e:
-                logger.error(f"加载认证配置失败: {e}，将重新生成")
-        
-        # 生成新的临时Token
-        return self._generate_new_config()
-    
-    def _generate_new_config(self):
-        """生成全新的认证配置"""
-        temp_token = self._generate_temp_token()
+    def _generate_new_token(self):
+        """生成全新的临时Token"""
+        temp_token = self._generate_temp_token(length=8)
         token_expires = (datetime.now() + timedelta(hours=24)).isoformat()
         
         config = {
             "temp_token": temp_token,
-            "temp_token_expires": token_expires,
-            "password_hash": None,  # 用户还没设置密码
-            "password_set": False,
-            "created_at": datetime.now().isoformat()
+            "token_generated_at": datetime.now().isoformat(),
+            "expires_at": token_expires,
+            "mode": "token_only"  # 标记为纯Token模式
         }
         
-        # 保存到文件
-        self._save_config(config)
-        
-        # 打印重要提示到日志
-        logger.info("=" * 60)
-        logger.info("⚠️  WebUI 首次启动！请使用以下临时密码登录：")
-        logger.info(f"   临时密码: {temp_token}")
-        logger.info(f"   有效期至: {token_expires}")
-        logger.info("   登录后请立即在设置页面修改密码！")
-        logger.info("=" * 60)
-        
-        return config
-    
-    def _generate_temp_token(self, length=8):
-        """生成随机临时Token"""
-        import string
-        alphabet = string.ascii_letters + string.digits
-        return ''.join(secrets.choice(alphabet) for _ in range(length))
-    
-    def _save_config(self, config):
-        """保存认证配置到文件"""
         try:
             os.makedirs(os.path.dirname(self.auth_file), exist_ok=True)
             with open(self.auth_file, 'w', encoding='utf-8') as f:
                 json.dump(config, f, indent=2, ensure_ascii=False)
         except Exception as e:
-            logger.error(f"保存认证配置失败: {e}")
-    
-    def _hash_password(self, password):
-        """对密码进行哈希（使用SHA256 + salt）"""
-        salt = secrets.token_hex(16)
-        password_bytes = password.encode('utf-8')
-        salt_bytes = salt.encode('utf-8')
+            logger.error(f"保存Token配置失败: {e}")
         
-        hashed = hashlib.sha256(password_bytes + salt_bytes).hexdigest()
-        return f"{salt}:{hashed}"
+        # 打印重要日志（只打印一次）
+        logger.info("=" * 60)
+        logger.info("🔐 WebUI 认证信息")
+        logger.info("-" * 60)
+        logger.info(f"   📱 访问地址: http://localhost:{self._get_webui_port()}")
+        logger.info(f"   🔑 登录Token: {temp_token}")
+        logger.info(f"   ⏰ 有效期至: {token_expires[:19].replace('T', ' ')}")
+        logger.info("-" * 60)
+        logger.info("💡 提示: Token仅在此显示一次！")
+        logger.info("   如忘记Token，请重启插件查看新Token")
+        logger.info("=" * 60)
+        
+        return config
     
-    def _verify_password(self, password, stored_hash):
-        """验证密码"""
+    def _get_webui_port(self):
+        """尝试获取WebUI端口"""
         try:
-            salt, hashed = stored_hash.split(':')
-            password_bytes = password.encode('utf-8')
-            salt_bytes = salt.encode('utf-8')
-            
-            new_hash = hashlib.sha256(password_bytes + salt_bytes).hexdigest()
-            return new_hash == hashed
-        except Exception:
-            return False
+            conf_path = os.path.join(os.path.dirname(__file__), "..", "..", "_conf_schema.json")
+            if os.path.exists(conf_path):
+                with open(conf_path, 'r', encoding='utf-8') as f:
+                    conf = json.load(f)
+                    return conf.get('webui_port', {}).get('default', 5000)
+        except:
+            pass
+        return 5000
     
-    def authenticate(self, password):
-        """验证用户输入的密码
+    def _generate_temp_token(self, length=8):
+        """生成随机Token"""
+        import string
+        alphabet = string.ascii_letters + string.digits
+        return ''.join(secrets.choice(alphabet) for _ in range(length))
+    
+    def authenticate(self, token):
+        """验证用户输入的Token
         
         返回值：
         - 成功: session_token (字符串)
@@ -127,40 +101,15 @@ class AuthManager:
         # 清理过期会话
         self._cleanup_sessions()
         
-        # 检查是否是临时Token
-        if not self.config.get("password_set", False):
-            # 还没设置密码，只能用临时Token登录
-            temp_token = self.config.get("temp_token", "")
-            token_expires = self.config.get("temp_token_expires", "")
-            
-            if password == temp_token:
-                # 检查Token是否过期
-                try:
-                    expires_time = datetime.fromisoformat(token_expires)
-                    if datetime.now() > expires_time:
-                        logger.warning("临时Token已过期，正在生成新Token...")
-                        self.config = self._generate_new_config()
-                        return None
-                except Exception:
-                    pass
-                
-                # 创建会话
-                session_token = self._create_session()
-                logger.info("用户通过临时Token成功登录")
-                return session_token
-            
-            logger.warning("临时Token错误")
-            return None
-        else:
-            # 已设置密码，验证密码
-            password_hash = self.config.get("password_hash")
-            if password_hash and self._verify_password(password, password_hash):
-                session_token = self._create_session()
-                logger.info("用户通过密码成功登录")
-                return session_token
-            
-            logger.warning("密码错误")
-            return None
+        current_token = self.config.get("temp_token", "")
+        
+        if token == current_token:
+            session_token = self._create_session()
+            logger.info("✅ 用户通过Token成功登录WebUI")
+            return session_token
+        
+        logger.warning("❌ Token验证失败")
+        return None
     
     def _create_session(self):
         """创建新会话"""
@@ -182,12 +131,7 @@ class AuthManager:
             del self.sessions[token]
     
     def validate_session(self, session_token):
-        """验证会话是否有效
-        
-        返回值：
-        - True: 会话有效
-        - False: 会话无效或过期
-        """
+        """验证会话是否有效"""
         if not session_token:
             return False
         
@@ -197,76 +141,29 @@ class AuthManager:
         if not session_data:
             return False
         
-        # 检查是否过期
         if time.time() - session_data["created_at"] > session_data["expires_in"]:
             del self.sessions[session_token]
             return False
         
         return True
     
-    def set_password(self, new_password):
-        """设置新密码
-        
-        参数：
-        - new_password: 新密码（明文）
-        
-        返回值：
-        - True: 设置成功
-        - False: 密码不符合要求
-        """
-        # 密码长度验证
-        if len(new_password) < 4:
-            logger.warning("密码太短，至少需要4个字符")
-            return False
-        
-        if len(new_password) > 64:
-            logger.warning("密码太长，最多64个字符")
-            return False
-        
-        # 哈希并保存
-        password_hash = self._hash_password(new_password)
-        self.config["password_hash"] = password_hash
-        self.config["password_set"] = True
-        self.config["password_changed_at"] = datetime.now().isoformat()
-        
-        # 使旧临时Token失效
-        self.config["temp_token"] = None
-        self.config["temp_token_expires"] = None
-        
-        self._save_config(self.config)
-        
-        # 清除所有现有会话（强制重新登录）
-        self.sessions.clear()
-        
-        logger.info("用户密码已成功更新")
-        return True
-    
-    def is_password_set(self):
-        """检查是否已设置密码"""
-        return self.config.get("password_set", False)
-    
     def get_status(self):
         """获取认证状态信息（用于API）"""
         return {
-            "password_set": self.config.get("password_set", False),
-            "has_temp_token": self.config.get("temp_token") is not None,
+            "mode": "token_only",
+            "token_set": True,
             "active_sessions": len(self.sessions),
-            "config_file": self.auth_file
+            "config_file": self.auth_file,
+            "current_token_prefix": self.config.get("temp_token", "")[:4] + "****"  # 只显示前4位
         }
     
-    def reset_auth(self):
-        """重置认证系统（删除所有配置，重新生成）
-        
-        用途：忘记密码时重置
-        """
-        if os.path.exists(self.auth_file):
-            os.remove(self.auth_file)
-            logger.info("认证配置已删除")
-        
-        self.sessions.clear()
-        self.config = self._generate_new_config()
+    def regenerate_token(self):
+        """重新生成Token（用于忘记密码时）"""
+        self.sessions.clear()  # 清除所有会话
+        self.config = self._generate_new_token()
         
         return {
             "success": True,
-            "message": "认证系统已重置，请查看日志获取新的临时密码"
+            "message": "已生成新Token，请查看日志",
+            "token_prefix": self.config["temp_token"][:4] + "****"
         }

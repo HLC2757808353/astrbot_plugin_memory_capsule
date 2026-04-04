@@ -65,12 +65,6 @@
             border-left: 4px solid #2196f3;
         }
 
-        .alert-warning {
-            background-color: #fff3e0;
-            color: #e65100;
-            border-left: 4px solid #ff9800;
-        }
-
         .alert-error {
             background-color: #ffebee;
             color: #c62828;
@@ -191,23 +185,21 @@
             <div class="version">{{ version }}</div>
         </div>
 
-        {% if auth_status and not auth_status.password_set %}
-        <div class="alert alert-warning" style="display: block;">
-            🔐 首次使用：请查看 AstrBot 日志中的<strong>临时密码</strong>，或使用下方重置功能
+        <div class="alert alert-info" style="display: block;">
+            🔑 请输入插件启动时日志中显示的 <strong>Login Token</strong>
         </div>
-        {% endif %}
 
         <div id="errorAlert" class="alert alert-error"></div>
         <div id="successAlert" class="alert alert-info"></div>
 
         <form id="loginForm" onsubmit="handleLogin(event)">
             <div class="form-group">
-                <label for="password">🔑 访问密码</label>
+                <label for="token">🔐 Login Token</label>
                 <input 
-                    type="password" 
+                    type="text" 
                     id="password" 
-                    placeholder="{% if auth_status and not auth_status.password_set %}请输入临时密码{% else %}请输入登录密码{% endif %}"
-                    autocomplete="current-password"
+                    placeholder="请输入Token（如：a8f3x9k2m）"
+                    autocomplete="off"
                     required
                     autofocus
                 >
@@ -218,20 +210,20 @@
             </button>
         </form>
 
-        {% if auth_status and not auth_status.password_set %}
         <div class="hint-box">
-            <strong>💡 首次使用指南：</strong><br><br>
-            1. 启动插件后，查看 AstrBot 控制台日志<br>
-            2. 找到类似 "临时密码: a8f3x9k2m" 的信息<br>
-            3. 将该密码输入上方框中并登录<br>
-            4. 登录后请在设置页面修改为自定义密码
+            <strong>💡 如何获取Token？</strong><br><br>
+            Token仅在<strong>插件启动时</strong>打印一次到日志中。<br><br>
+            📋 查看方式：<br>
+            &nbsp;&nbsp;1. 打开 AstrBot 控制台/日志<br>
+            &nbsp;&nbsp;2. 找到 "🔐 WebUI 认证信息" 区块<br>
+            &nbsp;&nbsp;3. 复制 "登录Token" 后面的8位字符<br><br>
+            ⚠️ 如果忘记Token，只需<strong>重启插件</strong>即可生成新Token
         </div>
-        {% endif %}
 
         <div class="footer">
             <p>记忆胶囊 - 为 AI 赋予持久记忆</p>
             <p style="margin-top: 8px;">
-                <a href="#" onclick="showResetConfirm()">忘记密码？</a>
+                <a href="#" onclick="regenerateToken()">忘记Token？点击重新生成</a>
             </p>
         </div>
     </div>
@@ -240,7 +232,7 @@
         async function handleLogin(e) {
             e.preventDefault();
             
-            const password = document.getElementById('password').value;
+            const token = document.getElementById('password').value;
             const loginBtn = document.getElementById('loginBtn');
             const errorAlert = document.getElementById('errorAlert');
             const successAlert = document.getElementById('successAlert');
@@ -259,7 +251,7 @@
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({ password: password })
+                    body: JSON.stringify({ password: token })
                 });
                 
                 const data = await response.json();
@@ -268,19 +260,16 @@
                     successAlert.textContent = '✅ ' + data.message + '，正在跳转...';
                     successAlert.style.display = 'block';
                     
-                    // 延迟跳转，让用户看到成功消息
                     setTimeout(() => {
                         window.location.href = '/';
                     }, 800);
                 } else {
-                    errorAlert.textContent = '❌ ' + (data.message || '登录失败，请检查密码');
+                    errorAlert.textContent = '❌ ' + (data.message || 'Token错误，请检查输入');
                     errorAlert.style.display = 'block';
                     
-                    // 恢复按钮状态
                     loginBtn.disabled = false;
                     loginBtn.innerHTML = '登 录';
                     
-                    // 清空密码框
                     document.getElementById('password').value = '';
                     document.getElementById('password').focus();
                 }
@@ -293,13 +282,11 @@
             }
         }
         
-        function showResetConfirm() {
-            if (confirm('⚠️ 确定要重置认证系统吗？\n\n这将删除当前密码配置，生成新的临时Token。\n\n请确保你有访问服务器日志的权限！')) {
-                resetAuth();
+        async function regenerateToken() {
+            if (!confirm('⚠️ 确定要重新生成Token吗？\n\n这将使当前Token失效，新Token会显示在日志中。\n\n（需要能访问服务器日志）')) {
+                return;
             }
-        }
-        
-        async function resetAuth() {
+            
             try {
                 const response = await fetch('/api/auth/reset', {
                     method: 'POST'
@@ -308,8 +295,7 @@
                 const data = await response.json();
                 
                 if (data.success) {
-                    alert('✅ 认证系统已重置！\n\n请查看 AstrBot 日志获取新的临时密码。\n然后刷新本页面重新登录。');
-                    location.reload();
+                    alert('✅ 新Token已生成！\n\n请查看 AstrBot 日志获取新的Token。\n格式：' + (data.token_prefix || '****'));
                 } else {
                     alert('❌ 重置失败：' + (data.message || '未知错误'));
                 }

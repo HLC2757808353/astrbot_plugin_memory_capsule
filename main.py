@@ -138,18 +138,48 @@ class MemoryCapsulePlugin(Star):
             yield event.plain_result(f"{user_name}, 记忆胶囊命令格式：/memory test 或 /memory status")
 
     async def terminate(self):
-        """插件销毁方法"""
+        """插件销毁方法（增强版 - 确保资源完全释放）
+        
+        执行流程：
+        1. 停止WebUI服务器（释放端口）
+        2. 关闭数据库连接
+        3. 清理缓存
+        4. 确认所有资源已释放
+        """
+        logger.info("=" * 50)
         logger.info("记忆胶囊插件正在关闭...")
         
-        # 关闭WebUI服务
+        # 1. 停止WebUI服务（最重要！确保端口释放）
         if self.webui_server:
-            self.webui_server.stop()
+            try:
+                logger.info("正在停止WebUI服务器...")
+                self.webui_server.stop()
+                self.webui_server = None
+                logger.info("✅ WebUI服务器已停止")
+            except Exception as e:
+                logger.error(f"停止WebUI服务器时出错: {e}")
         
-        # 关闭数据库连接
+        # 2. 关闭数据库连接
         if self.db_manager:
-            self.db_manager.close()
+            try:
+                logger.info("正在关闭数据库连接...")
+                self.db_manager.close()
+                self.db_manager = None
+                logger.info("✅ 数据库连接已关闭")
+            except Exception as e:
+                logger.error(f"关闭数据库时出错: {e}")
         
-        logger.info("记忆胶囊插件已关闭")
+        # 3. 清理缓存
+        try:
+            self.relation_injection_cache.clear()
+            self.last_relation_user_id = None
+            logger.info("✅ 缓存已清理")
+        except Exception as e:
+            logger.debug(f"清理缓存时出错: {e}")
+        
+        logger.info("=" * 50)
+        logger.info("记忆胶囊插件已完全关闭，所有资源已释放")
+        logger.info("=" * 50)
 
     @filter.llm_tool(name="update_relationship")
     async def update_relationship(self, event, user_id, relation_type=None, summary_update=None, nickname=None, first_met_location=None, known_contexts=None):
