@@ -346,7 +346,6 @@ class MemoryCapsulePlugin(Star):
         # 类型转换确保参数类型正确
         memory_id = int(memory_id)
         try:
-            import asyncio
             result = await asyncio.to_thread(self.db_manager.delete_memory, memory_id)
             logger.info(f"删除记忆成功: ID={memory_id}")
             return result
@@ -372,7 +371,6 @@ class MemoryCapsulePlugin(Star):
         # 类型转换确保参数类型正确
         limit = int(limit)
         try:
-            import asyncio
             results = await asyncio.to_thread(self.db_manager.get_all_memories, limit)
             logger.info(f"获取所有记忆成功，找到 {len(results)} 条结果")
             return results
@@ -389,7 +387,6 @@ class MemoryCapsulePlugin(Star):
             list: 关系列表
         """
         try:
-            import asyncio
             results = await asyncio.to_thread(self.db_manager.get_all_relationships)
             logger.info(f"获取所有关系成功，找到 {len(results)} 条结果")
             return results
@@ -448,7 +445,6 @@ class MemoryCapsulePlugin(Star):
             str: 备份结果
         """
         try:
-            import asyncio
             result = await asyncio.to_thread(self.db_manager.backup)
             logger.info("数据库备份成功")
             return result
@@ -465,7 +461,6 @@ class MemoryCapsulePlugin(Star):
             str: 优化结果
         """
         try:
-            import asyncio
             await asyncio.to_thread(self.db_manager.self_optimize)
             logger.info("自我优化执行成功")
             return "自我优化执行成功"
@@ -485,7 +480,6 @@ class MemoryCapsulePlugin(Star):
             str: 更新结果
         """
         try:
-            import asyncio
             await asyncio.to_thread(self.db_manager.update_search_weights, **weights)
             logger.info("搜索权重更新成功")
             return "搜索权重更新成功"
@@ -505,7 +499,6 @@ class MemoryCapsulePlugin(Star):
             str: 更新结果
         """
         try:
-            import asyncio
             await asyncio.to_thread(self.db_manager.update_search_strategy, **strategy)
             logger.info("搜索策略更新成功")
             return "搜索策略更新成功"
@@ -560,7 +553,6 @@ class MemoryCapsulePlugin(Star):
                 return req
             
             # 查找用户关系信息（使用增强版查询，支持别名匹配）
-            import asyncio
             user_relation = await asyncio.to_thread(self.db_manager.get_relationship_with_identity, user_id)
             
             # 获取用户的别名列表（用于更自然的称呼）

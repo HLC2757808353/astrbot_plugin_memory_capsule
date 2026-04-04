@@ -126,8 +126,10 @@ class WebUIServer:
         @self.app.route('/api/memories/search')
         def api_search_memories():
             """搜索记忆"""
-            query = request.args.get('q')
-            memories = self.db_manager.search_memory(query)
+            query = request.args.get('q', '')
+            category = request.args.get('category')
+            limit = request.args.get('limit', type=int)
+            memories = self.db_manager.search_memory(query, category_filter=category, limit=limit)
             return jsonify(memories)
         
         @self.app.route('/api/tags')

@@ -571,6 +571,7 @@ class DatabaseManager:
         """获取数据库连接（每个线程独立）"""
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
+        conn.execute('PRAGMA foreign_keys = ON')
         return conn
 
     def _record_activity(self, action, details):
@@ -581,11 +582,6 @@ class DatabaseManager:
         - details: 操作详情
         """
         try:
-            # 输入验证（确保数据合法性，包括importance范围检查）
-            content, category, tags, importance = self.validate_memory_input(
-                content, category, tags, importance
-            )
-            
             conn = self._get_connection()
             cursor = conn.cursor()
             cursor.execute('INSERT INTO activities (action, details) VALUES (?, ?)', (action, details))
@@ -666,6 +662,8 @@ class DatabaseManager:
         - importance: 重要性 (默认 1)
         """
         try:
+            content, category, tags, importance = self.validate_memory_input(content, category, tags, importance)
+            
             conn = self._get_connection()
             cursor = conn.cursor()
             
@@ -719,29 +717,55 @@ class DatabaseManager:
         """解析查询中的相对时间表达
         
         返回：
-        - (parsed_query, date_str): 处理后的查询和日期字符串
+        - (parsed_query, date_start, date_end): 处理后的查询和日期范围
+          - parsed_query: 剥离时间词后的查询文本
+          - date_start: 日期范围起始（如 '2026-04-03'）
+          - date_end: 日期范围结束（如 '2026-04-04'，不含）
         """
-        from datetime import datetime, timedelta
+        from datetime import datetime, timedelta, time as dtime
         
         today = datetime.now().date()
-        date_str = None
+        now = datetime.now()
+        date_start = None
+        date_end = None
         parsed_query = query
         
         relative_time_patterns = [
-            (r'今天', today.strftime('%Y-%m-%d')),
-            (r'昨天', (today - timedelta(days=1)).strftime('%Y-%m-%d')),
-            (r'前天', (today - timedelta(days=2)).strftime('%Y-%m-%d')),
-            (r'大前天', (today - timedelta(days=3)).strftime('%Y-%m-%d')),
-            (r'上周|上个星期', (today - timedelta(weeks=1)).strftime('%Y-%m-%d')),
-            (r'上个月', (today - timedelta(days=30)).strftime('%Y-%m')),
+            (r'^今天$', today, today + timedelta(days=1)),
+            (r'今天', today, today + timedelta(days=1)),
+            (r'^昨天$', today - timedelta(days=1), today),
+            (r'昨天', today - timedelta(days=1), today),
+            (r'^前天$', today - timedelta(days=2), today - timedelta(days=1)),
+            (r'前天', today - timedelta(days=2), today - timedelta(days=1)),
+            (r'^大前天$', today - timedelta(days=3), today - timedelta(days=2)),
+            (r'大前天', today - timedelta(days=3), today - timedelta(days=2)),
+            (r'今天早上|今天上午', today, today + timedelta(days=1)),
+            (r'今天下午', today, today + timedelta(days=1)),
+            (r'今天晚上|今天夜间', today, today + timedelta(days=1)),
+            (r'昨天早上|昨天上午', today - timedelta(days=1), today),
+            (r'昨天下午', today - timedelta(days=1), today),
+            (r'昨天晚上|昨天夜间', today - timedelta(days=1), today),
+            (r'上周|上个星期', today - timedelta(weeks=1), today),
+            (r'这周|这个星期', today - timedelta(days=today.weekday()), today + timedelta(days=1)),
+            (r'上个月', (today.replace(day=1) - timedelta(days=1)).replace(day=1), today.replace(day=1)),
+            (r'这个月', today.replace(day=1), today + timedelta(days=1)),
         ]
         
-        for pattern, date in relative_time_patterns:
+        matched_pattern = None
+        for pattern, ds, de in relative_time_patterns:
             if re.search(pattern, query):
-                date_str = date
+                date_start = ds.strftime('%Y-%m-%d')
+                date_end = de.strftime('%Y-%m-%d')
+                matched_pattern = pattern
                 break
         
-        return parsed_query, date_str
+        if matched_pattern:
+            clean_pattern = matched_pattern.strip('^$')
+            parsed_query = re.sub(clean_pattern, '', query).strip()
+            while '  ' in parsed_query:
+                parsed_query = parsed_query.replace('  ', ' ')
+        
+        return parsed_query, date_start, date_end
 
     def _build_fts_query(self, query_text, query_tags):
         """构建FTS5查询语句
@@ -752,26 +776,25 @@ class DatabaseManager:
         - FTS5对特殊字符敏感，需要过滤
         - 中文长句需要拆分为关键词
         - 避免使用FTS5保留字（AND, OR, NOT等）
-        - 日期格式(2026-04-04)中的-是FTS5特殊字符，需要过滤
         """
         import re
         
+        fts_special_chars = r'[\"*():\-\+^~\[\]{}\\]'
+        fts_reserved_words = re.compile(r'\b(AND|OR|NOT|NEAR)\b', re.IGNORECASE)
+        
         terms = []
         
-        # 添加分词后的标签（更可靠）
         for tag in query_tags:
             if len(tag) >= 2:
-                # 过滤FTS5特殊字符（包括-，因为它是列名分隔符）
-                clean_tag = re.sub(r'[\"*():\-]', '', tag)
+                clean_tag = re.sub(fts_special_chars, '', tag)
+                clean_tag = fts_reserved_words.sub('', clean_tag)
                 if clean_tag and len(clean_tag) >= 2:
                     terms.append(clean_tag)
         
-        # 对于原始查询文本，只添加短文本或拆分后的词
         if query_text and len(query_text) >= 2:
-            # 如果查询文本较短（<=10个字符），直接添加
             if len(query_text) <= 10:
-                # 过滤FTS5特殊字符（包括-）
-                clean_query = re.sub(r'[\"*():\-]', '', query_text)
+                clean_query = re.sub(fts_special_chars, '', query_text)
+                clean_query = fts_reserved_words.sub('', clean_query)
                 if clean_query and len(clean_query) >= 2:
                     terms.append(clean_query)
             # 否则不添加原始文本（依赖分词结果即可）
@@ -815,20 +838,23 @@ class DatabaseManager:
             logger.error(f"FTS5搜索失败: {e}")
             return []
     
-    def _fallback_search(self, query_terms, category_filter=None, limit=50, date_filter=None):
+    def _fallback_search(self, query_terms, category_filter=None, limit=50, date_start=None, date_end=None):
         """回退到传统LIKE搜索（当FTS5不可用时）
         
         参数：
         - query_terms: 搜索词列表
         - category_filter: 分类过滤
         - limit: 结果数量限制
-        - date_filter: 日期过滤（如 '2026-04-04'）
+        - date_start: 日期范围起始（如 '2026-04-03'）
+        - date_end: 日期范围结束（如 '2026-04-04'）
         """
         try:
             conn = self._get_connection()
             cursor = conn.cursor()
             
-            if not query_terms and not date_filter:
+            is_pure_time_query = (not query_terms or all(not t.strip() for t in query_terms)) and date_start
+            
+            if not query_terms and not date_start:
                 if category_filter:
                     cursor.execute('SELECT id FROM memories WHERE category = ? LIMIT ?', (category_filter, limit))
                 else:
@@ -837,7 +863,6 @@ class DatabaseManager:
                 conn.close()
                 return results
             
-            # 构建查询条件
             conditions = []
             params = []
             
@@ -845,11 +870,12 @@ class DatabaseManager:
                 conditions.append('category = ?')
                 params.append(category_filter)
             
-            if query_terms:
-                # 搜索 content 和 tags 字段
+            if query_terms and not is_pure_time_query:
                 content_conditions = []
                 for term in query_terms:
-                    # 跳过看起来像日期的term（日期在created_at里搜索）
+                    term = term.strip()
+                    if not term:
+                        continue
                     if re.match(r'^\d{4}-?\d{2}-?\d{2}$', term) or re.match(r'^\d{6,}$', term):
                         continue
                     content_conditions.append('(content LIKE ? OR tags LIKE ?)')
@@ -857,16 +883,19 @@ class DatabaseManager:
                 if content_conditions:
                     conditions.append(f'({" OR ".join(content_conditions)})')
             
-            if date_filter:
-                # 日期过滤：搜索 created_at 字段
+            if date_start and date_end:
+                conditions.append('created_at >= ? AND created_at < ?')
+                params.extend([f'{date_start} 00:00:00', f'{date_end} 00:00:00'])
+            elif date_start:
                 conditions.append('created_at LIKE ?')
-                params.append(f'%{date_filter}%')
+                params.append(f'{date_start}%')
             
             if not conditions:
                 cursor.execute('SELECT id FROM memories LIMIT ?', (limit,))
             else:
                 sql = f'SELECT id FROM memories WHERE {" AND ".join(conditions)} LIMIT ?'
                 params.append(limit)
+                logger.info(f"回退搜索SQL: {sql}, params: {params}")
                 cursor.execute(sql, params)
             
             results = [row[0] for row in cursor.fetchall()]
@@ -890,44 +919,45 @@ class DatabaseManager:
         - category_filter: 分类过滤
         - limit: 返回结果数量限制（默认使用配置）
         """
+        import hashlib
+        
         try:
             if limit is None:
                 limit = self.config.get('search_max_results', 5)
             
-            parsed_query, date_filter = self._parse_relative_time(query)
+            parsed_query, date_start, date_end = self._parse_relative_time(query)
             
-            cache_key = f"search_{query}_{category_filter}_{limit}"
+            cache_key = f"search_{hashlib.md5(query.encode()).hexdigest()[:12]}_{category_filter}_{limit}"
             if cache_key in self.cache:
                 logger.info(f"使用缓存的搜索结果: {query}")
                 return self.cache[cache_key]
             
-            query_tags = self.extract_tags_optimized(parsed_query)
+            logger.info(f"解析查询: query='{query}', parsed_query='{parsed_query}', date_range={date_start}~{date_end}")
+            
+            query_tags = self.extract_tags_optimized(parsed_query) if parsed_query else []
             
             expanded_terms = []
-            if self.search_strategy.get('synonym_expansion', True):
+            if query_tags and self.search_strategy.get('synonym_expansion', True):
                 for term in query_tags:
                     expanded_terms.extend(self.get_all_synonyms(term))
-            else:
+            elif query_tags:
                 expanded_terms = list(query_tags)
             
-            if parsed_query:
-                expanded_terms.append(parsed_query)
-            
-            if date_filter:
-                expanded_terms.append(date_filter)
+            if parsed_query and parsed_query.strip():
+                expanded_terms.append(parsed_query.strip())
             
             candidate_ids = []
             
-            fts_query = self._build_fts_query(parsed_query, query_tags)
+            fts_query = self._build_fts_query(parsed_query, query_tags) if parsed_query else None
             
             if fts_query:
                 candidate_ids = self._fts_search(fts_query, category_filter, limit * 3)
                 
                 if not candidate_ids and self.search_strategy.get('enable_fallback', True):
                     logger.info("FTS5未找到结果，使用回退搜索")
-                    candidate_ids = self._fallback_search(expanded_terms, category_filter, limit * 3, date_filter)
+                    candidate_ids = self._fallback_search(expanded_terms, category_filter, limit * 3, date_start, date_end)
             else:
-                candidate_ids = self._fallback_search(expanded_terms, category_filter, limit * 3, date_filter)
+                candidate_ids = self._fallback_search(expanded_terms, category_filter, limit * 3, date_start, date_end)
             
             if not candidate_ids:
                 return []
@@ -935,8 +965,9 @@ class DatabaseManager:
             conn = self._get_connection()
             cursor = conn.cursor()
             
+            placeholders = ','.join(['?'] * len(candidate_ids))
             cursor.execute(f'''SELECT id, category, content, tags, importance, created_at, updated_at, access_count 
-                              FROM memories WHERE id IN ({",".join(["?"]*len(candidate_ids))})''', tuple(candidate_ids))
+                              FROM memories WHERE id IN ({placeholders})''', tuple(candidate_ids))
             candidate_memories = cursor.fetchall()
             conn.close()
             
@@ -962,9 +993,9 @@ class DatabaseManager:
                         
                         score = self._calculate_relevance_score_v2(memory, expanded_terms, parsed_query)
                         
-                        if date_filter and memory.get('created_at'):
+                        if date_start and memory.get('created_at'):
                             created_at_str = str(memory['created_at'])
-                            if date_filter in created_at_str:
+                            if date_start in created_at_str:
                                 score += 15.0
                         
                         if score > 0:
@@ -1215,8 +1246,8 @@ class DatabaseManager:
                 max_similarity_to_selected = 0
                 for sel in selected:
                     sim = self._calculate_text_similarity(
-                        candidate.get('memory', {}).get('description', ''),
-                        sel.get('memory', {}).get('description', '')
+                        candidate.get('description', ''),
+                        sel.get('description', '')
                     )
                     max_similarity_to_selected = max(max_similarity_to_selected, sim)
                 
@@ -1304,6 +1335,8 @@ class DatabaseManager:
         - importance: 重要性 (默认 5)
         """
         try:
+            content, category, tags, importance = self.validate_memory_input(content, category, tags, importance)
+            
             conn = self._get_connection()
             cursor = conn.cursor()
             
@@ -1810,28 +1843,14 @@ class DatabaseManager:
     def get_all_tags(self):
         """获取所有标签"""
         try:
-            # 使用独立连接
             conn = self._get_connection()
             cursor = conn.cursor()
             
-            # 获取所有标签
-            cursor.execute('SELECT tags FROM memories WHERE tags IS NOT NULL AND tags != ""')
+            cursor.execute('SELECT DISTINCT tag FROM tags ORDER BY tag')
             results = cursor.fetchall()
             conn.close()
             
-            # 提取标签
-            tags = set()
-            for row in results:
-                try:
-                    tag_list = row[0].split(',')
-                    for tag in tag_list:
-                        tag = tag.strip()
-                        if tag:
-                            tags.add(tag)
-                except:
-                    pass
-            
-            return list(tags)
+            return [row[0] for row in results if row[0]]
         except Exception as e:
             logger.error(f"获取标签失败: {e}")
             return []
@@ -1995,8 +2014,20 @@ class DatabaseManager:
             cursor = conn.cursor()
             
             query_lower = query.lower()
+            like_pattern = f'%{query_lower}%'
             
-            cursor.execute('SELECT user_id, nickname, relation_type, summary, first_met_location, known_contexts, updated_at FROM relationships')
+            cursor.execute('''
+                SELECT user_id, nickname, relation_type, summary, first_met_location, known_contexts, updated_at 
+                FROM relationships 
+                WHERE user_id = ? 
+                   OR LOWER(user_id) LIKE ?
+                   OR LOWER(nickname) LIKE ?
+                   OR LOWER(relation_type) LIKE ?
+                   OR LOWER(summary) LIKE ?
+                   OR LOWER(first_met_location) LIKE ?
+                LIMIT ?
+            ''', (query, like_pattern, like_pattern, like_pattern, like_pattern, like_pattern, limit * 3))
+            
             all_results = cursor.fetchall()
             conn.close()
             
@@ -2029,17 +2060,18 @@ class DatabaseManager:
                 if query_lower in first_met_location.lower():
                     score += 15
                 
+                relationship = {
+                    "user_id": row[0],
+                    "nickname": row[1],
+                    "relation_type": row[2],
+                    "summary": row[3],
+                    "first_met_location": row[4],
+                    "known_contexts": row[5],
+                    "updated_at": row[6]
+                }
+                
                 if score > 0:
-                    relationship = {
-                        "user_id": row[0],
-                        "nickname": row[1],
-                        "relation_type": row[2],
-                        "summary": row[3],
-                        "first_met_location": row[4],
-                        "known_contexts": row[5],
-                        "updated_at": row[6],
-                        "match_score": score
-                    }
+                    relationship['match_score'] = score
                     scored_results.append(relationship)
             
             scored_results.sort(key=lambda x: x.get('match_score', 0), reverse=True)

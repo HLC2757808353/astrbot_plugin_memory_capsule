@@ -105,8 +105,11 @@ class BackupManager:
 
     def start_auto_backup(self):
         """启动自动备份"""
-        if self.auto_backup_enabled:
-            return "自动备份已启动"
+        if not self.auto_backup_enabled:
+            return "自动备份已禁用"
+        
+        if self.running:
+            return "自动备份已在运行中"
         
         self.auto_backup_enabled = True
         self.running = True
