@@ -280,12 +280,19 @@ class DatabaseManager:
                 cursor.execute('PRAGMA table_info(memories)')
                 columns = [column[1] for column in cursor.fetchall()]
                 
-                # 添加缺失的access_count列
-                if 'access_count' not in columns:
-                    logger.info("添加缺失的access_count列...")
-                    cursor.execute('ALTER TABLE memories ADD COLUMN access_count INTEGER DEFAULT 0')
+                # 添加缺失的created_at列
+                if 'created_at' not in columns:
+                    logger.info("添加缺失的created_at列...")
+                    cursor.execute('ALTER TABLE memories ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP')
                     conn.commit()
-                    logger.info("成功添加access_count列")
+                    logger.info("成功添加created_at列")
+                
+                # 添加缺失的updated_at列
+                if 'updated_at' not in columns:
+                    logger.info("添加缺失的updated_at列...")
+                    cursor.execute('ALTER TABLE memories ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP')
+                    conn.commit()
+                    logger.info("成功添加updated_at列")
                 
                 # 添加缺失的tags列
                 if 'tags' not in columns:
@@ -300,6 +307,13 @@ class DatabaseManager:
                     cursor.execute('ALTER TABLE memories ADD COLUMN importance INTEGER DEFAULT 5')
                     conn.commit()
                     logger.info("成功添加importance列")
+                
+                # 添加缺失的access_count列
+                if 'access_count' not in columns:
+                    logger.info("添加缺失的access_count列...")
+                    cursor.execute('ALTER TABLE memories ADD COLUMN access_count INTEGER DEFAULT 0')
+                    conn.commit()
+                    logger.info("成功添加access_count列")
             except Exception as e:
                 logger.error(f"添加memories列失败: {e}")
             
