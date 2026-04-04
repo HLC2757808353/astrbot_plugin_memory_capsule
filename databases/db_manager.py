@@ -133,14 +133,27 @@ class TTLCache:
         return len(valid_items)
 
 class MemoryColumn:
-    """记忆表列索引常量"""
+    """记忆表列索引常量 - 必须与数据库CREATE TABLE语句完全一致！
+    
+    数据库表结构 (db_manager.py 第403-412行):
+    CREATE TABLE memories (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,  -- 索引 0
+        category TEXT,                          -- 索引 1
+        content TEXT NOT NULL,                  -- 索引 2
+        tags TEXT,                              -- 索引 3
+        importance INTEGER DEFAULT 5,           -- 索引 4
+        created_at TIMESTAMP,                    -- 索引 5
+        updated_at TIMESTAMP,                    -- 索引 6
+        access_count INTEGER DEFAULT 0          -- 索引 7
+    )
+    """
     ID = 0
     CATEGORY = 1
-    IMPORTANCE = 2
-    CREATED_AT = 3
-    UPDATED_AT = 4
-    TAGS = 5
-    CONTENT = 6
+    CONTENT = 2
+    TAGS = 3
+    IMPORTANCE = 4
+    CREATED_AT = 5
+    UPDATED_AT = 6
     ACCESS_COUNT = 7
 
 
@@ -553,6 +566,11 @@ class DatabaseManager:
         - details: 操作详情
         """
         try:
+            # 输入验证（确保数据合法性，包括importance范围检查）
+            content, category, tags, importance = self.validate_memory_input(
+                content, category, tags, importance
+            )
+            
             conn = self._get_connection()
             cursor = conn.cursor()
             cursor.execute('INSERT INTO activities (action, details) VALUES (?, ?)', (action, details))
@@ -1091,12 +1109,13 @@ class DatabaseManager:
         except (ValueError, TypeError):
             score += 1 * 0.3  # 默认值改为1
         
-        # 5. 访问次数（使用对数压缩，防止热门记忆霸占）
+        # 5. 访问次数（使用log2对数压缩，防止热门记忆霸占）
+        # log2比log10增长更慢，让新记忆更容易追上
         try:
             access_count = float(memory.get('access_count', 0))
             if access_count > 0:
-                log_score = math.log10(access_count + 1) * self.search_weights.get('popularity', 1.0) * 0.5
-                score += min(log_score, 3.0)  # 上限3分，防止过高
+                log_score = math.log2(access_count + 1) * self.search_weights.get('popularity', 1.0) * 0.3
+                score += min(log_score, 3)  # 上限3分，防止过高
         except (ValueError, TypeError):
             score += 0
         
