@@ -196,6 +196,46 @@ class DatabaseManager:
             max_size=self.config.get('max_cache_size', 1000),
             default_ttl=cache_ttl
         )
+        
+        # 时区校正开关（默认开启）
+        self.timezone_correction_enabled = self.config.get('timezone_correction_enabled', True)
+        
+        # 时区偏移（小时），默认东八区
+        self.timezone_offset = self.config.get('timezone_offset', 8)
+        try:
+            self.timezone_offset = int(self.timezone_offset)
+            self.timezone_offset = max(-12, min(14, self.timezone_offset))
+        except (ValueError, TypeError):
+            self.timezone_offset = 8
+        
+        if self.timezone_correction_enabled:
+            logger.info(f"时间校正已启用: UTC{'+' if self.timezone_offset >= 0 else ''}{self.timezone_offset}")
+        else:
+            logger.info("时间校正已关闭，使用服务器本地时间")
+    
+    def _now(self):
+        """获取当前时间（根据配置决定是否带时区偏移）
+        
+        返回格式化的时间字符串，如 '2026-04-04 15:30:00'
+        """
+        from datetime import datetime, timedelta
+        if self.timezone_correction_enabled:
+            utc_now = datetime.utcnow()
+            local_now = utc_now + timedelta(hours=self.timezone_offset)
+            return local_now.strftime('%Y-%m-%d %H:%M:%S')
+        return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    
+    def _today(self):
+        """获取今天的日期（根据配置决定是否带时区偏移）
+        
+        返回 date 对象
+        """
+        from datetime import datetime, timedelta
+        if self.timezone_correction_enabled:
+            utc_now = datetime.utcnow()
+            local_now = utc_now + timedelta(hours=self.timezone_offset)
+            return local_now.date()
+        return datetime.now().date()
     
     def extract_tags_optimized(self, content):
         """智能标签提取器
@@ -695,10 +735,11 @@ class DatabaseManager:
                 category = self.get_default_category()
             
             # 插入数据
+            now_str = self._now()
             cursor.execute('''
-            INSERT INTO memories (category, content, tags, importance)
-            VALUES (?, ?, ?, ?)
-            ''', (category, content, tags, importance))
+            INSERT INTO memories (category, content, tags, importance, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ''', (category, content, tags, importance, now_str, now_str))
             
             memory_id = cursor.lastrowid
             
@@ -724,8 +765,8 @@ class DatabaseManager:
         """
         from datetime import datetime, timedelta, time as dtime
         
-        today = datetime.now().date()
-        now = datetime.now()
+        today = self._today()
+        now = datetime.utcnow() + timedelta(hours=self.timezone_offset)
         date_start = None
         date_end = None
         parsed_query = query
@@ -733,12 +774,17 @@ class DatabaseManager:
         relative_time_patterns = [
             (r'^今天$', today, today + timedelta(days=1)),
             (r'今天', today, today + timedelta(days=1)),
-            (r'^昨天$', today - timedelta(days=1), today),
-            (r'昨天', today - timedelta(days=1), today),
-            (r'^前天$', today - timedelta(days=2), today - timedelta(days=1)),
-            (r'前天', today - timedelta(days=2), today - timedelta(days=1)),
-            (r'^大前天$', today - timedelta(days=3), today - timedelta(days=2)),
-            (r'大前天', today - timedelta(days=3), today - timedelta(days=2)),
+            (r'^昨天$|^一天前$|^1天前$', today - timedelta(days=1), today),
+            (r'昨天|一天前|1天前', today - timedelta(days=1), today),
+            (r'^前天$|^两天前$|^2天前$', today - timedelta(days=2), today - timedelta(days=1)),
+            (r'前天|两天前|2天前', today - timedelta(days=2), today - timedelta(days=1)),
+            (r'^大前天$|^三天前$|^3天前$', today - timedelta(days=3), today - timedelta(days=2)),
+            (r'大前天|三天前|3天前', today - timedelta(days=3), today - timedelta(days=2)),
+            (r'四天前|4天前', today - timedelta(days=4), today - timedelta(days=3)),
+            (r'五天前|5天前', today - timedelta(days=5), today - timedelta(days=4)),
+            (r'六天前|6天前', today - timedelta(days=6), today - timedelta(days=5)),
+            (r'[七八]天前|[78]天前', today - timedelta(days=7), today - timedelta(days=6)),
+            (r'\d+天前', None, None),
             (r'今天早上|今天上午', today, today + timedelta(days=1)),
             (r'今天下午', today, today + timedelta(days=1)),
             (r'今天晚上|今天夜间', today, today + timedelta(days=1)),
@@ -749,11 +795,29 @@ class DatabaseManager:
             (r'这周|这个星期', today - timedelta(days=today.weekday()), today + timedelta(days=1)),
             (r'上个月', (today.replace(day=1) - timedelta(days=1)).replace(day=1), today.replace(day=1)),
             (r'这个月', today.replace(day=1), today + timedelta(days=1)),
+            (r'一周前|一周多前', today - timedelta(weeks=1), today),
+            (r'半个月前|半个多月前', today - timedelta(days=15), today),
+            (r'一个月前|一个多月前', (today.replace(day=1) - timedelta(days=1)).replace(day=1), today),
         ]
         
         matched_pattern = None
+        date_start = None
+        date_end = None
+        
         for pattern, ds, de in relative_time_patterns:
-            if re.search(pattern, query):
+            match = re.search(pattern, query)
+            if match:
+                if ds is None and de is None:
+                    days_ago_match = re.search(r'(\d+)天前', query)
+                    if days_ago_match:
+                        n = int(days_ago_match.group(1))
+                        if 1 <= n <= 30:
+                            date_start = (today - timedelta(days=n)).strftime('%Y-%m-%d')
+                            date_end = (today - timedelta(days=n-1)).strftime('%Y-%m-%d') if n > 0 else (today + timedelta(days=1)).strftime('%Y-%m-%d')
+                            matched_pattern = pattern
+                            break
+                    continue
+                
                 date_start = ds.strftime('%Y-%m-%d')
                 date_end = de.strftime('%Y-%m-%d')
                 matched_pattern = pattern
@@ -1369,15 +1433,16 @@ class DatabaseManager:
                 category = self.get_default_category()
             
             # 更新数据
+            now_str = self._now()
             cursor.execute('''
             UPDATE memories SET 
                 category = ?, 
                 content = ?, 
                 tags = ?, 
                 importance = ?, 
-                updated_at = CURRENT_TIMESTAMP
+                updated_at = ?
             WHERE id = ?
-            ''', (category, content, tags, importance, memory_id))
+            ''', (category, content, tags, importance, now_str, memory_id))
             
             # 检查是否更新成功
             if cursor.rowcount == 0:
@@ -1436,6 +1501,7 @@ class DatabaseManager:
                 else:
                     new_known_contexts = old_known_contexts
                 
+                now_str = self._now()
                 cursor.execute('''
                 UPDATE relationships SET 
                     nickname = ?, 
@@ -1443,9 +1509,9 @@ class DatabaseManager:
                     summary = ?, 
                     first_met_location = ?, 
                     known_contexts = ?, 
-                    updated_at = CURRENT_TIMESTAMP
+                    updated_at = ?
                 WHERE user_id = ?
-                ''', (new_nickname, new_relation_type, new_summary, new_first_met_location, new_known_contexts, user_id))
+                ''', (new_nickname, new_relation_type, new_summary, new_first_met_location, new_known_contexts, now_str, user_id))
             else:
                 if first_met_location:
                     first_met_location = first_met_location.split('+')[0].strip()
@@ -1508,12 +1574,12 @@ class DatabaseManager:
             existing = cursor.fetchone()
             
             if existing:
-                # 更新最后使用时间，并设为当前
+                now_str = self._now()
                 cursor.execute('''
                     UPDATE identity_aliases 
-                    SET last_seen_at = CURRENT_TIMESTAMP, is_current = 1
+                    SET last_seen_at = ?, is_current = 1
                     WHERE id = ?
-                ''', (existing[0],))
+                ''', (now_str, existing[0]))
                 
                 # 将同类型的其他别名标记为非当前
                 cursor.execute('''

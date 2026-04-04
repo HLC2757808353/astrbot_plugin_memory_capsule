@@ -200,6 +200,9 @@ class MemoryCapsulePlugin(Star):
         """
         【记忆宫殿·小本本】用于记录客观事实、知识、技能等非人际信息。
         
+        ⚠️ 重要：你只需传入 content 参数即可！不要传入 tags、category、importance 等其他参数！
+           标签会自动提取，分类会自动判断，不需要你手动指定。
+        
         适用场景：
         - 技术笔记、学习资料
         - 工作任务、待办事项
@@ -213,7 +216,7 @@ class MemoryCapsulePlugin(Star):
         - 人际间的承诺/欠条/约定 → 用 update_relationship
         
         Args:
-            content(str): 要记住的客观内容（不要包含对人的主观评价）
+            content(str): 要记住的客观内容（只传这个参数，不要传别的）
             
         Returns:
             str: 存储结果
