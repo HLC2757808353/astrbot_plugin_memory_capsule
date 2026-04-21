@@ -442,10 +442,10 @@ class MemoryCapsulePlugin(Star):
             limit(int): 返回结果数量限制（可选，默认使用配置）
             
         Returns:
-            list: 搜索结果列表
+            dict: 包含搜索结果的对象 {"results": [...]}
         """
         if not self.config.get('memory_palace', True):
-            return "[]"
+            return '{"results": []}'
             
         query = str(query)
         category_filter = str(category_filter) if category_filter is not None else None
@@ -454,11 +454,10 @@ class MemoryCapsulePlugin(Star):
         try:
             results = await asyncio.to_thread(self.db_manager.search_memory, query, category_filter, limit)
             logger.info(f"搜索记忆成功，找到 {len(results)} 条结果")
-            # 返回 JSON 字符串，兼容 Gemini API
-            return json.dumps(results, ensure_ascii=False, indent=2)
+            return json.dumps({"results": results}, ensure_ascii=False, indent=2)
         except Exception as e:
             logger.error(f"搜索记忆失败: {e}")
-            return "[]"
+            return '{"results": []}'
 
     @filter.llm_tool(name="delete_memory")
     async def delete_memory(self, event, memory_id):
@@ -494,22 +493,19 @@ class MemoryCapsulePlugin(Star):
             limit(int): 限制数量，默认为20
             
         Returns:
-            list: 记忆列表
+            dict: 包含记忆列表的对象 {"memories": [...]}
         """
-        # 检查记忆宫殿是否启用
         if not self.config.get('memory_palace', True):
-            return "[]"
+            return '{"memories": []}'
             
-        # 类型转换确保参数类型正确
         limit = int(limit)
         try:
             results = await asyncio.to_thread(self.db_manager.get_all_memories, limit)
             logger.info(f"获取所有记忆成功，找到 {len(results)} 条结果")
-            # 返回 JSON 字符串，兼容 Gemini API
-            return json.dumps(results, ensure_ascii=False, indent=2)
+            return json.dumps({"memories": results}, ensure_ascii=False, indent=2)
         except Exception as e:
             logger.error(f"获取所有记忆失败: {e}")
-            return "[]"
+            return '{"memories": []}'
 
     @filter.llm_tool(name="get_all_relationships")
     async def get_all_relationships(self, event):
@@ -525,18 +521,16 @@ class MemoryCapsulePlugin(Star):
         - 想要详细信息请用 search_relationship 搜索特定人
         
         Returns:
-            list: 简要关系列表 [{"user_id": "xxx", "nickname": "昵称"}, ...]
+            dict: 包含关系列表的对象 {"relationships": [{"user_id": "xxx", "nickname": "昵称"}, ...]}
         """
         try:
             results = await asyncio.to_thread(self.db_manager.get_all_relationships)
-            # 只返回 ID 和昵称，减少上下文占用
             simple_list = [{"user_id": r["user_id"], "nickname": r.get("nickname") or "未知"} for r in results]
             logger.info(f"获取所有关系成功，找到 {len(simple_list)} 条结果")
-            # 返回 JSON 字符串，兼容 Gemini API
-            return json.dumps(simple_list, ensure_ascii=False, indent=2)
+            return json.dumps({"relationships": simple_list}, ensure_ascii=False, indent=2)
         except Exception as e:
             logger.error(f"获取所有关系失败: {e}")
-            return "[]"
+            return '{"relationships": []}'
 
     @filter.llm_tool(name="delete_relationship")
     async def delete_relationship(self, event, user_id):
@@ -568,18 +562,17 @@ class MemoryCapsulePlugin(Star):
             limit(int): 返回结果数量限制，默认3
             
         Returns:
-            list: 匹配的关系列表
+            dict: 包含匹配关系的对象 {"results": [...]}
         """
         query = str(query)
         limit = int(limit)
         try:
             results = await asyncio.to_thread(self.db_manager.search_relationship, query, limit)
             logger.info(f"搜索关系成功，找到 {len(results)} 条结果")
-            # 返回 JSON 字符串，兼容 Gemini API
-            return json.dumps(results, ensure_ascii=False, indent=2)
+            return json.dumps({"results": results}, ensure_ascii=False, indent=2)
         except Exception as e:
             logger.error(f"搜索关系失败: {e}")
-            return "[]"
+            return '{"results": []}'
 
     @filter.llm_tool(name="backup_database")
     async def backup_database(self, event):
