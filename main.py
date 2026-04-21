@@ -6,6 +6,7 @@ from astrbot.api import logger
 import os
 import threading
 import asyncio
+import json
 
 @register("memory_capsule", "引灯续昼", "记忆胶囊插件，用于存储和检索记忆", "v0.9.5", "https://github.com/HLC2757808353/astrbot_plugin_memory_capsule")
 class MemoryCapsulePlugin(Star):
@@ -275,7 +276,7 @@ class MemoryCapsulePlugin(Star):
         logger.info("=" * 50)
 
     @filter.llm_tool(name="update_relationship")
-    async def update_relationship(self, event, user_id, relation_type=None, summary_update=None, nickname=None, first_met_location=None, known_contexts=None):
+    async def update_relationship(self, event, user_id, relation_type=None, summary=None, nickname=None, first_met_location=None, known_contexts=None):
         """
         【关系图谱】用于记录人与人之间的关系、印象、约定等与人相关的信息。
         
@@ -295,7 +296,7 @@ class MemoryCapsulePlugin(Star):
         Args:
             user_id(str): 目标用户 ID
             relation_type(str): 关系定义（如：群友、伙伴、朋友等可以自己添加自身所认为的关系）
-            summary_update(str): 对此人的印象总结、发生过的重要事情（会覆盖旧的）
+            summary(str): 对此人的印象总结、发生过的重要事情（会覆盖旧的）
             nickname(str): AI 对此人的称呼
             first_met_location(str): 初次见面地点/群ID
             known_contexts(str): 共同所在的群组/场景
@@ -305,7 +306,7 @@ class MemoryCapsulePlugin(Star):
         """
         user_id = str(user_id)
         relation_type = str(relation_type) if relation_type is not None else None
-        summary_update = str(summary_update) if summary_update is not None else None
+        summary = str(summary) if summary is not None else None
         nickname = str(nickname) if nickname is not None else None
         first_met_location = str(first_met_location) if first_met_location is not None else None
         known_contexts = str(known_contexts) if known_contexts is not None else None
@@ -314,7 +315,7 @@ class MemoryCapsulePlugin(Star):
             # 使用增强版的关系更新（自动同步别名到映射表）
             result = await asyncio.to_thread(
                 self.db_manager.update_relationship_enhanced,
-                user_id, relation_type, summary_update, 
+                user_id, relation_type, summary, 
                 nickname, first_met_location, known_contexts
             )
             logger.info(f"更新关系成功: {user_id} (已同步身份映射)")
@@ -388,7 +389,6 @@ class MemoryCapsulePlugin(Star):
                         )
                         
                         if llm_resp and llm_resp.completion_text:
-                            import json
                             response_text = llm_resp.completion_text.strip()
                             
                             try:
@@ -445,7 +445,7 @@ class MemoryCapsulePlugin(Star):
             list: 搜索结果列表
         """
         if not self.config.get('memory_palace', True):
-            return []
+            return "[]"
             
         query = str(query)
         category_filter = str(category_filter) if category_filter is not None else None
@@ -454,10 +454,11 @@ class MemoryCapsulePlugin(Star):
         try:
             results = await asyncio.to_thread(self.db_manager.search_memory, query, category_filter, limit)
             logger.info(f"搜索记忆成功，找到 {len(results)} 条结果")
-            return results
+            # 返回 JSON 字符串，兼容 Gemini API
+            return json.dumps(results, ensure_ascii=False, indent=2)
         except Exception as e:
             logger.error(f"搜索记忆失败: {e}")
-            return []
+            return "[]"
 
     @filter.llm_tool(name="delete_memory")
     async def delete_memory(self, event, memory_id):
@@ -497,33 +498,45 @@ class MemoryCapsulePlugin(Star):
         """
         # 检查记忆宫殿是否启用
         if not self.config.get('memory_palace', True):
-            return []
+            return "[]"
             
         # 类型转换确保参数类型正确
         limit = int(limit)
         try:
             results = await asyncio.to_thread(self.db_manager.get_all_memories, limit)
             logger.info(f"获取所有记忆成功，找到 {len(results)} 条结果")
-            return results
+            # 返回 JSON 字符串，兼容 Gemini API
+            return json.dumps(results, ensure_ascii=False, indent=2)
         except Exception as e:
             logger.error(f"获取所有记忆失败: {e}")
-            return []
+            return "[]"
 
     @filter.llm_tool(name="get_all_relationships")
     async def get_all_relationships(self, event):
         """
-        获取所有关系
+        【关系图谱·快速浏览】获取所有关系的简要列表（仅ID和昵称）。
+        
+        用途：
+        - 快速浏览有哪些人被记录
+        - 找到某人后用 search_relationship 获取详细信息
+        
+        注意：
+        - 此方法只返回 ID 和昵称，不返回详细内容
+        - 想要详细信息请用 search_relationship 搜索特定人
         
         Returns:
-            list: 关系列表
+            list: 简要关系列表 [{"user_id": "xxx", "nickname": "昵称"}, ...]
         """
         try:
             results = await asyncio.to_thread(self.db_manager.get_all_relationships)
-            logger.info(f"获取所有关系成功，找到 {len(results)} 条结果")
-            return results
+            # 只返回 ID 和昵称，减少上下文占用
+            simple_list = [{"user_id": r["user_id"], "nickname": r.get("nickname") or "未知"} for r in results]
+            logger.info(f"获取所有关系成功，找到 {len(simple_list)} 条结果")
+            # 返回 JSON 字符串，兼容 Gemini API
+            return json.dumps(simple_list, ensure_ascii=False, indent=2)
         except Exception as e:
             logger.error(f"获取所有关系失败: {e}")
-            return []
+            return "[]"
 
     @filter.llm_tool(name="delete_relationship")
     async def delete_relationship(self, event, user_id):
@@ -562,10 +575,11 @@ class MemoryCapsulePlugin(Star):
         try:
             results = await asyncio.to_thread(self.db_manager.search_relationship, query, limit)
             logger.info(f"搜索关系成功，找到 {len(results)} 条结果")
-            return results
+            # 返回 JSON 字符串，兼容 Gemini API
+            return json.dumps(results, ensure_ascii=False, indent=2)
         except Exception as e:
             logger.error(f"搜索关系失败: {e}")
-            return []
+            return "[]"
 
     @filter.llm_tool(name="backup_database")
     async def backup_database(self, event):
