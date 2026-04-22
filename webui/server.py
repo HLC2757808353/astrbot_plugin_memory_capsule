@@ -163,35 +163,35 @@ class WebUIServer:
         # ====== 需要认证的路由 ======
         
         @self.app.route('/')
-        @_require_auth(self)
+        @self._require_auth
         def index():
             response = make_response(render_template('index.html', version=self.version))
             response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
             return response
 
         @self.app.route('/notes')
-        @_require_auth(self)
+        @self._require_auth
         def notes():
             response = make_response(render_template('notes.html'))
             response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
             return response
 
         @self.app.route('/memories')
-        @_require_auth(self)
+        @self._require_auth
         def memories():
             response = make_response(render_template('memories.html'))
             response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
             return response
 
         @self.app.route('/relationships')
-        @_require_auth(self)
+        @self._require_auth
         def relationships():
             response = make_response(render_template('relationships.html'))
             response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
             return response
 
         @self.app.route('/settings')
-        @_require_auth(self)
+        @self._require_auth
         def settings():
             response = make_response(render_template('settings.html',
                                                     auth_status=self.auth_manager.get_status()))
@@ -201,7 +201,7 @@ class WebUIServer:
         # ====== API 路由（需要认证）======
         
         @self.app.route('/api/memories')
-        @_require_auth(self)
+        @self._require_auth
         def api_memories():
             page = int(request.args.get('page', 1))
             limit = int(request.args.get('limit', 10))
@@ -215,7 +215,7 @@ class WebUIServer:
             })
 
         @self.app.route('/api/relationships')
-        @_require_auth(self)
+        @self._require_auth
         def api_relationships():
             page = int(request.args.get('page', 1))
             limit = int(request.args.get('limit', 10))
@@ -228,7 +228,7 @@ class WebUIServer:
             })
 
         @self.app.route('/api/memories', methods=['POST'])
-        @_require_auth(self)
+        @self._require_auth
         def api_add_memory():
             data = request.json
             result = self.db_manager.write_memory(
@@ -240,13 +240,13 @@ class WebUIServer:
             return jsonify({'result': result})
 
         @self.app.route('/api/memories/<memory_id>', methods=['DELETE'])
-        @_require_auth(self)
+        @self._require_auth
         def api_delete_memory(memory_id):
             result = self.db_manager.delete_memory(memory_id)
             return jsonify({'result': result})
         
         @self.app.route('/api/memories/<memory_id>', methods=['PUT'])
-        @_require_auth(self)
+        @self._require_auth
         def api_update_memory(memory_id):
             data = request.json
             result = self.db_manager.update_memory(
@@ -259,7 +259,7 @@ class WebUIServer:
             return jsonify({'result': result})
 
         @self.app.route('/api/memories/search')
-        @_require_auth(self)
+        @self._require_auth
         def api_search_memories():
             """搜索记忆"""
             query = request.args.get('q', '')
@@ -269,21 +269,21 @@ class WebUIServer:
             return jsonify(memories)
         
         @self.app.route('/api/tags')
-        @_require_auth(self)
+        @self._require_auth
         def api_tags():
             """获取所有标签"""
             tags = self.db_manager.get_all_tags()
             return jsonify(tags)
         
         @self.app.route('/api/categories')
-        @_require_auth(self)
+        @self._require_auth
         def api_categories():
             """获取所有分类"""
             categories = self.db_manager.get_memory_categories()
             return jsonify(categories)
 
         @self.app.route('/api/relationships', methods=['POST'])
-        @_require_auth(self)
+        @self._require_auth
         def api_add_relationship():
             data = request.json
             result = self.db_manager.update_relationship(
@@ -297,20 +297,20 @@ class WebUIServer:
             return jsonify({'result': result})
 
         @self.app.route('/api/relationships/<string:user_id>', methods=['DELETE'])
-        @_require_auth(self)
+        @self._require_auth
         def api_delete_relationship(user_id):
             result = self.db_manager.delete_relationship(user_id)
             return jsonify({'result': result})
 
         @self.app.route('/api/relationships/search')
-        @_require_auth(self)
+        @self._require_auth
         def api_search_relationships():
             query = request.args.get('q', '')
             results = self.db_manager.search_relationship(query, limit=10)
             return jsonify(results)
 
         @self.app.route('/api/settings', methods=['GET'])
-        @_require_auth(self)
+        @self._require_auth
         def api_get_settings(self):
             """获取系统设置"""
             try:
@@ -338,7 +338,7 @@ class WebUIServer:
                 return jsonify({'error': str(e)}), 500
 
         @self.app.route('/api/settings', methods=['POST'])
-        @_require_auth(self)
+        @self._require_auth
         def api_save_settings(self):
             """保存系统设置"""
             try:
@@ -370,7 +370,7 @@ class WebUIServer:
                 return jsonify({'result': f'保存失败: {e}'})
 
         @self.app.route('/api/backup')
-        @_require_auth(self)
+        @self._require_auth
         def api_create_backup():
             """创建备份"""
             try:
@@ -381,7 +381,7 @@ class WebUIServer:
                 return jsonify({'result': f'创建备份失败: {e}'})
 
         @self.app.route('/api/backups')
-        @_require_auth(self)
+        @self._require_auth
         def api_get_backups():
             """获取备份列表"""
             try:
@@ -392,7 +392,7 @@ class WebUIServer:
                 return jsonify([])
 
         @self.app.route('/api/restore', methods=['POST'])
-        @_require_auth(self)
+        @self._require_auth
         def api_restore_backup():
             """从备份恢复"""
             try:
@@ -405,7 +405,7 @@ class WebUIServer:
                 return jsonify({'result': f'恢复失败: {e}'})
 
         @self.app.route('/api/cleanup')
-        @_require_auth(self)
+        @self._require_auth
         def api_cleanup_memories():
             """清理旧记忆"""
             try:
@@ -416,7 +416,7 @@ class WebUIServer:
                 return jsonify({'result': f'清理失败: {e}'})
 
         @self.app.route('/api/backup/<string:filename>', methods=['DELETE'])
-        @_require_auth(self)
+        @self._require_auth
         def api_delete_backup(filename):
             """删除备份"""
             try:
@@ -432,7 +432,7 @@ class WebUIServer:
                 return jsonify({'result': f'删除失败: {e}'})
 
         @self.app.route('/api/activities')
-        @_require_auth(self)
+        @self._require_auth
         def api_get_activities():
             """获取最近活动"""
             limit = int(request.args.get('limit', 30))
