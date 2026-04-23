@@ -100,18 +100,18 @@ class MemoryCapsulePlugin(Star):
     def _start_webui(self):
         """启动WebUI服务"""
         
-        # 🎯 关键改进：先生成Token和认证信息（无论端口是否被占用）
+        logger.info(f"正在启动WebUI服务，配置端口: {self.webui_port}")
+        
         data_dir = os.path.join(os.path.dirname(__file__), "data")
         
         try:
             from .webui.auth import AuthManager
             auth_manager = AuthManager(data_dir)
-            logger.info(f"✅ 认证信息已生成（Token见上方日志）")
+            logger.info(f"认证信息已生成")
         except Exception as e:
             logger.error(f"生成认证信息失败: {e}")
             auth_manager = None
         
-        # 然后检查端口并启动服务器
         try:
             import socket
             
@@ -120,16 +120,12 @@ class MemoryCapsulePlugin(Star):
             sock.close()
             
             if result == 0:
-                # 端口被占用 - 尝试自动清理旧进程
-                logger.warning(f"⚠️  端口 {self.webui_port} 已被占用，尝试自动释放...")
+                logger.warning(f"端口 {self.webui_port} 已被占用，尝试释放...")
                 
                 if self._force_release_port(self.webui_port):
-                    logger.info(f"✅ 端口 {self.webui_port} 已成功释放")
+                    logger.info(f"端口 {self.webui_port} 已释放")
                 else:
-                    logger.error(f"❌ 端口 {self.webui_port} 无法自动释放")
-                    logger.error(f"   请手动终止占用该端口的进程，或修改 webui_port 配置")
-                    logger.error(f"   Windows: netstat -ano | findstr :{self.webui_port}")
-                    logger.error(f"   Linux: lsof -i :{self.webui_port}")
+                    logger.error(f"端口 {self.webui_port} 无法释放，请手动处理或修改端口配置")
                     return
             
             from .webui.server import WebUIServer
@@ -137,7 +133,7 @@ class MemoryCapsulePlugin(Star):
                 self.db_manager, 
                 port=self.webui_port, 
                 data_dir=data_dir,
-                existing_auth=auth_manager  # 复用已创建的AuthManager
+                existing_auth=auth_manager
             )
             self.webui_server.server_thread = threading.Thread(
                 target=self.webui_server.run, 
@@ -145,13 +141,12 @@ class MemoryCapsulePlugin(Star):
                 name='WebUI Server'
             )
             self.webui_server.server_thread.start()
-            logger.info(f"🌐 WebUI服务已启动")
-            logger.info(f"   地址: http://127.0.0.1:{self.webui_port}")
+            logger.info(f"WebUI服务已启动: http://127.0.0.1:{self.webui_port}")
             
         except Exception as e:
             logger.error(f"启动WebUI服务失败: {e}")
             import traceback
-            logger.debug(traceback.format_exc())
+            logger.error(traceback.format_exc())
     
     def _force_release_port(self, port, timeout=5):
         """强制释放指定端口
@@ -278,28 +273,18 @@ class MemoryCapsulePlugin(Star):
     @filter.llm_tool(name="update_relationship")
     async def update_relationship(self, event, user_id, relation_type=None, summary=None, nickname=None, first_met_location=None, known_contexts=None):
         """
-        【关系图谱】用于记录人与人之间的关系、印象、约定等与人相关的信息。
+        记录人际关系信息（印象、约定、习惯等）。
         
-        适用场景：
-        - 对某人的印象、评价、看法
-        - 人的生日、习惯、喜好、忌讳
-        - 人与人之间的关系（朋友、群友、管理员等）
-        - 与人的约定、承诺、欠条、待还事项
-        - 初次见面地点、共同群组
-        - 对方说过的重要的话、承诺
-        
-        不适用：
-        - 客观知识/技能/笔记 → 用 write_memory
-        - 群规、网址、配置信息 → 用 write_memory
-        - 各类客观事实 → 用 write_memory
+        适用：人的印象/评价、生日习惯、约定承诺
+        不适用：客观知识/技能/笔记 → 用 write_memory
         
         Args:
-            user_id(str): 目标用户 ID
-            relation_type(str): 关系定义（如：群友、伙伴、朋友等可以自己添加自身所认为的关系）
-            summary(str): 对此人的印象总结、发生过的重要事情（会覆盖旧的）
-            nickname(str): AI 对此人的称呼
-            first_met_location(str): 初次见面地点/群ID
-            known_contexts(str): 共同所在的群组/场景
+            user_id(str): 用户ID
+            relation_type(str): 关系类型（如：群友、朋友）
+            summary(str): 印象总结
+            nickname(str): 称呼
+            first_met_location(str): 初次见面地点
+            known_contexts(str): 共同群组（新群会追加，多个用逗号分隔）
             
         Returns:
             str: 更新结果
@@ -327,25 +312,15 @@ class MemoryCapsulePlugin(Star):
     @filter.llm_tool(name="write_memory")
     async def write_memory(self, event, content):
         """
-        【记忆宫殿·小本本】用于记录客观事实、知识、技能等非人际信息。
+        记录客观信息（知识、笔记、网址、配置等）。
         
-        ⚠️ 重要：你只需传入 content 参数即可！不要传入 tags、category、importance 等其他参数！
-           标签会自动提取，分类会自动判断，不需要你手动指定。
+        只需传入content参数，标签和分类会自动处理。
         
-        适用场景：
-        - 技术笔记、学习资料
-        - 工作任务、待办事项
-        - 网址、密码、配置信息
-        - 群规、公告、重要通知
-        - 各类客观事实和知识点
-        
-        不适用：
-        - 人的印象/评价 → 用 update_relationship
-        - 人的小事/生日/习惯 → 用 update_relationship
-        - 人际间的承诺/欠条/约定 → 用 update_relationship
+        适用：技术笔记、学习资料、工作任务、网址配置、群规公告
+        不适用：人的印象/约定 → 用 update_relationship
         
         Args:
-            content(str): 要记住的客观内容（只传这个参数，不要传别的）
+            content(str): 要记住的内容
             
         Returns:
             str: 存储结果
@@ -434,15 +409,15 @@ class MemoryCapsulePlugin(Star):
     @filter.llm_tool(name="search_memory")
     async def search_memory(self, event, query, category_filter=None, limit=None):
         """
-        搜索过去的记忆
+        搜索记忆内容。
         
         Args:
-            query(str): 搜索关键词或句子
+            query(str): 搜索关键词
             category_filter(str): 分类过滤（可选）
-            limit(int): 返回结果数量限制（可选，默认使用配置）
+            limit(int): 结果数量限制（可选）
             
         Returns:
-            dict: 包含搜索结果的对象 {"results": [...]}
+            dict: {"results": [...]}
         """
         if not self.config.get('memory_palace', True):
             return '{"results": []}'
@@ -462,10 +437,10 @@ class MemoryCapsulePlugin(Star):
     @filter.llm_tool(name="delete_memory")
     async def delete_memory(self, event, memory_id):
         """
-        遗忘某条记忆
+        删除指定记忆。
         
         Args:
-            memory_id(int): 记忆的 ID (通常 AI 需要先搜到才能删)
+            memory_id(int): 记忆ID
             
         Returns:
             str: 删除结果
@@ -487,13 +462,13 @@ class MemoryCapsulePlugin(Star):
     @filter.llm_tool(name="get_all_memories")
     async def get_all_memories(self, event, limit=20):
         """
-        获取所有记忆
+        获取所有记忆列表。
         
         Args:
-            limit(int): 限制数量，默认为20
+            limit(int): 数量限制，默认20
             
         Returns:
-            dict: 包含记忆列表的对象 {"memories": [...]}
+            dict: {"memories": [...]}
         """
         if not self.config.get('memory_palace', True):
             return '{"memories": []}'
@@ -510,18 +485,11 @@ class MemoryCapsulePlugin(Star):
     @filter.llm_tool(name="get_all_relationships")
     async def get_all_relationships(self, event):
         """
-        【关系图谱·快速浏览】获取所有关系的简要列表（仅ID和昵称）。
-        
-        用途：
-        - 快速浏览有哪些人被记录
-        - 找到某人后用 search_relationship 获取详细信息
-        
-        注意：
-        - 此方法只返回 ID 和昵称，不返回详细内容
-        - 想要详细信息请用 search_relationship 搜索特定人
+        获取所有关系列表（仅ID和昵称）。
+        想要详细信息请用 search_relationship。
         
         Returns:
-            dict: 包含关系列表的对象 {"relationships": [{"user_id": "xxx", "nickname": "昵称"}, ...]}
+            dict: {"relationships": [{"user_id": "xxx", "nickname": "昵称"}, ...]}
         """
         try:
             results = await asyncio.to_thread(self.db_manager.get_all_relationships)
@@ -535,7 +503,7 @@ class MemoryCapsulePlugin(Star):
     @filter.llm_tool(name="delete_relationship")
     async def delete_relationship(self, event, user_id):
         """
-        删除关系
+        删除指定用户的关系记录。
         
         Args:
             user_id(str): 用户ID
@@ -555,14 +523,14 @@ class MemoryCapsulePlugin(Star):
     @filter.llm_tool(name="search_relationship")
     async def search_relationship(self, event, query, limit=3):
         """
-        模糊搜索某人的关系信息。可以通过用户ID、昵称、关系类型等关键词搜索。
+        搜索某人的关系信息（支持ID、昵称、关系类型）。
         
         Args:
-            query(str): 搜索关键词（可以是ID、昵称、关系类型等）
-            limit(int): 返回结果数量限制，默认3
+            query(str): 搜索关键词
+            limit(int): 结果数量，默认3
             
         Returns:
-            dict: 包含匹配关系的对象 {"results": [...]}
+            dict: {"results": [...]}
         """
         query = str(query)
         limit = int(limit)
@@ -655,113 +623,89 @@ class MemoryCapsulePlugin(Star):
         缓存逻辑：
         - 用户切换时立即刷新并注入
         - 同一用户连续对话时按刷新时间间隔注入
+        - 刷新时间设为 -1 时每次都注入
         """
         try:
-            # 获取用户信息
             user_id = event.get_sender_id()
             
-            # 检查缓存
             import time
             current_time = time.time()
             cache_key = "relation_injection_last"
             
             should_inject = False
             
-            # 逻辑：用户切换立即刷新，同用户按时间间隔
-            if user_id != self.last_relation_user_id:
-                # 用户切换了，立即注入
+            if self.relation_injection_refresh_time == -1:
+                should_inject = True
+                logger.info(f"关系注入刷新时间设为-1，每次都注入 (用户: {user_id})")
+            elif user_id != self.last_relation_user_id:
                 logger.info(f"检测到用户切换: {self.last_relation_user_id} -> {user_id}，立即注入关系")
                 should_inject = True
             elif cache_key in self.relation_injection_cache:
-                # 同一用户，检查时间间隔
                 last_injection_time = self.relation_injection_cache[cache_key]
                 elapsed_time = current_time - last_injection_time
-                logger.debug(f"同一用户 {user_id}，上次注入时间: {last_injection_time}, 已过时间: {elapsed_time:.1f}秒, 需等待: {self.relation_injection_refresh_time}秒")
+                logger.debug(f"同一用户 {user_id}，已过{elapsed_time:.0f}秒/{self.relation_injection_refresh_time}秒")
                 if elapsed_time >= self.relation_injection_refresh_time:
-                    # 时间间隔到了，重新注入
-                    logger.info(f"用户 {user_id} 的关系信息已超时（已过{elapsed_time:.0f}秒），重新注入")
+                    logger.info(f"用户 {user_id} 关系信息已超时，重新注入")
                     should_inject = True
                 else:
-                    logger.info(f"用户 {user_id} 的关系信息在缓存期内（已过{elapsed_time:.0f}秒/{self.relation_injection_refresh_time}秒），跳过注入")
+                    logger.info(f"用户 {user_id} 关系信息在缓存期内，跳过注入")
             else:
-                # 首次对话，注入
                 should_inject = True
             
             if not should_inject:
                 return req
             
-            # 查找用户关系信息（使用增强版查询，支持别名匹配）
             user_relation = await asyncio.to_thread(self.db_manager.get_relationship_with_identity, user_id)
-            
-            # 获取用户的别名列表（用于更自然的称呼）
             user_aliases = await asyncio.to_thread(self.db_manager.get_user_aliases, user_id)
             
-            # 构建自然化的关系上下文
+            current_group = ""
+            try:
+                current_group = event.get_group_id() or ""
+            except:
+                pass
+            
             if user_relation:
                 relation_context = self._build_natural_relation_context(
                     user_relation, 
                     user_aliases,
-                    user_id
+                    user_id,
+                    current_group
                 )
             else:
-                # 如果查询为空，返回友好的提示格式
-                relation_context = f"\n\n💬 [备注] 这位是新朋友，你可以通过 update_relationship 工具记录下关于TA的信息。\n"
+                relation_context = f"\n【当前对话对象】\n用户ID: {user_id}\n状态: 初次见面\n提示: 如果对话有意义，可用 update_relationship 记录TA\n"
                 logger.info(f"用户 {user_id} 暂无关系信息")
             
-            # 检查配置，确定注入方式
             injection_method = self.config.get('context_inject_position', 'user_prompt')
             
             if injection_method == 'system_prompt':
-                # 注入到系统提示词
                 req.system_prompt = (req.system_prompt or "") + relation_context
                 logger.info(f"成功注入用户 {user_id} 的关系信息到系统提示词")
             elif injection_method == 'user_prompt':
-                # 注入到用户消息
                 req.prompt = relation_context + '\n' + (req.prompt or "")
                 logger.info(f"成功注入用户 {user_id} 的关系信息到用户提示词")
             elif injection_method == 'insert_system_prompt':
-                # 向上下文列表中添加一条新的系统消息
                 if hasattr(req, 'messages'):
-                    # 检查messages是否存在
                     req.messages.insert(0, {
                         'role': 'system',
                         'content': relation_context
                     })
                     logger.info(f"成功向上下文列表添加用户 {user_id} 的关系信息系统消息")
                 else:
-                    # 如果messages不存在，默认注入到系统提示词
                     req.system_prompt = (req.system_prompt or "") + relation_context
                     logger.info(f"成功注入用户 {user_id} 的关系信息到系统提示词")
             else:
-                # 默认注入到用户消息
                 req.prompt = relation_context + '\n' + (req.prompt or "")
                 logger.info(f"成功注入用户 {user_id} 的关系信息到用户提示词")
             
-            # 更新缓存
             self.relation_injection_cache[cache_key] = current_time
             self.last_relation_user_id = user_id
-            logger.debug(f"关系注入缓存已更新，下次对话用户: {user_id}")
             
         except Exception as e:
             logger.error(f"注入关系信息失败: {e}")
         return req
     
-    def _build_natural_relation_context(self, relation, aliases=None, user_id=None):
-        """构建自然化的关系上下文（让AI感觉像在和朋友聊天）
-        
-        根据关系深浅动态调整注入风格：
-        - 新认识的朋友：简洁介绍
-        - 老朋友：温馨提醒 + 重要约定/印象
-        - 有待办事项：重点标注
-        
-        参数：
-        - relation: 关系字典
-        - aliases: 用户别名列表
-        - user_id: 用户ID
-        
-        返回值：
-        - 格式化后的关系上下文字符串
-        """
+    def _build_natural_relation_context(self, relation, aliases=None, user_id=None, current_group=""):
+        """构建简洁清晰的关系上下文"""
         if not relation:
             return ""
         
@@ -770,80 +714,39 @@ class MemoryCapsulePlugin(Star):
         summary = relation.get('summary') or ''
         first_met = relation.get('first_met_location') or ''
         known_contexts = relation.get('known_contexts') or ''
-        updated_at = relation.get('updated_at') or ''
         
-        # 只使用当前昵称（简洁为主，不显示历史别名）
-        # AI内部可以通过 get_user_aliases 查看完整别名列表
-        display_name = nickname  # 只显示1个当前名字
+        lines = [
+            "\n【当前对话对象】",
+            f"昵称: {nickname}",
+            f"关系: {relation_type}"
+        ]
         
-        # 计算关系深浅（基于更新时间和信息完整度）
-        from datetime import datetime
-        days_since_update = 0
-        if updated_at:
-            try:
-                update_time = datetime.strptime(str(updated_at)[:19], '%Y-%m-%d %H:%M:%S')
-                days_since_update = (datetime.now() - update_time).days
-            except:
-                pass
+        if summary:
+            lines.append(f"印象: {summary}")
+        if first_met:
+            lines.append(f"相识: {first_met}")
         
-        info_completeness = sum([
-            bool(summary),
-            bool(first_met),
-            bool(known_contexts),
-            bool(relation_type and relation_type != '未知')
-        ])
+        if known_contexts:
+            contexts_list = [c.strip() for c in known_contexts.split(',') if c.strip()]
+            if len(contexts_list) == 1:
+                lines.append(f"场景: {contexts_list[0]}")
+            elif len(contexts_list) > 1:
+                if current_group and current_group in known_contexts:
+                    other_contexts = [c for c in contexts_list if c != current_group]
+                    if other_contexts:
+                        lines.append(f"共同群: {current_group} (另在{len(other_contexts)}个群见过)")
+                    else:
+                        lines.append(f"共同群: {current_group}")
+                else:
+                    lines.append(f"共同群: {'、'.join(contexts_list[:3])}")
+                    if len(contexts_list) > 3:
+                        lines[-1] += f" 等{len(contexts_list)}个"
         
-        # 根据关系深浅选择注入风格
-        if info_completeness <= 1 and (not updated_at or days_since_update > 30):
-            # 风格A：新朋友或很久没联系 —— 简洁介绍
-            context = f"""
-📝 [关于对话对象]
-你正在和【{display_name}】聊天，TA是你的{relation_type}。
-你们认识不久，可以多了解TA并记录下来。
-"""
+        important_keywords = ['约定', '承诺', '重要', '记得', '提醒', '待办']
+        if any(kw in str(summary) for kw in important_keywords):
+            lines.append("注意: 有重要约定事项")
         
-        elif info_completeness >= 3 and days_since_update < 7:
-            # 风格B：老朋友且最近活跃 —— 温馨提醒 + 详细信息
-            context_parts = [
-                f"\n👤 [当前对话者] {display_name}",
-                f"",
-                f"🏷️ 关系定位: {relation_type}"
-            ]
-            
-            if summary:
-                context_parts.append(f"💭 印象笔记: {summary}")
-            
-            if first_met:
-                context_parts.append(f"📍 相识于: {first_met}")
-            
-            if known_contexts:
-                contexts_list = known_contexts.split(',')[:3]
-                contexts_str = '、'.join(contexts_list)
-                context_parts.append(f"👥 共同场景: {contexts_str}")
-            
-            # 检查是否有重要关键词（约定、承诺等）
-            important_keywords = ['约定', '承诺', '重要', '记得', '提醒', '待办']
-            has_important = any(kw in str(summary) for kw in important_keywords)
-            
-            if has_important:
-                context_parts.append("")
-                context_parts.append("⚠️ 注意: 你们之间有重要的约定或事项，请留意！")
-            
-            context = '\n'.join(context_parts) + '\n'
-        
-        else:
-            # 风格C：普通关系 —— 平衡的信息量
-            context = f"""
-📋 [人物档案]
-• 称呼: {display_name}
-• 关系: {relation_type}
-"""
-            if summary:
-                context += f"• 特点: {summary}\n"
-            if known_contexts:
-                context += f"• 出没地: {known_contexts.split(',')[0] if ',' in known_contexts else known_contexts}\n"
-        
-        return context
+        return '\n'.join(lines) + '\n'
 
 # 外部接口，供其他插件调用
 # 注意：这些函数已在 __init__.py 中重新定义，使用单例模式

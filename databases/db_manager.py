@@ -856,18 +856,23 @@ class DatabaseManager:
                     terms.append(clean_tag)
         
         if query_text and len(query_text) >= 2:
-            if len(query_text) <= 10:
-                clean_query = re.sub(fts_special_chars, '', query_text)
-                clean_query = fts_reserved_words.sub('', clean_query)
-                if clean_query and len(clean_query) >= 2:
+            clean_query = re.sub(fts_special_chars, '', query_text)
+            clean_query = fts_reserved_words.sub('', clean_query)
+            if clean_query and len(clean_query) >= 2:
+                if len(clean_query) <= 20:
                     terms.append(clean_query)
-            # 否则不添加原始文本（依赖分词结果即可）
+                else:
+                    words = clean_query.split()
+                    for word in words:
+                        if len(word) >= 2:
+                            terms.append(word)
         
         if not terms:
+            logger.debug(f"FTS5查询构建失败: 无有效搜索词 (query_text={query_text}, query_tags={query_tags})")
             return None
         
-        # 用空格连接，FTS5默认是AND逻辑
         fts_query = ' '.join(terms)
+        logger.debug(f"FTS5查询构建成功: '{fts_query}' (原始查询: '{query_text}')")
         return fts_query
     
     def _fts_search(self, fts_query, category_filter=None, limit=50):
@@ -878,6 +883,12 @@ class DatabaseManager:
         try:
             conn = self._get_connection()
             cursor = conn.cursor()
+            
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='memories_fts'")
+            if not cursor.fetchone():
+                logger.warning("FTS5虚拟表不存在，将使用回退搜索")
+                conn.close()
+                return []
             
             if category_filter:
                 cursor.execute('''
@@ -897,9 +908,10 @@ class DatabaseManager:
             results = [row[0] for row in cursor.fetchall()]
             conn.close()
             
+            logger.debug(f"FTS5搜索完成: 查询='{fts_query}', 找到{len(results)}条结果")
             return results
         except Exception as e:
-            logger.error(f"FTS5搜索失败: {e}")
+            logger.error(f"FTS5搜索失败: {e}, 查询: '{fts_query}'")
             return []
     
     def _fallback_search(self, query_terms, category_filter=None, limit=50, date_start=None, date_end=None):
@@ -1469,7 +1481,7 @@ class DatabaseManager:
         - summary_update: 新的印象总结 (会覆盖旧的)
         - nickname: AI 对 TA 的称呼
         - first_met_location: 初次见面地点 (仅存储ID)
-        - known_contexts: 多次相遇群组 (逗号分隔的群ID数组)
+        - known_contexts: 相遇群组 (会追加到现有列表，逗号分隔)
         """
         try:
             conn = self._get_connection()
@@ -1491,13 +1503,20 @@ class DatabaseManager:
                     new_first_met_location = old_first_met_location
                 
                 if known_contexts:
-                    new_groups = []
+                    existing_groups = set()
+                    if old_known_contexts:
+                        for g in old_known_contexts.split(','):
+                            g = g.strip()
+                            if g:
+                                existing_groups.add(g)
+                    
                     for group in known_contexts.split(','):
                         group = group.strip()
                         if group:
                             group_id = group.split('+')[0].strip()
-                            new_groups.append(group_id)
-                    new_known_contexts = ','.join(new_groups)
+                            existing_groups.add(group_id)
+                    
+                    new_known_contexts = ','.join(sorted(existing_groups))
                 else:
                     new_known_contexts = old_known_contexts
                 
