@@ -165,6 +165,7 @@ class MemoryCapsulePlugin(Star):
         """
         import urllib.request
         import time
+        import socket
         
         try:
             # 方法1：尝试优雅关闭旧服务
