@@ -16,15 +16,12 @@ class MemoryCapsulePlugin(Star):
         self.webui_server = None
         self.webui_thread = None
         self.config = config
-        # 获取WebUI端口配置，默认为5000
         self.webui_port = config.get('webui_port', 5000) if config else 5000
-        # 关系注入缓存
         self.relation_injection_cache = {}
-        # 上次对话的用户ID（用于检测用户切换）
         self.last_relation_user_id = None
-        # 关系注入刷新时间（默认1小时）
         self.relation_injection_refresh_time = config.get('relation_injection_refresh_time', 3600) if config else 3600
-        logger.info(f"关系注入刷新时间配置: {self.relation_injection_refresh_time}秒")
+        logger.info(f"WebUI端口配置: {self.webui_port}")
+        logger.info(f"关系注入刷新时间: {self.relation_injection_refresh_time}秒")
 
     async def initialize(self):
         """插件初始化方法"""
@@ -114,19 +111,30 @@ class MemoryCapsulePlugin(Star):
         
         try:
             import socket
+            import time
+            
+            for attempt in range(3):
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                result = sock.connect_ex(('127.0.0.1', self.webui_port))
+                sock.close()
+                
+                if result != 0:
+                    break
+                
+                logger.warning(f"端口 {self.webui_port} 已被占用，尝试释放... (第{attempt + 1}次)")
+                
+                self._force_release_port(self.webui_port, timeout=3)
+                time.sleep(1)
             
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             result = sock.connect_ex(('127.0.0.1', self.webui_port))
             sock.close()
             
             if result == 0:
-                logger.warning(f"端口 {self.webui_port} 已被占用，尝试释放...")
-                
-                if self._force_release_port(self.webui_port):
-                    logger.info(f"端口 {self.webui_port} 已释放")
-                else:
-                    logger.error(f"端口 {self.webui_port} 无法释放，请手动处理或修改端口配置")
-                    return
+                logger.error(f"端口 {self.webui_port} 无法释放")
+                logger.error(f"请手动终止占用端口的进程，或修改 webui_port 配置")
+                logger.error(f"Windows命令: netstat -ano | findstr :{self.webui_port}")
+                return
             
             from .webui.server import WebUIServer
             self.webui_server = WebUIServer(
