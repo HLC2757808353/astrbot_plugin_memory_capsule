@@ -7,6 +7,22 @@
     "editable": true,
     "display_name": "记忆宫殿"
   },
+  "working_memory_limit": {
+    "description": "工作记忆条数上限",
+    "type": "int",
+    "default": 6,
+    "hint": "每次自动注入的最大记忆条数。内存紧张时建议3-4",
+    "editable": true,
+    "display_name": "工作记忆条数"
+  },
+  "working_memory_max_chars": {
+    "description": "工作记忆总字符上限",
+    "type": "int",
+    "default": 800,
+    "hint": "自动注入的记忆总字符数上限。内存紧张时建议400-600",
+    "editable": true,
+    "display_name": "工作记忆字符上限"
+  },
   "memory_cleanup_enabled": {
     "description": "启用记忆清理",
     "type": "bool",
@@ -18,7 +34,7 @@
     "description": "清理多少天前的记忆",
     "type": "int",
     "default": 365,
-    "hint": "设置为0表示永不按时间清理",
+    "hint": "0=永不按时间清理",
     "editable": true,
     "display_name": "清理天数"
   },
@@ -26,18 +42,9 @@
     "description": "最大记忆数量",
     "type": "int",
     "default": 10000,
-    "hint": "设置为0表示永不按数量清理",
+    "hint": "0=永不按数量清理",
     "editable": true,
     "display_name": "最大数量"
-  },
-  "memory_cleanup_strategy": {
-    "description": "清理策略",
-    "type": "string",
-    "default": "unaccessed",
-    "options": ["unaccessed", "oldest", "random"],
-    "hint": "unaccessed: 清理未访问的, oldest: 清理最旧的, random: 随机清理",
-    "editable": true,
-    "display_name": "清理策略"
   },
   "search_max_results": {
     "description": "最大搜索结果数",
@@ -46,28 +53,10 @@
     "editable": true,
     "display_name": "最大结果数"
   },
-  "max_extracted_tags": {
-    "description": "最大提取提示词数量",
-    "type": "int",
-    "default": 10,
-    "editable": true,
-    "display_name": "最大提示词数量",
-    "hint": "设置智能提取的最大提示词数量，防止提取过多提示词"
-  },
-  "search_sort_by": {
-    "description": "排序方式",
-    "type": "string",
-    "default": "access_count",
-    "options": ["access_count", "created_at"],
-    "hint": "access_count: 按访问次数, created_at: 按创建时间",
-    "editable": true,
-    "display_name": "排序方式"
-  },
   "backup_interval": {
     "description": "自动备份间隔（小时）",
     "type": "int",
     "default": 24,
-    "hint": "设置自动备份的时间间隔，单位为小时",
     "editable": true,
     "display_name": "备份间隔"
   },
@@ -75,7 +64,7 @@
     "description": "备份最大数量",
     "type": "int",
     "default": 10,
-    "hint": "设置备份文件的最大数量，超过后会自动清理旧备份",
+    "hint": "超过后自动清理旧备份",
     "editable": true,
     "display_name": "备份最大数量"
   },
@@ -83,106 +72,85 @@
     "description": "WebUI服务端口",
     "type": "int",
     "default": 5000,
-    "hint": "设置WebUI服务的端口号，默认5000",
     "editable": true,
     "display_name": "WebUI端口"
   },
   "context_inject_position": {
-    "description": "关系信息注入位置",
+    "description": "上下文注入位置",
     "type": "string",
-    "default": "user_prompt",
-    "options": ["user_prompt", "system_prompt", "insert_system_prompt"],
-    "hint": "user_prompt 会嵌入到用户消息的最前面，system_prompt会嵌入到系统消息中，insert_system_prompt会向上下文列表中添加一条新的系统消息",
+    "default": "system_prompt",
+    "options": ["system_prompt", "user_prompt", "insert_system_prompt"],
+    "hint": "system_prompt=系统提示词, user_prompt=用户消息前, insert_system_prompt=插入独立系统消息",
     "editable": true,
     "display_name": "注入位置"
   },
-  "memory_categories": {
-    "description": "记忆分类列表",
-    "type": "list",
-    "default": ["技术笔记", "生活记录", "学习资料", "个人想法"],
-    "hint": "设置记忆宫殿的分类列表，多个分类用逗号分隔",
-    "editable": true,
-    "display_name": "记忆分类"
-  },
   "relation_injection_refresh_time": {
-    "description": "关系注入刷新时间",
+    "description": "关系注入刷新时间(秒)",
     "type": "int",
     "default": 3600,
-    "hint": "关系信息注入刷新时间(秒)。设为-1表示每次对话都注入，不设缓存",
+    "hint": "-1=每次都注入",
     "editable": true,
-    "display_name": "关系注入刷新时间"
+    "display_name": "注入刷新时间"
   },
   "category_model": {
     "description": "分类判断模型",
     "type": "string",
     "default": "",
     "_special": "select_provider",
-    "hint": "选择用于自动分类判断的大模型，留空则使用默认模型",
+    "hint": "留空则使用默认模型",
     "editable": true,
-    "display_name": "分类判断模型"
+    "display_name": "分类模型"
   },
   "cache_ttl": {
-    "description": "缓存过期时间（秒）",
+    "description": "缓存过期时间(秒)",
     "type": "int",
     "default": 300,
-    "hint": "设置搜索结果的缓存有效期，单位为秒。默认300秒（5分钟），设置为0表示禁用缓存",
+    "hint": "0=禁用缓存。内存紧张建议60-120",
     "editable": true,
-    "display_name": "缓存过期时间"
+    "display_name": "缓存TTL"
+  },
+  "max_cache_size": {
+    "description": "最大缓存条目",
+    "type": "int",
+    "default": 200,
+    "hint": "内存紧张建议50-100",
+    "editable": true,
+    "display_name": "缓存上限"
   },
   "mmr_enabled": {
-    "description": "启用MMR多样性筛选",
+    "description": "MMR多样性筛选",
     "type": "bool",
     "default": true,
-    "hint": "是否启用MMR（最大边际相关性）算法来增加搜索结果的多样性。开启后可以避免返回过多相似内容",
     "editable": true,
-    "display_name": "MMR多样性筛选"
+    "display_name": "MMR筛选"
   },
   "mmr_lambda": {
     "description": "MMR平衡参数",
     "type": "float",
     "default": 0.7,
-    "hint": "MMR算法的平衡参数（0-1）。值越大越重视相关性，越小越强调结果多样性。推荐0.7，平衡相关性和多样性",
+    "hint": "越大越重相关性，越小越重多样性",
     "editable": true,
-    "display_name": "MMR平衡参数"
+    "display_name": "MMR参数"
   },
   "identity_mapping_enabled": {
-    "description": "启用身份映射系统",
+    "description": "身份映射系统",
     "type": "bool",
     "default": true,
-    "hint": "是否启用智能身份映射系统。开启后可自动记录用户别名、支持按名字/群名查找用户、跨群识别同一人",
     "editable": true,
-    "display_name": "身份映射系统"
+    "display_name": "身份映射"
   },
-  "max_cache_size": {
-    "description": "最大缓存条目数",
-    "type": "int",
-    "default": 1000,
-    "hint": "设置搜索结果缓存的最大条目数。内存有限时可降低此值（建议最低200），默认1000。每条缓存约占用1-5KB",
+  "memory_categories": {
+    "description": "记忆分类列表",
+    "type": "list",
+    "default": ["技术笔记", "生活记录", "学习资料", "个人想法"],
     "editable": true,
-    "display_name": "最大缓存条目"
+    "display_name": "记忆分类"
   },
   "max_aliases_per_user": {
     "description": "每用户最大别名数",
     "type": "int",
     "default": 3,
-    "hint": "每个用户最多保存的别名数量。超过上限时自动删除最旧的别名。建议2-5个，默认3",
     "editable": true,
     "display_name": "最大别名数"
-  },
-  "timezone_correction_enabled": {
-    "description": "启用时间校正",
-    "type": "bool",
-    "default": true,
-    "hint": "是否对记忆时间进行时区校正。开启后会将服务器UTC时间转换为配置的时区。如果服务器本地时间已经是正确的，可以关闭此选项",
-    "editable": true,
-    "display_name": "启用时间校正"
-  },
-  "timezone_offset": {
-    "description": "时区偏移（小时）",
-    "type": "int",
-    "default": 8,
-    "hint": "设置记忆时间的时区偏移，单位为小时。默认8（东八区/北京时间）。仅在启用时间校正时生效。范围-12到+14",
-    "editable": true,
-    "display_name": "时区偏移"
   }
 }

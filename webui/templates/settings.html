@@ -5,452 +5,319 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>记忆胶囊 - 系统设置</title>
     <style>
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-        }
-        
+        * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            line-height: 1.6;
-            color: #ffffff;
+            line-height: 1.6; color: #fff;
             background-color: #0a0a0a;
-            background-image: 
-                radial-gradient(circle at 25% 25%, rgba(233, 30, 99, 0.1) 0%, transparent 50%),
-                radial-gradient(circle at 75% 75%, rgba(156, 39, 176, 0.1) 0%, transparent 50%);
+            background-image: radial-gradient(circle at 25% 25%, rgba(233,30,99,.1) 0%, transparent 50%),
+                              radial-gradient(circle at 75% 75%, rgba(156,39,176,.1) 0%, transparent 50%);
             min-height: 100vh;
         }
-        
-        .container {
-            display: flex;
-            min-height: 100vh;
-        }
-        
-        /* 侧边栏 */
+        .container { display: flex; min-height: 100vh; }
         .sidebar {
-            width: 250px;
-            background: linear-gradient(135deg, #1a0a1e 0%, #2d1b36 100%);
-            border-right: 1px solid rgba(233, 30, 99, 0.3);
-            padding: 20px;
-            box-shadow: 2px 0 10px rgba(233, 30, 99, 0.2);
+            width: 220px; background: linear-gradient(135deg, #1a0a1e, #2d1b36);
+            border-right: 1px solid rgba(233,30,99,.3); padding: 20px;
             position: relative;
         }
-        
         .sidebar::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 4px;
-            height: 100%;
+            content: ''; position: absolute; top: 0; left: 0; width: 4px; height: 100%;
             background: linear-gradient(to bottom, #e91e63, #9c27b0);
         }
-        
-        .sidebar-brand {
-            font-size: 1.8rem;
-            font-weight: bold;
-            color: #ffffff;
-            text-align: center;
-            margin-bottom: 40px;
-            text-shadow: 0 0 10px rgba(233, 30, 99, 0.7);
-        }
-        
-        .sidebar-nav {
-            list-style: none;
-        }
-        
-        .nav-item {
-            margin-bottom: 10px;
-        }
-        
+        .sidebar-brand { font-size: 1.5rem; font-weight: bold; text-align: center; margin-bottom: 30px; text-shadow: 0 0 10px rgba(233,30,99,.7); }
+        .sidebar-nav { list-style: none; }
+        .nav-item { margin-bottom: 8px; }
         .nav-link {
-            display: block;
-            padding: 12px 15px;
-            color: #b3b3b3;
-            text-decoration: none;
-            border-radius: 8px;
-            transition: all 0.3s ease;
-            position: relative;
-            overflow: hidden;
+            display: block; padding: 10px 12px; color: #b3b3b3; text-decoration: none;
+            border-radius: 6px; transition: all .3s;
         }
-        
-        .nav-link::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: -100%;
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(90deg, transparent, rgba(233, 30, 99, 0.2), transparent);
-            transition: left 0.5s ease;
-        }
-        
-        .nav-link:hover::before {
-            left: 100%;
-        }
-        
-        .nav-link:hover {
-            color: #ffffff;
-            background-color: rgba(233, 30, 99, 0.2);
-            transform: translateX(5px);
-        }
-        
-        .nav-link.active {
-            color: #ffffff;
-            background-color: rgba(233, 30, 99, 0.3);
-            box-shadow: 0 0 10px rgba(233, 30, 99, 0.5);
-        }
-        
-        /* 主内容区 */
-        .main-content {
-            flex: 1;
-            padding: 30px;
-            overflow-y: auto;
-        }
-        
-        /* 卡片 */
+        .nav-link:hover { color: #fff; background: rgba(233,30,99,.2); transform: translateX(4px); }
+        .nav-link.active { color: #fff; background: rgba(233,30,99,.3); box-shadow: 0 0 8px rgba(233,30,99,.4); }
+        .main-content { flex: 1; padding: 24px; overflow-y: auto; }
         .card {
-            background: linear-gradient(135deg, rgba(26, 10, 30, 0.8) 0%, rgba(45, 27, 54, 0.8) 100%);
-            border-radius: 12px;
-            border: 1px solid rgba(233, 30, 99, 0.3);
-            box-shadow: 0 4px 15px rgba(233, 30, 99, 0.2);
-            margin-bottom: 30px;
-            overflow: hidden;
-            backdrop-filter: blur(10px);
+            background: linear-gradient(135deg, rgba(26,10,30,.8), rgba(45,27,54,.8));
+            border-radius: 10px; border: 1px solid rgba(233,30,99,.3);
+            box-shadow: 0 4px 12px rgba(233,30,99,.15); margin-bottom: 24px;
+            backdrop-filter: blur(8px);
         }
-        
         .card-header {
-            padding: 20px;
-            border-bottom: 1px solid rgba(233, 30, 99, 0.3);
-            background: linear-gradient(90deg, rgba(233, 30, 99, 0.1), rgba(156, 39, 176, 0.1));
+            padding: 16px 20px; border-bottom: 1px solid rgba(233,30,99,.3);
+            background: linear-gradient(90deg, rgba(233,30,99,.08), rgba(156,39,176,.08));
         }
-        
-        .card-title {
-            font-size: 1.5rem;
-            font-weight: bold;
-            color: #ffffff;
-            margin: 0;
+        .card-title { font-size: 1.2rem; font-weight: bold; }
+        .card-body { padding: 20px; }
+        .section-title {
+            font-size: .85rem; color: #e91e63; text-transform: uppercase; letter-spacing: 1px;
+            margin: 16px 0 12px; padding-bottom: 6px; border-bottom: 1px solid rgba(233,30,99,.2);
         }
-        
-        .card-body {
-            padding: 20px;
-        }
-        
-        /* 表单 */
-        .form-group {
-            margin-bottom: 20px;
-        }
-        
+        .form-group { margin-bottom: 14px; display: flex; align-items: center; gap: 12px; }
         .form-label {
-            display: block;
-            margin-bottom: 8px;
-            font-weight: 500;
-            color: #b3b3b3;
+            min-width: 140px; font-weight: 500; color: #ccc; font-size: .9rem;
         }
-        
         .form-control {
-            width: 100%;
-            padding: 10px;
-            background-color: rgba(255, 255, 255, 0.1);
-            border: 1px solid rgba(233, 30, 99, 0.3);
-            border-radius: 6px;
-            color: #ffffff;
-            font-size: 14px;
+            flex: 1; padding: 8px 10px; background: rgba(255,255,255,.08);
+            border: 1px solid rgba(233,30,99,.25); border-radius: 5px;
+            color: #fff; font-size: .9rem;
         }
-        
-        .form-control:focus {
-            outline: none;
-            border-color: #e91e63;
-            box-shadow: 0 0 10px rgba(233, 30, 99, 0.3);
-        }
-        
-        /* 按钮 */
+        .form-control:focus { outline: none; border-color: #e91e63; box-shadow: 0 0 8px rgba(233,30,99,.25); }
+        select.form-control { appearance: auto; }
+        .form-hint { font-size: .75rem; color: #888; margin-left: 152px; margin-top: -8px; margin-bottom: 8px; }
         .btn {
-            display: inline-block;
-            padding: 8px 16px;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 14px;
-            transition: all 0.3s ease;
+            display: inline-block; padding: 8px 18px; border: none; border-radius: 5px;
+            cursor: pointer; font-size: .9rem; transition: all .3s;
         }
-        
-        .btn-primary {
-            background-color: #e91e63;
-            color: #ffffff;
-        }
-        
-        .btn-primary:hover {
-            background-color: #c2185b;
-            box-shadow: 0 0 10px rgba(233, 30, 99, 0.5);
-        }
-        
-        .btn-outline {
-            background-color: transparent;
-            color: #e91e63;
-            border: 1px solid #e91e63;
-        }
-        
-        .btn-outline:hover {
-            background-color: #e91e63;
-            color: #ffffff;
-            box-shadow: 0 0 10px rgba(233, 30, 99, 0.5);
-        }
-        
-        /* 备份列表 */
-        .backup-list {
-            list-style: none;
-        }
-        
+        .btn-primary { background: #e91e63; color: #fff; }
+        .btn-primary:hover { background: #c2185b; box-shadow: 0 0 10px rgba(233,30,99,.4); }
+        .btn-outline { background: transparent; color: #e91e63; border: 1px solid #e91e63; }
+        .btn-outline:hover { background: #e91e63; color: #fff; }
+        .btn-sm { padding: 5px 12px; font-size: .8rem; }
+        .backup-list { list-style: none; }
         .backup-item {
-            padding: 15px;
-            border-bottom: 1px solid rgba(233, 30, 99, 0.2);
-            transition: all 0.3s ease;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
+            padding: 12px; border-bottom: 1px solid rgba(233,30,99,.15);
+            display: flex; justify-content: space-between; align-items: center;
         }
-        
-        .backup-item:hover {
-            background-color: rgba(233, 30, 99, 0.1);
+        .backup-item:hover { background: rgba(233,30,99,.06); }
+        .backup-time { font-size: .8rem; color: #999; }
+        .backup-size { font-size: .75rem; color: #777; }
+        .toggle-switch {
+            position: relative; width: 44px; height: 22px; flex-shrink: 0;
         }
-        
-        .backup-info {
-            flex: 1;
+        .toggle-switch input { opacity: 0; width: 0; height: 0; }
+        .toggle-slider {
+            position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+            background: #444; border-radius: 22px; cursor: pointer; transition: .3s;
         }
-        
-        .backup-time {
-            font-size: 12px;
-            color: #999;
-            margin-bottom: 5px;
+        .toggle-slider::before {
+            content: ''; position: absolute; width: 18px; height: 18px;
+            left: 2px; bottom: 2px; background: #fff; border-radius: 50%; transition: .3s;
         }
-        
-        .backup-size {
-            font-size: 12px;
-            color: #b3b3b3;
+        .toggle-switch input:checked + .toggle-slider { background: #e91e63; }
+        .toggle-switch input:checked + .toggle-slider::before { transform: translateX(22px); }
+        .status-badge {
+            display: inline-block; padding: 2px 8px; border-radius: 10px;
+            font-size: .75rem; font-weight: 600;
         }
-        
-        /* 响应式设计 */
+        .status-on { background: rgba(76,175,80,.2); color: #4caf50; }
+        .status-off { background: rgba(244,67,54,.2); color: #f44336; }
         @media (max-width: 768px) {
-            .container {
-                flex-direction: column;
-            }
-            
-            .sidebar {
-                width: 100%;
-                border-right: none;
-                border-bottom: 1px solid rgba(233, 30, 99, 0.3);
-            }
-            
-            .sidebar-nav {
-                display: flex;
-                overflow-x: auto;
-                gap: 10px;
-            }
-            
-            .nav-item {
-                margin-bottom: 0;
-            }
+            .container { flex-direction: column; }
+            .sidebar { width: 100%; border-right: none; border-bottom: 1px solid rgba(233,30,99,.3); }
+            .sidebar-nav { display: flex; overflow-x: auto; gap: 8px; }
+            .nav-item { margin-bottom: 0; }
+            .form-group { flex-direction: column; align-items: flex-start; }
+            .form-label { min-width: auto; }
+            .form-hint { margin-left: 0; }
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <!-- 侧边栏 -->
         <aside class="sidebar">
             <div class="sidebar-brand">记忆胶囊</div>
             <ul class="sidebar-nav">
-                <li class="nav-item">
-                    <a class="nav-link" href="/">仪表盘</a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="/relationships">关系图谱</a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="/memories">记忆宫殿</a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link active" href="/settings">系统设置</a>
-                </li>
+                <li class="nav-item"><a class="nav-link" href="/">仪表盘</a></li>
+                <li class="nav-item"><a class="nav-link" href="/relationships">关系图谱</a></li>
+                <li class="nav-item"><a class="nav-link" href="/memories">记忆宫殿</a></li>
+                <li class="nav-item"><a class="nav-link active" href="/settings">系统设置</a></li>
             </ul>
         </aside>
-        
-        <!-- 主内容区 -->
         <main class="main-content">
-            <!-- 系统设置卡片 -->
             <div class="card">
-                <div class="card-header">
-                    <h2 class="card-title">系统设置</h2>
-                </div>
+                <div class="card-header"><h2 class="card-title">插件配置</h2></div>
                 <div class="card-body">
-                    <form id="settings-form">
-                        <div class="form-group">
-                            <label class="form-label" for="webui-port">WebUI 端口</label>
-                            <input type="number" class="form-control" id="webui-port" value="5000" min="1024" max="65535">
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label" for="backup-interval">备份间隔 (小时)</label>
-                            <input type="number" class="form-control" id="backup-interval" value="24" min="1" max="168">
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label" for="backup-retention">备份保留数量</label>
-                            <input type="number" class="form-control" id="backup-retention" value="10" min="1" max="100">
-                        </div>
-
-                        <button type="submit" class="btn btn-primary">保存设置</button>
-                    </form>
+                    <div id="config-form"></div>
+                    <div style="margin-top:20px;">
+                        <button class="btn btn-primary" onclick="saveSettings()">保存设置</button>
+                        <span style="margin-left:12px;font-size:.8rem;color:#888;">部分设置需重启插件生效</span>
+                    </div>
                 </div>
             </div>
-            
-            <!-- 备份管理卡片 -->
             <div class="card">
-                <div class="card-header">
-                    <h2 class="card-title">备份管理</h2>
-                </div>
+                <div class="card-header"><h2 class="card-title">认证状态</h2></div>
+                <div class="card-body" id="auth-status"></div>
+            </div>
+            <div class="card">
+                <div class="card-header"><h2 class="card-title">备份管理</h2></div>
                 <div class="card-body">
-                    <button class="btn btn-primary" onclick="createBackup()">创建备份</button>
-                    <ul class="backup-list" id="backup-list">
-                        <!-- 备份列表将通过JavaScript动态添加 -->
-                    </ul>
+                    <button class="btn btn-primary btn-sm" onclick="createBackup()">创建备份</button>
+                    <ul class="backup-list" id="backup-list"></ul>
                 </div>
             </div>
         </main>
     </div>
-    
     <script>
-        // 加载设置
+        const GROUPS = {
+            '核心功能': ['memory_palace', 'identity_mapping_enabled'],
+            '工作记忆': ['working_memory_limit', 'working_memory_max_chars', 'context_inject_position', 'relation_injection_refresh_time'],
+            '搜索与缓存': ['search_max_results', 'mmr_enabled', 'mmr_lambda', 'cache_ttl', 'max_cache_size'],
+            '记忆清理': ['memory_cleanup_enabled', 'memory_cleanup_days', 'memory_cleanup_max'],
+            '备份': ['backup_interval', 'backup_max_count'],
+            'WebUI': ['webui_port'],
+            '高级': ['category_model', 'max_aliases_per_user', 'memory_categories']
+        };
+
+        let currentSettings = {};
+
         async function loadSettings() {
             try {
-                const response = await fetch('/api/settings');
-                const settings = await response.json();
-                document.getElementById('webui-port').value = settings.webui_port || 5000;
-                document.getElementById('backup-interval').value = settings.backup_interval || 24;
-                document.getElementById('backup-retention').value = settings.backup_retention || 10;
-            } catch (error) {
-                console.error('加载设置失败:', error);
+                const resp = await fetch('/api/settings');
+                const data = await resp.json();
+                currentSettings = {};
+                const form = document.getElementById('config-form');
+                form.innerHTML = '';
+
+                for (const [groupName, keys] of Object.entries(GROUPS)) {
+                    const section = document.createElement('div');
+                    section.innerHTML = `<div class="section-title">${groupName}</div>`;
+                    let hasItems = false;
+
+                    for (const key of keys) {
+                        const item = data[key];
+                        if (!item) continue;
+                        hasItems = true;
+                        currentSettings[key] = item.value;
+
+                        const group = document.createElement('div');
+
+                        if (item.type === 'bool') {
+                            group.className = 'form-group';
+                            group.innerHTML = `
+                                <span class="form-label">${item.display_name}</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="cfg_${key}" ${item.value ? 'checked' : ''}>
+                                    <span class="toggle-slider"></span>
+                                </label>
+                                ${item.hint ? `<span style="font-size:.75rem;color:#888;margin-left:8px;">${item.hint}</span>` : ''}
+                            `;
+                        } else if (item.options) {
+                            group.className = 'form-group';
+                            let opts = item.options.map(o => `<option value="${o}" ${item.value === o ? 'selected' : ''}>${o}</option>`).join('');
+                            group.innerHTML = `
+                                <span class="form-label">${item.display_name}</span>
+                                <select class="form-control" id="cfg_${key}" style="max-width:280px;">${opts}</select>
+                            `;
+                        } else if (item.type === 'int' || item.type === 'float') {
+                            group.className = 'form-group';
+                            group.innerHTML = `
+                                <span class="form-label">${item.display_name}</span>
+                                <input type="number" class="form-control" id="cfg_${key}" value="${item.value}" step="${item.type === 'float' ? '0.1' : '1'}" style="max-width:160px;">
+                            `;
+                        } else if (item.type === 'list') {
+                            group.className = 'form-group';
+                            group.innerHTML = `
+                                <span class="form-label">${item.display_name}</span>
+                                <input type="text" class="form-control" id="cfg_${key}" value="${Array.isArray(item.value) ? item.value.join(',') : (item.value || '')}" style="max-width:360px;" placeholder="逗号分隔">
+                            `;
+                        } else {
+                            group.className = 'form-group';
+                            group.innerHTML = `
+                                <span class="form-label">${item.display_name}</span>
+                                <input type="text" class="form-control" id="cfg_${key}" value="${item.value || ''}" style="max-width:360px;">
+                            `;
+                        }
+                        section.appendChild(group);
+
+                        if (item.hint && item.type !== 'bool') {
+                            const hint = document.createElement('div');
+                            hint.className = 'form-hint';
+                            hint.textContent = item.hint;
+                            section.appendChild(hint);
+                        }
+                    }
+
+                    if (hasItems) form.appendChild(section);
+                }
+
+                if (data.auth_status) {
+                    const as = data.auth_status;
+                    document.getElementById('auth-status').innerHTML = `
+                        <div style="display:flex;gap:16px;align-items:center;">
+                            <span>认证: <span class="status-badge ${as.enabled ? 'status-on' : 'status-off'}">${as.enabled ? '已启用' : '未启用'}</span></span>
+                            <span>Token: <code style="background:rgba(255,255,255,.1);padding:2px 6px;border-radius:3px;font-size:.8rem;">${as.token_preview || '***'}</code></span>
+                        </div>
+                    `;
+                }
+            } catch (e) {
+                console.error('加载设置失败:', e);
             }
         }
-        
-        // 保存设置
-        document.getElementById('settings-form').addEventListener('submit', async function(e) {
-            e.preventDefault();
-            
-            const webuiPort = parseInt(document.getElementById('webui-port').value);
-            const backupInterval = parseInt(document.getElementById('backup-interval').value);
-            const backupRetention = parseInt(document.getElementById('backup-retention').value);
-            
+
+        async function saveSettings() {
+            const data = {};
+            for (const key of Object.keys(currentSettings)) {
+                const el = document.getElementById('cfg_' + key);
+                if (!el) continue;
+                if (el.type === 'checkbox') {
+                    data[key] = el.checked;
+                } else if (el.type === 'number') {
+                    data[key] = parseFloat(el.value);
+                } else {
+                    data[key] = el.value;
+                }
+            }
             try {
-                const response = await fetch('/api/settings', {
+                const resp = await fetch('/api/settings', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        webui_port: webuiPort,
-                        backup_interval: backupInterval,
-                        backup_retention: backupRetention
-                    })
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
                 });
-                const result = await response.json();
+                const result = await resp.json();
                 alert(result.result);
-            } catch (error) {
-                console.error('保存设置失败:', error);
+            } catch (e) {
+                console.error('保存失败:', e);
                 alert('保存失败');
             }
-        });
-        
-        // 创建备份
+        }
+
         async function createBackup() {
             try {
-                const response = await fetch('/api/backup');
-                const result = await response.json();
+                const resp = await fetch('/api/backup');
+                const result = await resp.json();
                 alert(result.result);
                 loadBackups();
-            } catch (error) {
-                console.error('创建备份失败:', error);
-                alert('创建备份失败');
-            }
+            } catch (e) { alert('创建备份失败'); }
         }
-        
-        // 加载备份列表
+
         async function loadBackups() {
             try {
-                const response = await fetch('/api/backups');
-                const backups = await response.json();
-                
-                const backupList = document.getElementById('backup-list');
-                backupList.innerHTML = '';
-                
-                if (backups.length === 0) {
-                    backupList.innerHTML = '<li class="backup-item">暂无备份</li>';
-                    return;
-                }
-                
-                backups.forEach(backup => {
+                const resp = await fetch('/api/backups');
+                const backups = await resp.json();
+                const list = document.getElementById('backup-list');
+                list.innerHTML = '';
+                if (!backups.length) { list.innerHTML = '<li class="backup-item" style="color:#888;">暂无备份</li>'; return; }
+                backups.forEach(b => {
                     const li = document.createElement('li');
                     li.className = 'backup-item';
                     li.innerHTML = `
-                        <div class="backup-info">
-                            <div class="backup-time">${backup.time}</div>
-                            <div class="backup-size">${backup.size}</div>
+                        <div><div class="backup-time">${b.time || ''}</div><div class="backup-size">${b.size || ''}</div></div>
+                        <div style="display:flex;gap:6px;">
+                            <button class="btn btn-outline btn-sm" onclick="restoreBackup('${b.filename}')">恢复</button>
+                            <button class="btn btn-outline btn-sm" onclick="deleteBackup('${b.filename}')">删除</button>
                         </div>
-                        <button class="btn btn-outline" onclick="restoreBackup('${backup.filename}')">恢复</button>
-                        <button class="btn btn-outline" onclick="deleteBackup('${backup.filename}')">删除</button>
                     `;
-                    backupList.appendChild(li);
+                    list.appendChild(li);
                 });
-            } catch (error) {
-                console.error('加载备份列表失败:', error);
-            }
+            } catch (e) { console.error('加载备份失败:', e); }
         }
-        
-        // 恢复备份
-        async function restoreBackup(filename) {
-            if (!confirm('确定要从备份恢复吗？这将覆盖当前数据。')) {
-                return;
-            }
-            
+
+        async function restoreBackup(fn) {
+            if (!confirm('确定恢复？将覆盖当前数据。')) return;
             try {
-                const response = await fetch('/api/restore', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ filename: filename })
-                });
-                const result = await response.json();
-                alert(result.result);
-            } catch (error) {
-                console.error('恢复备份失败:', error);
-                alert('恢复备份失败');
-            }
+                const resp = await fetch('/api/restore', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({filename: fn}) });
+                alert((await resp.json()).result);
+            } catch (e) { alert('恢复失败'); }
         }
-        
-        // 删除备份
-        async function deleteBackup(filename) {
-            if (!confirm('确定要删除这个备份吗？')) {
-                return;
-            }
-            
+
+        async function deleteBackup(fn) {
+            if (!confirm('确定删除？')) return;
             try {
-                const response = await fetch('/api/backup/' + filename, {
-                    method: 'DELETE'
-                });
-                const result = await response.json();
-                alert(result.result);
+                const resp = await fetch('/api/backup/' + fn, { method: 'DELETE' });
+                alert((await resp.json()).result);
                 loadBackups();
-            } catch (error) {
-                console.error('删除备份失败:', error);
-                alert('删除备份失败');
-            }
+            } catch (e) { alert('删除失败'); }
         }
-        
-        // 页面加载时执行
-        window.onload = function() {
-            loadSettings();
-            loadBackups();
-        };
+
+        window.onload = function() { loadSettings(); loadBackups(); };
     </script>
 </body>
 </html>

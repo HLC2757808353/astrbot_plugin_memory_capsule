@@ -311,60 +311,44 @@ class WebUIServer:
 
         @self.app.route('/api/settings', methods=['GET'])
         @self._require_auth
-        def api_get_settings(self):
-            """获取系统设置"""
+        def api_get_settings():
             try:
-                config_path = os.path.join(os.path.dirname(__file__), "..", "_conf_schema.json")
-                if os.path.exists(config_path):
-                    with open(config_path, 'r', encoding='utf-8') as f:
-                        import json
-                        config = json.load(f)
-                        result = {
-                            'webui_port': config.get('webui_port', {}).get('default', 5000),
-                            'backup_interval': config.get('backup_interval', {}).get('default', 24),
-                            'backup_retention': config.get('backup_max_count', {}).get('default', 10),
-                            'auth_status': self.auth_manager.get_status()
+                cfg = self.db_manager.config if self.db_manager else {}
+                schema_path = os.path.join(os.path.dirname(__file__), "..", "_conf_schema.json")
+                schema = {}
+                if os.path.exists(schema_path):
+                    with open(schema_path, 'r', encoding='utf-8') as f:
+                        schema = json.load(f)
+                result = {}
+                for key, meta in schema.items():
+                    if meta.get('editable', False):
+                        result[key] = {
+                            'value': cfg.get(key, meta.get('default')),
+                            'type': meta.get('type', 'string'),
+                            'display_name': meta.get('display_name', key),
+                            'hint': meta.get('hint', ''),
+                            'default': meta.get('default'),
+                            'options': meta.get('options')
                         }
-                        return jsonify(result)
-                else:
-                    return jsonify({
-                        'webui_port': 5000,
-                        'backup_interval': 24,
-                        'backup_retention': 10,
-                        'auth_status': self.auth_manager.get_status()
-                    })
+                result['auth_status'] = self.auth_manager.get_status()
+                return jsonify(result)
             except Exception as e:
                 logger.error(f"获取设置失败: {e}")
                 return jsonify({'error': str(e)}), 500
 
         @self.app.route('/api/settings', methods=['POST'])
         @self._require_auth
-        def api_save_settings(self):
-            """保存系统设置"""
+        def api_save_settings():
             try:
                 data = request.json
-                config_path = os.path.join(os.path.dirname(__file__), "..", "_conf_schema.json")
-                import json
-                
-                if os.path.exists(config_path):
-                    with open(config_path, 'r', encoding='utf-8') as f:
-                        existing_config = json.load(f)
-                else:
-                    existing_config = {}
-                
-                if 'webui_port' in data:
-                    if 'webui_port' in existing_config:
-                        existing_config['webui_port']['default'] = data['webui_port']
-                if 'backup_interval' in data:
-                    if 'backup_interval' in existing_config:
-                        existing_config['backup_interval']['default'] = data['backup_interval']
-                if 'backup_retention' in data:
-                    if 'backup_max_count' in existing_config:
-                        existing_config['backup_max_count']['default'] = data['backup_retention']
-                
+                if self.db_manager and self.db_manager.config is not None:
+                    for key, value in data.items():
+                        if key in self.db_manager.config or key == 'webui_port':
+                            self.db_manager.config[key] = value
+                config_path = os.path.join(os.path.dirname(__file__), "..", "..", "data", "runtime_config.json")
                 with open(config_path, 'w', encoding='utf-8') as f:
-                    json.dump(existing_config, f, indent=2, ensure_ascii=False)
-                return jsonify({'result': '设置保存成功'})
+                    json.dump(self.db_manager.config if self.db_manager else data, f, ensure_ascii=False)
+                return jsonify({'result': '设置已保存（部分需重启生效）'})
             except Exception as e:
                 logger.error(f"保存设置失败: {e}")
                 return jsonify({'result': f'保存失败: {e}'})
@@ -452,93 +436,29 @@ class WebUIServer:
         """运行服务器"""
         self.running = True
         try:
-            logger.info(f"WebUI服务启动中... (端口: {self.port})")
-            
-            # Token已在AuthManager初始化时打印到日志
-            
-            self.app.run(host='127.0.0.1', port=self.port, debug=False, use_reloader=False, threaded=True)
+            from werkzeug.serving import make_server
+            self._server = make_server('127.0.0.1', self.port, self.app, threaded=True)
+            logger.info(f"WebUI服务已启动 (端口: {self.port})")
+            self._server.serve_forever()
         except OSError as e:
             if "Address already in use" in str(e):
-                logger.error(f"端口 {self.port} 已被占用，请检查是否有残留进程或修改端口配置。")
+                logger.error(f"端口 {self.port} 已被占用")
             else:
                 logger.error(f"WebUI服务器运行失败: {e}")
         except Exception as e:
-            logger.error(f"WebUI服务器运行失败: {e}")
+            if "KeyboardInterrupt" not in str(e):
+                logger.error(f"WebUI服务器运行失败: {e}")
         finally:
             self.running = False
 
     def stop(self):
-        """停止服务器（增强版 - 确保端口释放）
-        
-        停止策略：
-        1. 先尝试优雅关闭（通过shutdown端点）
-        2. 等待线程结束
-        3. 如果超时，强制终止
-        4. 最终确认端口已释放
-        """
-        if not self.running and (not self.server_thread or not self.server_thread.is_alive()):
-            logger.info("WebUI服务器未运行，无需停止。")
-            return
-
-        logger.info(f"正在停止 WebUI 服务器 (端口 {self.port})...")
-        
-        # 标记为停止状态
-        self.running = False
-        
-        # 方法1：尝试优雅关闭（通过内部shutdown端点）
-        try:
-            import urllib.request
-            req = urllib.request.Request(
-                f'http://127.0.0.1:{self.port}/shutdown',
-                method='POST',
-                data=b''
-            )
-            urllib.request.urlopen(req, timeout=3)
-            logger.info("已发送优雅关闭请求")
-        except Exception as e:
-            logger.debug(f"优雅关闭请求失败（可能服务器未正常启动）: {e}")
-        
-        # 方法2：等待服务器线程结束
-        if self.server_thread and self.server_thread.is_alive():
-            logger.info("等待WebUI服务器线程结束...")
-            
+        """停止服务器"""
+        if hasattr(self, '_server') and self._server:
             try:
-                # 第一次等待（给5秒时间优雅关闭）
-                self.server_thread.join(timeout=5)
-                
-                if self.server_thread.is_alive():
-                    logger.warning("服务器线程未在5秒内结束，尝试强制终止...")
-                    
-                    # Flask没有提供直接的terminate方法，但我们可以通过设置daemon=True来让主进程退出时自动清理
-                    # 这里我们只能记录警告，实际清理会在进程退出时发生
-                    logger.warning(f"⚠️  服务器线程仍在运行，将在进程退出时自动清理")
-                    
-                else:
-                    logger.info("✅ WebUI服务器线程已正常结束")
-                    
+                self._server.shutdown()
+                logger.info(f"WebUI服务器已停止 (端口: {self.port})")
             except Exception as e:
-                logger.error(f"等待服务器线程时出错: {e}")
-        
-        # 方法3：验证端口是否真正释放
-        self._verify_port_released()
-        
-        logger.info(f"WebUI 服务器停止流程完成，端口 {self.port} 应已释放")
-    
-    def _verify_port_released(self):
-        """验证端口是否已释放"""
-        import socket
-        
-        try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(1)
-            result = sock.connect_ex(('127.0.0.1', self.port))
-            sock.close()
-            
-            if result == 0:
-                logger.warning(f"⚠️  端口 {self.port} 可能仍未释放！旧进程可能还在运行")
-                logger.warning("   如果遇到端口占用问题，请检查是否有残留的Python进程")
-            else:
-                logger.info(f"✅ 确认端口 {self.port} 已成功释放")
-                
-        except Exception as e:
-            logger.debug(f"验证端口状态时出错: {e}")
+                logger.error(f"停止WebUI服务器失败: {e}")
+            finally:
+                self._server = None
+                self.running = False

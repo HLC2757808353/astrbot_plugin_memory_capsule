@@ -1,272 +1,232 @@
-# 记忆胶囊 🧠
+# 记忆胶囊 v0.13.0
 
 <div align="center">
 
-[![AstrBot](https://img.shields.io/badge/AstrBot-v4.x-blue.svg)](https://github.com/AstrBotDevs/AstrBot)
-[![Python](https://img.shields.io/badge/Python-3.8+-green.svg)](https://www.python.org/)
-[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.9.5-red.svg)]()
+[![AstrBot](https://img.shields.io/badge/AstrBot-v4.23+-blue.svg)](https://github.com/AstrBotDevs/AstrBot)
+[![Python](https://img.shields.io/badge/Python-3.10+-green.svg)](https://www.python.org/)
+[![Version](https://img.shields.io/badge/version-v0.13.0-red.svg)]()
 
-*为 AI 赋予持久记忆与智能关系管理能力*
+*让 AI 拥有持久记忆 · 智能关系管理 · 安全防护*
 
 </div>
 
 ---
 
-## ✨ 这是什么？
+## 这是什么？
 
-**记忆胶囊**是一个功能丰富的 AstrBot 插件，让 AI 拥有"长期记忆"。它不仅能记住知识，还能记住人。
+记忆胶囊是 AstrBot 的记忆增强插件。装上之后，AI 就能：
 
-想象一下：AI 能记得你上次聊了什么、你的喜好、你们的约定...就像一个真正的朋友。💬
+- **记住你说过的话** — 知识、笔记、网址，随时存随时查
+- **记住你是谁** — 昵称、关系、印象、约定，跨群追踪
+- **自动回忆** — 每次对话自动注入相关记忆，AI 不再金鱼脑
+- **安全可靠** — 防注入、防操纵、Token 认证，别人骗不了 AI
 
 ---
 
-## 🎯 核心功能
+## 有什么功能？
 
-### 📚 记忆宫殿
-- **智能存储** - 自动提取标签、分类、评估重要性
-- **多维搜索** - 关键词 + 标签 + 分类 + 时间范围 + 拼音模糊匹配
-- **FTS5全文索引** - 毫秒级快速检索
-- **MMR多样性筛选** - 避免返回过多相似结果
+### 🧠 两层记忆架构
+
+| 层级 | 机制 | 说明 |
+|------|------|------|
+| **工作记忆** | 自动注入 | 每次对话自动检索最相关的记忆注入上下文，AI 无需主动搜索 |
+| **长期记忆** | 按需搜索 | AI 通过 `search_memory` 工具主动检索，用于回答具体问题 |
+
+工作记忆怎么检索的？三步走：
+1. **快速筛选** — 核心记忆（importance≥8）+ 最近记忆 + FTS5全文匹配 + 标签匹配
+2. **精细评分** — 重要性×2 + 时间衰减 + 访问频率 + 上下文关键词重叠度 + 标签命中
+3. **联想扩散** — 被激活的记忆通过共享标签触发关联记忆（类似人脑的联想回忆）
 
 ### 🔗 关系图谱
-- **人物档案** - 昵称、关系类型、印象总结、初次见面地点
-- **身份映射** - 自动识别同一用户在不同群组的身份（跨群关联）
-- **自动注入** - 对话时自动将用户信息注入AI上下文
-- **智能缓存** - 用户切换立即刷新，同用户按时间隔更新
 
-### 🎨 WebUI 管理面板
-- **可视化操作** - 浏览、搜索、编辑记忆和关系
-- **密码保护** - 首次启动生成临时Token，可自定义登录密码
-- **数据管理** - 一键备份/恢复数据库
-- **系统配置** - 调整搜索权重、清理策略等
+- **人物档案** — 昵称、关系类型、印象总结、初次见面地点
+- **多群追踪** — 同一用户在不同群的身份自动关联（新群追加，不覆盖旧的）
+- **身份解析** — 精确ID / 昵称 / 别名 / 模糊匹配，四级识别
+- **智能注入** — 对话时自动将对方关系信息注入AI上下文，XML标签格式，紧凑不占位
 
-### 💾 数据安全
-- **阶梯式备份** - 小时/天/周/月四级备份策略
-- **自动清理** - 按时间或数量自动清理旧记忆
-- **数据迁移** - 自动检测并升级旧版数据库结构
+### 🔍 搜索引擎
+
+- **FTS5 全文索引** — 毫秒级检索，支持中文分词（jieba）
+- **MMR 多样性筛选** — 不会返回一堆相似结果，保证信息覆盖面
+- **标签系统** — 自动提取关键词标签，支持标签检索和联想扩散
+- **智能回退** — FTS5不可用时自动降级到LIKE搜索，不会报错
+
+### 🛡️ 安全防护
+
+三层安全，防止恶意操纵：
+
+1. **内容过滤** — 20+种 Prompt 注入模式检测（中英文），"忽略你的指令"、"jailbreak" 这类直接拦截
+2. **关系过滤** — 6种操纵性内容检测，"你是我的奴隶" 这类自动重置为正常关系
+3. **内容清洗** — 移除 `<system>`、`[system]` 等伪装标签，单条记忆限500字符
+
+### 🌐 WebUI 管理面板
+
+- **可视化操作** — 浏览、搜索、编辑记忆和关系
+- **动态配置** — 所有配置项在前端按分组展示，开关/下拉/数字/文本都有
+- **Token 认证** — 32位混合字符（大小写+数字+符号），每次重载重新生成，日志只显示一次
+- **备份管理** — 一键备份/恢复/删除
+
+### ⚡ 性能优化
+
+针对小内存服务器（300MB）做了专门优化：
+
+| 优化项 | 方案 |
+|--------|------|
+| 数据库连接 | 线程本地连接池 + WAL模式，不反复创建连接 |
+| 只读操作 | SELECT 后不 commit，减少磁盘IO |
+| 工作记忆 | 60秒 TTL 缓存，不每次请求都查库 |
+| 注入去重 | 30秒内相同内容跳过注入 |
+| 备份等待 | `threading.Event` 替代循环 `sleep(1)` |
 
 ---
 
-## 🚀 快速开始
+## 怎么用？
 
-### 安装插件
+### 安装
 
 ```bash
-# 方式1: Git克隆
+# 方式1: 插件市场
+# 在 AstrBot 管理面板搜索「记忆胶囊」安装
+
+# 方式2: 手动安装
 git clone https://github.com/HLC2757808353/astrbot_plugin_memory_capsule.git
-# 复制到 AstrBot 插件目录
-cp -r astrbot_plugin_memory_capsule <AstrBot路径>/data/plugins/
-
-# 方式2: 插件市场安装
-# 在 AstrBot WebUI 搜索「记忆胶囊」并安装
+# 复制到 AstrBot/data/plugins/ 目录
 ```
 
-### 安装依赖
+### 依赖
 
 ```bash
-pip install jieba pypinyin
-
-# 可选（提升体验）
-pip install python-Levenshtein msgpack
+pip install cachetools jieba pypinyin
 ```
 
-### 启动后...
+> `jieba` 和 `pypinyin` 可选，不装也能用（搜索和标签功能降级）
 
-1. 查看 AstrBot 日志，找到 WebUI 地址和临时密码
-2. 打开浏览器访问 `http://localhost:5000`（默认端口）
-3. 输入临时密码首次登录
-4. 在设置页面修改为自定义密码 ✅
+### 启动后
 
-> **提示**：WebUI端口可在配置中修改，默认5000
+1. 查看 AstrBot 日志，找到 WebUI Token（32位，只显示一次）
+2. 浏览器访问 `http://localhost:5000`
+3. 输入 Token 登录
+4. 在设置页面调整配置
 
----
+> 忘记 Token？重启插件即可生成新 Token
 
-## 🤖 AI 如何使用？
+### AI 怎么用？
 
-插件会自动为 AI 注册以下工具，AI 可以自主决定何时使用：
+插件自动为 AI 注册以下工具，AI 根据对话自主决定何时调用：
 
-| 工具 | 用途 |
-|------|------|
-| `write_memory` | "这个知识点很重要，我记下来" |
-| `search_memory` | "用户问的事情我之前记过吗？" |
-| `delete_memory` | "这条记忆过时了，删掉吧" |
-| `update_relationship` | "原来TA喜欢Python啊，记录一下" |
-| `search_relationship` | "这个人是谁来着？查一下" |
+| 工具 | 用途 | 说明 |
+|------|------|------|
+| `write_memory` | 记录客观信息 | 知识/笔记/网址，自动分类+标签+重要性评估 |
+| `search_memory` | 搜索记忆 | FTS5全文搜索 + MMR多样性筛选 |
+| `delete_memory` | 删除记忆 | 删除过时或错误的记忆 |
+| `update_relationship` | 记录关系 | 昵称/关系类型/印象/约定，多群追加 |
+| `search_relationship` | 搜索关系 | 按ID/昵称/类型/印象搜索 |
+| `get_all_relationships` | 关系列表 | 获取所有关系的ID和昵称概览 |
+| `delete_relationship` | 删除关系 | 删除某个用户的关系记录 |
 
-**无需手动触发** - AI 会根据对话内容智能判断是否需要调用这些工具！
+**无需手动触发** — AI 会根据对话内容智能判断是否需要调用！
 
----
+### 注入位置
 
-## ⚙️ 配置说明
+`context_inject_position` 控制记忆信息注入到 AI 上下文的位置：
 
-在 `_conf_schema.json` 或 WebUI 中可以调整：
-
-### 常用配置项
-
-```json
-{
-  "webui_port": 5000,                    // WebUI端口号
-  "memory_palace": true,                 // 启用记忆宫殿
-  "memory_categories": [                 // 自定义分类
-    "技术笔记", "生活记录", "学习资料", "个人想法"
-  ],
-  "context_inject_position": "user_prompt", // 关系信息注入位置
-  "relation_injection_refresh_time": 3600,   // 注入刷新间隔(秒)
-  "backup_interval": 24,                  // 备份间隔(小时)
-  "cache_ttl": 300                       // 缓存过期时间(秒)
-}
-```
-
-### 高级配置
-
-- **搜索权重** - 调整标签匹配、时间衰减、重要性等权重
-- **搜索策略** - AND/OR模式、同义词扩展、分类过滤
-- **MMR参数** - 平衡相关性和结果多样性 (0-1)
-- **清理策略** - unaccessed(未访问) / oldest(最旧) / random(随机)
-
-详细配置说明请查看 [`_conf_schema.json`](_conf_schema.json)
+| 选项 | 效果 | 适用场景 |
+|------|------|----------|
+| `system_prompt` | 追加到系统提示词末尾 | 默认，兼容性最好 |
+| `user_prompt` | 插入到用户消息前面 | 让 AI 更关注记忆内容 |
+| `insert_system_prompt` | 作为独立 system 消息插入 | 多轮对话中更清晰 |
 
 ---
 
-## 📁 文件结构
+## 配置项
 
-```
-astrbot_plugin_memory_capsule/
-├── main.py                 # 主插件逻辑
-├── __init__.py             # 外部接口
-├── metadata.yaml           # 插件元信息
-├── _conf_schema.json       # 配置 schema
-├── databases/
-│   ├── db_manager.py       # 数据库管理核心
-│   └── backup.py           # 备份管理
-├── webui/
-│   ├── server.py           # Flask Web服务
-│   └── templates/          # HTML模板
-└── data/
-    ├── memory.db           # SQLite数据库
-    └── backups/            # 备份文件目录
-        ├── auth.json       # 登录认证信息（自动生成）
-        └── *.db            # 备份文件
-```
+在 AstrBot 管理面板或 WebUI 设置页调整：
 
----
-
-## 🔐 安全性说明
-
-### WebUI 认证机制
-
-**首次使用流程：**
-1. 启动时自动生成随机临时Token（显示在日志中）
-2. 使用临时Token首次登录WebUI
-3. 强制要求设置自定义密码
-4. 之后使用自定义密码登录
-
-**安全特性：**
-- ✅ 密码哈希存储（不存明文）
-- ✅ Session会话管理
-- ✅ 每个实例独立认证（拷贝插件不影响原实例）
-- ✅ 插件更新不丢失密码（密码存在data目录）
-
-**关于多实例部署：**
-每个 AstrBot 实例都有独立的 `data/auth.json` 文件，互不影响。即使别人复制你的插件代码，也会有自己独立的认证系统。
+| 配置项 | 默认值 | 说明 |
+|--------|--------|------|
+| `memory_palace` | true | 启用记忆宫殿 |
+| `identity_mapping_enabled` | true | 启用身份映射 |
+| `working_memory_limit` | 6 | 工作记忆条数上限 |
+| `working_memory_max_chars` | 800 | 工作记忆总字符上限 |
+| `context_inject_position` | system_prompt | 注入位置 |
+| `relation_injection_refresh_time` | 3600 | 关系注入刷新间隔(秒)，-1=每次都注入 |
+| `search_max_results` | 5 | 搜索返回条数 |
+| `mmr_enabled` | true | MMR多样性筛选 |
+| `mmr_lambda` | 0.7 | MMR相关性/多样性平衡(0-1) |
+| `cache_ttl` | 300 | 缓存过期(秒) |
+| `max_cache_size` | 200 | 缓存条数上限 |
+| `memory_cleanup_enabled` | true | 自动清理旧记忆 |
+| `memory_cleanup_days` | 365 | 清理多少天前的低价值记忆 |
+| `memory_cleanup_max` | 10000 | 记忆总数上限 |
+| `backup_interval` | 24 | 自动备份间隔(小时) |
+| `backup_max_count` | 10 | 备份文件保留数量 |
+| `webui_port` | 5000 | WebUI端口 |
+| `category_model` | "" | 分类模型ID（留空则用规则分类） |
+| `memory_categories` | [...] | 自定义分类列表 |
 
 ---
 
-## 🛠️ 故障排除
+## 安全机制
 
-### 常见问题
+### Token 认证
+- 32位随机字符（大小写字母 + 数字 + `!@#$%^&*-_=+`）
+- 强制包含四种字符类型，保证强度
+- `secrets.compare_digest()` 防时序攻击
+- 每次插件重载重新生成，日志只打印一次
+- Session 24小时过期
+
+### 内容安全
+- **write_memory** — 检测 Prompt 注入 → 拦截；清洗危险标签 → 保存
+- **update_relationship** — 检测操纵性内容 → 自动重置为正常关系
+- **上下文注入** — `<relationship>` / `<memory>` XML标签包裹，标识为参考数据而非指令
+
+### 数据安全
+- SQLite WAL模式 — 读写不互锁，崩溃不丢数据
+- 自动备份 — 按间隔备份，超出数量自动清理最旧备份
+- 哈希去重 — 相同内容不重复存储
+
+---
+
+## 故障排除
 
 <details>
-<summary><b>❌ WebUI 无法访问</b></summary>
+<summary>WebUI 无法访问</summary>
 
-1. 检查端口占用：`netstat -ano | findstr 5000`
-2. 查看日志中的错误信息
-3. 尝试修改 `webui_port` 配置
+1. 检查端口：`netstat -ano | findstr 5000`
+2. 查看日志错误信息
+3. 修改 `webui_port` 配置后重启
 </details>
 
 <details>
-<summary><b>❌ 忘记 WebUI 密码</b></summary>
+<summary>忘记 Token</summary>
 
-删除 `data/auth.json` 文件，重启插件即可重新生成临时Token
+重启插件，新 Token 会打印在日志中
 </details>
 
 <details>
-<summary><b>❌ 搜索结果不准确</b></summary>
+<summary>Gemini API 报错 400</summary>
 
-1. 调整搜索权重配置
-2. 开启同义词扩展
-3. 增加 `max_extracted_tags` 数量
+确保 AstrBot 版本 ≥ v4.23.0
 </details>
 
 <details>
-<summary><b>❌ 依赖安装失败</b></summary>
+<summary>搜索结果不准</summary>
 
-```bash
-# 使用国内镜像源加速
-pip install jieba pypinyin -i https://pypi.tuna.tsinghua.edu.cn/simple
-```
+1. 安装 jieba 提升中文分词质量
+2. 调整 `mmr_lambda`（降低=更多样，升高=更相关）
+3. 增加 `working_memory_limit`
 </details>
 
 ---
 
-## 📊 版本历史
+## 作者
 
-### v0.9.5 (当前版本)
-- ✨ 新增 WebUI 密码认证系统
-- ✨ 新增身份映射系统（跨群身份识别）
-- ✨ 新增 MMR 多样性搜索算法
-- ✨ 新增 FTS5 全文搜索引擎
-- ✨ 新增阶梯式备份策略
-- ✨ 新增 TTL 缓存机制
-- 🐛 修复多个已知问题
-- ⚡ 性能优化和代码重构
-
-### v0.7.x
-- 基础记忆存储和检索
-- 关系图谱功能
-- WebUI 管理界面
-- 自动上下文注入
-
----
-
-## 🤝 参与贡献
-
-欢迎提交 Issue 和 Pull Request！
-
-- 🐛 发现Bug？ → [提交Issue](https://github.com/HLC2757808353/astrbot_plugin_memory_capsule/issues)
-- 💡 有新想法？ → 发起讨论或直接PR
-- 📝 改进文档？ → 欢迎完善README和注释
-
----
-
-## 📄 许可证
-
-[MIT License](LICENSE)
-
----
-
-## 👤 作者
-
-**引灯续昼**
-
-- GitHub: [@HLC2757808353](https://github.com/HLC2757808353)
-- 项目地址: [astrbot_plugin_memory_capsule](https://github.com/HLC2757808353/astrbot_plugin_memory_capsule)
-
----
-
-## 🙏 致谢
-
-- [AstrBot](https://github.com/AstrBotDevs/AstrBot) - 强大的聊天机器人框架
-- [jieba](https://github.com/fxsjy/jieba) - 中文分词库
-- [pypinyin](https://github.com/mozillazg/python-pinyin) - 拼音转换库
+**引灯续昼** — GitHub: [@HLC2757808353](https://github.com/HLC2757808353)
 
 ---
 
 <div align="center">
 
-**如果觉得有用，给个 ⭐ 吧！**
-
-*Made with ❤️ by 引灯续昼*
+**觉得有用就给个 ⭐**
 
 </div>
