@@ -437,7 +437,7 @@ class WebUIServer:
         self.running = True
         try:
             from werkzeug.serving import make_server
-            self._server = make_server('127.0.0.1', self.port, self.app, threaded=True)
+            self._server = make_server('0.0.0.0', self.port, self.app, threaded=True)
             logger.info(f"WebUI服务已启动 (端口: {self.port})")
             self._server.serve_forever()
         except OSError as e:
