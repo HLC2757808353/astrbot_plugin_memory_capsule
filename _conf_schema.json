@@ -152,5 +152,13 @@
     "default": 3,
     "editable": true,
     "display_name": "最大别名数"
+  },
+  "max_extracted_tags": {
+    "description": "每条记忆最大标签数",
+    "type": "int",
+    "default": 6,
+    "hint": "标签越多搜索越准但占空间",
+    "editable": true,
+    "display_name": "最大标签数"
   }
 }

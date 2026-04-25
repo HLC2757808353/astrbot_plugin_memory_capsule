@@ -69,9 +69,20 @@ class DatabaseManager:
         return self._local.conn
 
     def initialize(self):
-        app_data_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
-        os.makedirs(app_data_dir, exist_ok=True)
-        self.db_path = os.path.join(app_data_dir, "memory_capsule.db")
+        plugin_dir = os.path.dirname(os.path.dirname(__file__))
+        data_dir = os.path.join(plugin_dir, "data")
+        os.makedirs(data_dir, exist_ok=True)
+        old_db = os.path.join(data_dir, "memory.db")
+        new_db = os.path.join(data_dir, "memory_capsule.db")
+        if os.path.exists(old_db) and not os.path.exists(new_db):
+            import shutil
+            shutil.copy2(old_db, new_db)
+            logger.info(f"Migrated database: {old_db} -> {new_db}")
+        elif os.path.exists(old_db) and os.path.exists(new_db) and os.path.getsize(new_db) == 0:
+            import shutil
+            shutil.copy2(old_db, new_db)
+            logger.info(f"Restored database from: {old_db}")
+        self.db_path = new_db
         self._initialize_database_structure()
         from .backup import BackupManager
         self.backup_manager = BackupManager(self.db_path, self.config)
@@ -875,7 +886,7 @@ class DatabaseManager:
             except Exception:
                 pass
 
-        return list(set(tags))[:10]
+        return list(set(tags))[:self.config.get('max_extracted_tags', 6)]
 
     def _guess_category(self, content):
         category_rules = {
