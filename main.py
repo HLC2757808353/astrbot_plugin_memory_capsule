@@ -19,6 +19,7 @@ class MemoryCapsulePlugin(Star):
         self.db_manager = None
         self.webui_server = None
         self.config = config or {}
+        self.webui_host = self.config.get('webui_host', '0.0.0.0')
         self.webui_port = self.config.get('webui_port', 5000)
         self.relation_injection_cache = {}
         self.last_relation_user_id = None
@@ -57,7 +58,7 @@ class MemoryCapsulePlugin(Star):
                 self.webui_server = None
             from .webui.server import WebUIServer
             self.webui_server = WebUIServer(
-                self.db_manager, port=self.webui_port,
+                self.db_manager, host=self.webui_host, port=self.webui_port,
                 data_dir=data_dir, existing_auth=auth_manager
             )
             self.webui_server.server_thread = threading.Thread(
@@ -66,7 +67,7 @@ class MemoryCapsulePlugin(Star):
             self.webui_server.server_thread.start()
             time.sleep(0.5)
             if self.webui_server.running:
-                logger.info(f"WebUI: http://0.0.0.0:{self.webui_port}")
+                logger.info(f"WebUI: http://{self.webui_host}:{self.webui_port}")
             else:
                 logger.error(f"WebUI failed to start on port {self.webui_port}")
         except Exception as e:

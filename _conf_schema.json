@@ -68,12 +68,21 @@
     "editable": true,
     "display_name": "备份最大数量"
   },
+  "webui_host": {
+    "description": "WebUI监听地址",
+    "type": "string",
+    "default": "0.0.0.0",
+    "hint": "0.0.0.0=允许外网访问(推荐Docker/云服务器) | 127.0.0.1=仅本机访问(更安全)",
+    "editable": true,
+    "display_name": "监听地址"
+  },
   "webui_port": {
     "description": "WebUI服务端口",
     "type": "int",
     "default": 5000,
+    "hint": "修改后需重启插件生效",
     "editable": true,
-    "display_name": "WebUI端口"
+    "display_name": "监听端口"
   },
   "context_inject_position": {
     "description": "上下文注入位置",

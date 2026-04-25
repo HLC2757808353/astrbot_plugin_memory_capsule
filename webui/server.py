@@ -18,10 +18,11 @@ from .version import get_plugin_version
 
 
 class WebUIServer:
-    def __init__(self, db_manager, port=5000, data_dir=None, existing_auth=None):
+    def __init__(self, db_manager, host='0.0.0.0', port=5000, data_dir=None, existing_auth=None):
         self.app = Flask(__name__)
         self.app.secret_key = os.urandom(24).hex()
         self.db_manager = db_manager
+        self.host = host
         self.port = port
         self.running = False
         self.version = get_plugin_version()
@@ -352,7 +353,7 @@ class WebUIServer:
                 try:
                     self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                     self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                    self._sock.bind(('0.0.0.0', self.port))
+                    self._sock.bind((self.host, self.port))
                     self._sock.listen(5)
                     break
                 except OSError as e:
@@ -360,11 +361,11 @@ class WebUIServer:
                     if attempt < 4:
                         time.sleep(1)
                     else:
-                        logger.error(f"WebUI port {self.port} still occupied after 5 retries")
+                        logger.error(f"WebUI {self.host}:{self.port} still occupied after 5 retries")
                         self.running = False
                         return
-            self._server = make_server('0.0.0.0', self.port, self.app, threaded=True, fd=self._sock.fileno())
-            logger.info(f"WebUI started on 0.0.0.0:{self.port}")
+            self._server = make_server(self.host, self.port, self.app, threaded=True, fd=self._sock.fileno())
+            logger.info(f"WebUI started on {self.host}:{self.port}")
             self._server.serve_forever()
         except OSError as e:
             logger.error(f"WebUI port {self.port} error: {e}")
