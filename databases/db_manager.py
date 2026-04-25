@@ -1,5 +1,4 @@
-﻿﻿import sqlite3
-import os
+﻿import os
 import re
 import math
 import hashlib
