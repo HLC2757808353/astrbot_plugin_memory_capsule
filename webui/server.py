@@ -433,21 +433,30 @@ class WebUIServer:
             return 'Server shutting down...'
 
     def run(self):
-        """运行服务器"""
         self.running = True
         try:
             from werkzeug.serving import make_server
+            import socket as _socket
+            s = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+            s.setsockopt(_socket.SOL_SOCKET, _socket.SO_REUSEADDR, 1)
+            try:
+                s.bind(('0.0.0.0', self.port))
+                s.close()
+            except OSError:
+                s.close()
+                logger.error(f"Port {self.port} is occupied, WebUI skipped")
+                return
             self._server = make_server('0.0.0.0', self.port, self.app, threaded=True)
-            logger.info(f"WebUI服务已启动 (端口: {self.port})")
+            logger.info(f"WebUI started on 0.0.0.0:{self.port}")
             self._server.serve_forever()
         except OSError as e:
             if "Address already in use" in str(e):
-                logger.error(f"端口 {self.port} 已被占用")
+                logger.error(f"Port {self.port} occupied")
             else:
-                logger.error(f"WebUI服务器运行失败: {e}")
+                logger.error(f"WebUI error: {e}")
         except Exception as e:
             if "KeyboardInterrupt" not in str(e):
-                logger.error(f"WebUI服务器运行失败: {e}")
+                logger.error(f"WebUI error: {e}")
         finally:
             self.running = False
 
