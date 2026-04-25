@@ -348,12 +348,21 @@ class WebUIServer:
         self.running = True
         try:
             from werkzeug.serving import make_server
-            self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            self._sock.settimeout(2)
-            self._sock.bind(('0.0.0.0', self.port))
-            self._sock.listen(5)
-            self._sock.settimeout(None)
+            for attempt in range(5):
+                try:
+                    self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                    self._sock.bind(('0.0.0.0', self.port))
+                    self._sock.listen(5)
+                    break
+                except OSError as e:
+                    self._cleanup_socket()
+                    if attempt < 4:
+                        time.sleep(1)
+                    else:
+                        logger.error(f"WebUI port {self.port} still occupied after 5 retries")
+                        self.running = False
+                        return
             self._server = make_server('0.0.0.0', self.port, self.app, threaded=True, fd=self._sock.fileno())
             logger.info(f"WebUI started on 0.0.0.0:{self.port}")
             self._server.serve_forever()

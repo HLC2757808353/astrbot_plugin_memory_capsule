@@ -53,6 +53,7 @@ class MemoryCapsulePlugin(Star):
         try:
             if self.webui_server:
                 self.webui_server.stop()
+                time.sleep(1)
                 self.webui_server = None
             from .webui.server import WebUIServer
             self.webui_server = WebUIServer(
@@ -63,7 +64,11 @@ class MemoryCapsulePlugin(Star):
                 target=self.webui_server.run, daemon=True, name='WebUI'
             )
             self.webui_server.server_thread.start()
-            logger.info(f"WebUI: http://127.0.0.1:{self.webui_port}")
+            time.sleep(0.5)
+            if self.webui_server.running:
+                logger.info(f"WebUI: http://0.0.0.0:{self.webui_port}")
+            else:
+                logger.error(f"WebUI failed to start on port {self.webui_port}")
         except Exception as e:
             logger.error(f"WebUI start failed: {e}")
 
