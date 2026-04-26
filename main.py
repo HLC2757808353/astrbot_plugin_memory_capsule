@@ -12,7 +12,7 @@ from .security import validate_content, sanitize_content, filter_relationship_co
 
 _IMPORTANT_KEYWORDS = frozenset(['约定','承诺','重要','记得','提醒','待办'])
 
-@register("memory_capsule", "引灯续昼", "记忆胶囊插件", "v0.13.0", "https://github.com/HLC2757808353/astrbot_plugin_memory_capsule")
+@register("memory_capsule", "引灯续昼", "记忆胶囊插件", "v0.14.0", "https://github.com/HLC2757808353/astrbot_plugin_memory_capsule")
 class MemoryCapsulePlugin(Star):
     def __init__(self, context: Context, config=None):
         super().__init__(context)
@@ -108,6 +108,28 @@ class MemoryCapsulePlugin(Star):
             )
             if warnings:
                 logger.warning(f"Relationship content filtered for {user_id}: {warnings}")
+
+            current_group = ""
+            try:
+                current_group = event.get_group_id() or ""
+            except Exception:
+                pass
+
+            if current_group and not known_contexts:
+                known_contexts = current_group
+            elif current_group and known_contexts:
+                groups = [g.strip() for g in known_contexts.split(',') if g.strip()]
+                if current_group not in groups:
+                    groups.append(current_group)
+                known_contexts = ','.join(groups)
+
+            if not first_met_location and current_group:
+                existing = await asyncio.to_thread(
+                    self.db_manager.get_relationship_by_user_id, str(user_id)
+                )
+                if not existing:
+                    first_met_location = current_group
+
             return await asyncio.to_thread(
                 self.db_manager.update_relationship_enhanced,
                 str(user_id),
@@ -255,8 +277,96 @@ class MemoryCapsulePlugin(Star):
         except Exception as e:
             return f"Failed: {e}"
 
+    @filter.llm_tool(name="add_knowledge")
+    async def add_knowledge(self, event, subject, predicate, obj):
+        """
+        Add a knowledge triple (subject-predicate-object) to the knowledge graph. Use to record factual relationships between entities
+
+        Args:
+            subject(str): Subject entity
+            predicate(str): Relationship/predicate
+            obj(str): Object entity
+        Returns:
+            str
+        """
+        try:
+            return await asyncio.to_thread(
+                self.db_manager.add_triple,
+                str(subject), str(predicate), str(obj)
+            )
+        except Exception as e:
+            return f"Failed: {e}"
+
+    @filter.llm_tool(name="search_knowledge")
+    async def search_knowledge(self, event, entity, depth=1):
+        """
+        Search knowledge graph for triples related to an entity. Returns connected facts via graph traversal
+
+        Args:
+            entity(str): Entity to search
+            depth(int): Traversal depth, default 1 (max 2)
+        Returns:
+            dict
+        """
+        try:
+            depth = min(int(depth), 2)
+            results = await asyncio.to_thread(
+                self.db_manager.get_related_triples, str(entity), depth
+            )
+            if not results:
+                return '{"triples":[]}'
+            return json.dumps({"triples": results}, ensure_ascii=False)
+        except Exception:
+            return '{"triples":[]}'
+
+    @filter.llm_tool(name="dream")
+    async def dream(self, event):
+        """
+        Enter dream mode: review today's memories and generate insights. Call at night to consolidate the day's experiences into deeper understanding
+
+        Returns:
+            dict
+        """
+        if not self.config.get('dream_mode_enabled', True):
+            return '{"status":"disabled"}'
+        try:
+            candidates = await asyncio.to_thread(self.db_manager.get_dream_candidates, 24, 20)
+            if not candidates:
+                return '{"status":"no_candidates","memories":[]}'
+            return json.dumps({
+                "status": "dreaming",
+                "memories": candidates,
+                "instruction": "Review these memories, find patterns and insights, then call save_dream to save your reflections"
+            }, ensure_ascii=False)
+        except Exception as e:
+            return f'{{"status":"error","message":"{e}"}}'
+
+    @filter.llm_tool(name="save_dream")
+    async def save_dream(self, event, summary, insights):
+        """
+        Save dream insights after reviewing memories in dream mode
+
+        Args:
+            summary(str): Brief summary of the dream review
+            insights(str): Key insights and patterns discovered
+        Returns:
+            str
+        """
+        try:
+            from datetime import date
+            today = date.today().isoformat()
+            candidates = await asyncio.to_thread(self.db_manager.get_dream_candidates, 24, 20)
+            return await asyncio.to_thread(
+                self.db_manager.save_dream_log,
+                today, str(summary), len(candidates), str(insights)
+            )
+        except Exception as e:
+            return f"Failed: {e}"
+
     @filter.on_llm_request()
     async def inject_context(self, event: AstrMessageEvent, req: ProviderRequest):
+        if not self.config.get('auto_inject_enabled', True):
+            return req
         try:
             user_id = event.get_sender_id()
             user_message = event.message_str or ""

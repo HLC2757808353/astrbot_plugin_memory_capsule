@@ -550,6 +550,7 @@
                         <button class="btn btn-outline" onclick="batchDelete()">批量删除</button>
                         <button class="btn btn-outline" onclick="loadMemories()">刷新</button>
                         <button class="btn btn-primary" onclick="addMemory()">添加记忆</button>
+                        <button class="btn btn-outline" onclick="showImportModal()">批量导入</button>
                     </div>
                     
                     <!-- 筛选栏 -->
@@ -596,7 +597,6 @@
                 <div class="form-group">
                     <label class="form-label" for="edit-category">分类</label>
                     <select class="form-control" id="edit-category">
-                        <!-- 分类将通过 JavaScript 动态加载 -->
                     </select>
                 </div>
                 <div class="form-group">
@@ -612,6 +612,34 @@
                     <button type="submit" class="btn btn-primary">保存</button>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <!-- 批量导入模态框 -->
+    <div id="import-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title">批量导入记忆</h3>
+            </div>
+            <div class="form-group">
+                <label class="form-label">JSON格式（数组）</label>
+                <textarea class="form-control" id="import-json" style="min-height:200px;font-family:monospace;font-size:12px;" placeholder='[
+  {"content": "Python是解释型语言", "category": "技术笔记", "importance": 5},
+  {"content": "用户喜欢猫", "importance": 3}
+]'></textarea>
+            </div>
+            <div style="font-size:.8rem;color:#888;margin-bottom:10px;">
+                支持字段: content(必填), category, importance(1-10), tags, source。单次最多500条，自动去重。
+            </div>
+            <div class="form-group">
+                <label class="form-label">或上传JSON文件</label>
+                <input type="file" id="import-file" accept=".json" class="form-control" style="padding:6px;">
+            </div>
+            <div id="import-result" style="margin-top:10px;font-size:.9rem;"></div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline" onclick="closeImportModal()">取消</button>
+                <button type="button" class="btn btn-primary" onclick="doImport()">导入</button>
+            </div>
         </div>
     </div>
     
@@ -1408,6 +1436,61 @@
             checkboxes.forEach(checkbox => {
                 checkbox.addEventListener('change', updateSelectedMemories);
             });
+        }
+
+        function showImportModal() {
+            document.getElementById('import-json').value = '';
+            document.getElementById('import-file').value = '';
+            document.getElementById('import-result').textContent = '';
+            document.getElementById('import-modal').style.display = 'block';
+        }
+
+        function closeImportModal() {
+            document.getElementById('import-modal').style.display = 'none';
+        }
+
+        async function doImport() {
+            let items = null;
+            const fileInput = document.getElementById('import-file');
+            const jsonText = document.getElementById('import-json').value.trim();
+
+            if (fileInput.files.length > 0) {
+                try {
+                    const text = await fileInput.files[0].text();
+                    items = JSON.parse(text);
+                } catch (e) {
+                    document.getElementById('import-result').innerHTML = '<span style="color:#f44336;">文件解析失败: ' + e.message + '</span>';
+                    return;
+                }
+            } else if (jsonText) {
+                try {
+                    items = JSON.parse(jsonText);
+                } catch (e) {
+                    document.getElementById('import-result').innerHTML = '<span style="color:#f44336;">JSON解析失败: ' + e.message + '</span>';
+                    return;
+                }
+            } else {
+                document.getElementById('import-result').innerHTML = '<span style="color:#f44336;">请输入JSON或上传文件</span>';
+                return;
+            }
+
+            if (!Array.isArray(items)) {
+                document.getElementById('import-result').innerHTML = '<span style="color:#f44336;">数据必须是数组格式</span>';
+                return;
+            }
+
+            try {
+                const resp = await fetch('/api/import', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ memories: items })
+                });
+                const result = await resp.json();
+                document.getElementById('import-result').innerHTML = '<span style="color:#4caf50;">' + result.result + '</span>';
+                loadMemories(1);
+            } catch (e) {
+                document.getElementById('import-result').innerHTML = '<span style="color:#f44336;">导入失败: ' + e.message + '</span>';
+            }
         }
     </script>
 </body>

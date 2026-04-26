@@ -274,11 +274,25 @@ class WebUIServer:
         def api_save_settings():
             try:
                 data = request.json
+                schema_path = os.path.join(os.path.dirname(__file__), "..", "_conf_schema.json")
+                schema = {}
+                if os.path.exists(schema_path):
+                    with open(schema_path, 'r', encoding='utf-8') as f:
+                        schema = json.load(f)
                 if self.db_manager and self.db_manager.config is not None:
                     for key, value in data.items():
-                        if key in self.db_manager.config or key == 'webui_port':
-                            self.db_manager.config[key] = value
-                config_path = os.path.join(os.path.dirname(__file__), "..", "..", "data", "runtime_config.json")
+                        meta = schema.get(key, {})
+                        field_type = meta.get('type', 'string')
+                        if field_type == 'list' and isinstance(value, str):
+                            value = [v.strip() for v in value.split(',') if v.strip()]
+                        elif field_type == 'int' and isinstance(value, (float, str)):
+                            value = int(float(value))
+                        elif field_type == 'float' and isinstance(value, str):
+                            value = float(value)
+                        elif field_type == 'bool' and isinstance(value, str):
+                            value = value.lower() in ('true', '1', 'yes')
+                        self.db_manager.config[key] = value
+                config_path = os.path.join(os.path.dirname(__file__), "..", "data", "runtime_config.json")
                 with open(config_path, 'w', encoding='utf-8') as f:
                     json.dump(self.db_manager.config if self.db_manager else data, f, ensure_ascii=False)
                 return jsonify({'result': 'Saved (some need restart)'})
@@ -344,6 +358,31 @@ class WebUIServer:
             limit = int(request.args.get('limit', 30))
             activities = self.db_manager.get_recent_activities(limit=limit)
             return jsonify(activities)
+
+        @self.app.route('/api/import', methods=['POST'])
+        @self._require_auth
+        def api_bulk_import():
+            try:
+                data = request.json
+                items = data.get('memories', [])
+                if not items or not isinstance(items, list):
+                    return jsonify({'result': 'No memories array provided'}), 400
+                if len(items) > 500:
+                    return jsonify({'result': f'Too many items ({len(items)}), max 500 per batch'}), 400
+                result = self.db_manager.bulk_import_memories(items)
+                return jsonify({'result': result})
+            except Exception as e:
+                logger.error(f"Bulk import error: {e}")
+                return jsonify({'result': f'Import failed: {e}'}), 500
+
+        @self.app.route('/api/stats')
+        @self._require_auth
+        def api_stats():
+            try:
+                stats = self.db_manager.get_memory_stats()
+                return jsonify(stats)
+            except Exception as e:
+                return jsonify({'error': str(e)}), 500
 
     def run(self):
         self.running = True

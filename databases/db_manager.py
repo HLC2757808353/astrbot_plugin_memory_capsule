@@ -45,6 +45,11 @@ def _get_pypinyin():
             pass
     return _pypinyin_instance
 
+def _release_pypinyin():
+    global _pypinyin_initialized, _pypinyin_instance
+    _pypinyin_instance = None
+    _pypinyin_initialized = False
+
 
 class DatabaseManager:
     def __init__(self, config=None, context=None):
@@ -141,6 +146,29 @@ class DatabaseManager:
                 UNIQUE(word, synonym)
             )''')
 
+            cursor.execute('''CREATE TABLE IF NOT EXISTS triples (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                subject TEXT NOT NULL,
+                predicate TEXT NOT NULL,
+                object TEXT NOT NULL,
+                source_memory_id INTEGER,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (source_memory_id) REFERENCES memories(id) ON DELETE CASCADE
+            )''')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_triples_subject ON triples(subject)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_triples_predicate ON triples(predicate)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_triples_object ON triples(object)')
+
+            cursor.execute('''CREATE TABLE IF NOT EXISTS dream_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                dream_date TEXT NOT NULL,
+                summary TEXT DEFAULT '',
+                memories_reviewed INTEGER DEFAULT 0,
+                insights TEXT DEFAULT '',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(dream_date)
+            )''')
+
             cursor.execute('''CREATE INDEX IF NOT EXISTS idx_memories_category ON memories(category)''')
             cursor.execute('''CREATE INDEX IF NOT EXISTS idx_memories_importance ON memories(importance)''')
             cursor.execute('''CREATE INDEX IF NOT EXISTS idx_memories_created ON memories(created_at)''')
@@ -198,6 +226,23 @@ class DatabaseManager:
             return self.backup_manager.restore_from_backup(backup_filename)
         return "No backup manager"
 
+    # ==================== RRF Fusion ====================
+
+    def _rrf_fuse(self, result_lists, k=60):
+        if not result_lists:
+            return []
+        rrf_scores = {}
+        rrf_data = {}
+        for result_list in result_lists:
+            for rank, item in enumerate(result_list, 1):
+                mid = item['id']
+                if mid not in rrf_scores:
+                    rrf_scores[mid] = 0.0
+                    rrf_data[mid] = item
+                rrf_scores[mid] += 1.0 / (k + rank)
+        sorted_ids = sorted(rrf_scores.keys(), key=lambda x: rrf_scores[x], reverse=True)
+        return [rrf_data[mid] for mid in sorted_ids]
+
     # ==================== Memory Operations ====================
 
     def write_memory(self, content, category=None, importance=5, tags=None, source='user'):
@@ -239,23 +284,39 @@ class DatabaseManager:
             if limit is None:
                 limit = self.config.get('search_max_results', 5)
 
-            results = self._fts_search(conn, query, limit * 3)
-            if not results:
-                results = self._fallback_search(conn, query, limit * 3)
+            result_lists = []
+
+            fts_results = self._fts_search(conn, query, limit * 3)
+            if fts_results:
+                result_lists.append(fts_results)
+
+            tag_results = self._tag_retrieve(conn, query, limit * 2)
+            if tag_results:
+                result_lists.append(tag_results)
+
+            if not result_lists:
+                fallback = self._fallback_search(conn, query, limit * 3)
+                if fallback:
+                    result_lists.append(fallback)
+
+            if result_lists:
+                fused = self._rrf_fuse(result_lists, k=self.config.get('rrf_k', 60))
+            else:
+                fused = []
 
             if category_filter:
-                results = [r for r in results if r.get('category') == category_filter]
+                fused = [r for r in fused if r.get('category') == category_filter]
 
-            if self.config.get('mmr_enabled', True):
-                results = self._mmr_rerank(results, query, limit)
+            if self.config.get('mmr_enabled', True) and len(fused) > limit:
+                fused = self._mmr_rerank(fused, query, limit)
             else:
-                results = results[:limit]
+                fused = fused[:limit]
 
-            for r in results:
+            for r in fused:
                 r['content'] = r['content'][:80] + ('...' if len(r['content']) > 80 else '')
 
-            if results:
-                ids = [r['id'] for r in results]
+            if fused:
+                ids = [r['id'] for r in fused]
                 placeholders = ','.join('?' * len(ids))
                 conn.execute(
                     f'UPDATE memories SET access_count = access_count + 1, last_accessed = ? WHERE id IN ({placeholders})',
@@ -263,7 +324,7 @@ class DatabaseManager:
                 )
                 conn.commit()
 
-            return results
+            return fused
         except Exception as e:
             logger.error(f"Search memory error: {e}")
             return []
@@ -278,6 +339,7 @@ class DatabaseManager:
                 return "Memory not found"
             cursor.execute('DELETE FROM memories WHERE id = ?', (memory_id,))
             cursor.execute('DELETE FROM activities WHERE memory_id = ?', (memory_id,))
+            cursor.execute('DELETE FROM triples WHERE source_memory_id = ?', (memory_id,))
             conn.commit()
             self.cache.clear()
             return f"Memory deleted (ID:{memory_id})"
@@ -387,44 +449,40 @@ class DatabaseManager:
             logger.error(f"Get tags error: {e}")
             return []
 
-    # ==================== Working Memory ====================
+    # ==================== Working Memory (RRF + BM25) ====================
 
     def get_working_memories(self, context_query="", limit=6, max_chars=800):
         conn = self._get_connection()
         try:
-            candidates = []
-            candidate_ids = set()
+            result_lists = []
 
             cursor = conn.cursor()
             cursor.execute('SELECT id, content, category, importance, tags, created_at, access_count FROM memories WHERE importance >= 8 ORDER BY importance DESC LIMIT 3')
-            for row in cursor.fetchall():
-                m = dict(row)
-                if m['id'] not in candidate_ids:
-                    candidates.append(m)
-                    candidate_ids.add(m['id'])
+            core = [dict(row) for row in cursor.fetchall()]
+            if core:
+                result_lists.append(core)
 
             cursor.execute('SELECT id, content, category, importance, tags, created_at, access_count FROM memories ORDER BY created_at DESC LIMIT 5')
-            for row in cursor.fetchall():
-                m = dict(row)
-                if m['id'] not in candidate_ids:
-                    candidates.append(m)
-                    candidate_ids.add(m['id'])
+            recent = [dict(row) for row in cursor.fetchall()]
+            if recent:
+                result_lists.append(recent)
 
             if context_query:
                 fts_results = self._fts_search(conn, context_query, limit * 2)
-                for m in fts_results:
-                    if m['id'] not in candidate_ids:
-                        candidates.append(m)
-                        candidate_ids.add(m['id'])
+                if fts_results:
+                    result_lists.append(fts_results)
 
                 tag_results = self._tag_retrieve(conn, context_query, limit)
-                for m in tag_results:
-                    if m['id'] not in candidate_ids:
-                        candidates.append(m)
-                        candidate_ids.add(m['id'])
+                if tag_results:
+                    result_lists.append(tag_results)
+
+            if result_lists:
+                fused = self._rrf_fuse(result_lists, k=self.config.get('rrf_k', 60))
+            else:
+                return []
 
             scored = []
-            for m in candidates:
+            for m in fused:
                 score = self._score_memory(m, context_query)
                 scored.append((score, m))
             scored.sort(key=lambda x: x[0], reverse=True)
@@ -440,16 +498,18 @@ class DatabaseManager:
                             activated_tags.add(tag)
 
                 if activated_tags:
-                    tag_list = ','.join(f'"{t}"' for t in list(activated_tags)[:10])
-                    cursor.execute(
-                        f'SELECT id, content, category, importance, tags, created_at, access_count FROM memories WHERE id NOT IN ({",".join("?" * len(candidate_ids))}) AND (tags LIKE ?) LIMIT 3',
-                        list(candidate_ids) + [f'%{list(activated_tags)[0]}%']
-                    )
-                    for row in cursor.fetchall():
-                        m = dict(row)
-                        if m['id'] not in candidate_ids:
-                            top.append(m)
-                            candidate_ids.add(m['id'])
+                    seen_ids = {m['id'] for m in top}
+                    for atag in list(activated_tags)[:3]:
+                        cursor.execute(
+                            'SELECT id, content, category, importance, tags, created_at, access_count FROM memories WHERE id NOT IN ({}) AND tags LIKE ? LIMIT 2'.format(
+                                ','.join('?' * len(seen_ids)) if seen_ids else '0'),
+                            list(seen_ids) + [f'%{atag}%']
+                        )
+                        for row in cursor.fetchall():
+                            m = dict(row)
+                            if m['id'] not in seen_ids:
+                                top.append(m)
+                                seen_ids.add(m['id'])
 
             total_chars = 0
             result = []
@@ -516,25 +576,32 @@ class DatabaseManager:
             if not cursor.fetchone():
                 return []
 
-            jieba_mod, _ = _get_jieba()
-            if jieba_mod:
-                words = list(jieba_mod.cut(query))
-                fts_query = ' OR '.join(f'"{w}"' for w in words if len(w) > 1)
+            if not self.config.get('lightweight_mode', False):
+                jieba_mod, _ = _get_jieba()
+                if jieba_mod:
+                    words = list(jieba_mod.cut(query))
+                    fts_query = ' OR '.join(f'"{w}"' for w in words if len(w) > 1)
+                else:
+                    words = query.split()
+                    fts_query = ' OR '.join(f'"{w}"' for w in words if len(w) > 1)
             else:
-                words = query.split()
+                words = re.findall(r'\w{2,}', query)
                 fts_query = ' OR '.join(f'"{w}"' for w in words if len(w) > 1)
 
             if not fts_query:
                 return []
 
             cursor.execute(
-                'SELECT m.id, m.content, m.category, m.importance, m.tags, m.created_at, m.access_count FROM memories m JOIN memories_fts f ON m.id = f.rowid WHERE memories_fts MATCH ? ORDER BY rank LIMIT ?',
+                'SELECT m.id, m.content, m.category, m.importance, m.tags, m.created_at, m.access_count, '
+                'bm25(memories_fts) as bm25_score '
+                'FROM memories m JOIN memories_fts f ON m.id = f.rowid '
+                'WHERE memories_fts MATCH ? ORDER BY bm25_score LIMIT ?',
                 (fts_query, limit)
             )
             return [dict(row) for row in cursor.fetchall()]
         except Exception as e:
             logger.debug(f"FTS search fallback: {e}")
-            return []
+            return self._fallback_search(conn, query, limit)
 
     def _fallback_search(self, conn, query, limit):
         try:
@@ -558,11 +625,14 @@ class DatabaseManager:
 
     def _tag_retrieve(self, conn, query, limit):
         try:
-            jieba_mod, _ = _get_jieba()
-            if jieba_mod:
-                words = [w for w in jieba_mod.cut(query) if len(w) > 1]
+            if not self.config.get('lightweight_mode', False):
+                jieba_mod, _ = _get_jieba()
+                if jieba_mod:
+                    words = [w for w in jieba_mod.cut(query) if len(w) > 1]
+                else:
+                    words = [w for w in query.split() if len(w) > 1]
             else:
-                words = [w for w in query.split() if len(w) > 1]
+                words = [w for w in re.findall(r'\w{2,}', query)]
 
             if not words:
                 return []
@@ -614,6 +684,132 @@ class DatabaseManager:
             selected.append(remaining.pop(best_idx))
 
         return selected
+
+    # ==================== Knowledge Graph ====================
+
+    def add_triple(self, subject, predicate, obj, source_memory_id=None):
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                'INSERT INTO triples (subject, predicate, object, source_memory_id) VALUES (?, ?, ?, ?)',
+                (subject, predicate, obj, source_memory_id)
+            )
+            conn.commit()
+            return f"Triple added: {subject} -> {predicate} -> {obj}"
+        except Exception as e:
+            logger.error(f"Add triple error: {e}")
+            return f"Error: {e}"
+
+    def query_triples(self, subject=None, predicate=None, obj=None, limit=10):
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            conditions = []
+            params = []
+            if subject:
+                conditions.append("subject LIKE ?")
+                params.append(f'%{subject}%')
+            if predicate:
+                conditions.append("predicate LIKE ?")
+                params.append(f'%{predicate}%')
+            if obj:
+                conditions.append("object LIKE ?")
+                params.append(f'%{obj}%')
+
+            if not conditions:
+                cursor.execute('SELECT * FROM triples ORDER BY created_at DESC LIMIT ?', (limit,))
+            else:
+                where = ' AND '.join(conditions)
+                cursor.execute(f'SELECT * FROM triples WHERE {where} ORDER BY created_at DESC LIMIT ?', params + [limit])
+
+            return [dict(row) for row in cursor.fetchall()]
+        except Exception as e:
+            logger.error(f"Query triples error: {e}")
+            return []
+
+    def get_related_triples(self, entity, depth=1, limit=15):
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            visited = set()
+            result = []
+            frontier = [entity]
+
+            for _ in range(depth):
+                next_frontier = []
+                for node in frontier:
+                    if node in visited:
+                        continue
+                    visited.add(node)
+                    cursor.execute(
+                        'SELECT * FROM triples WHERE subject LIKE ? OR object LIKE ? LIMIT ?',
+                        (f'%{node}%', f'%{node}%', limit)
+                    )
+                    for row in cursor.fetchall():
+                        t = dict(row)
+                        if t['id'] not in {r['id'] for r in result}:
+                            result.append(t)
+                            next_frontier.append(t['subject'])
+                            next_frontier.append(t['object'])
+                frontier = next_frontier
+
+            return result[:limit]
+        except Exception as e:
+            logger.error(f"Get related triples error: {e}")
+            return []
+
+    def delete_triple(self, triple_id):
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute('DELETE FROM triples WHERE id = ?', (triple_id,))
+            conn.commit()
+            return f"Triple deleted (ID:{triple_id})"
+        except Exception as e:
+            return f"Error: {e}"
+
+    # ==================== Dream Mode ====================
+
+    def get_dream_candidates(self, hours=24, limit=20):
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            cutoff = (datetime.now() - timedelta(hours=hours)).isoformat()
+            cursor.execute(
+                'SELECT id, content, category, importance, tags, access_count FROM memories '
+                'WHERE created_at > ? OR importance >= 7 OR access_count > 3 '
+                'ORDER BY importance DESC, created_at DESC LIMIT ?',
+                (cutoff, limit)
+            )
+            return [dict(row) for row in cursor.fetchall()]
+        except Exception as e:
+            logger.error(f"Get dream candidates error: {e}")
+            return []
+
+    def save_dream_log(self, dream_date, summary, memories_reviewed, insights):
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                'INSERT OR REPLACE INTO dream_logs (dream_date, summary, memories_reviewed, insights) VALUES (?, ?, ?, ?)',
+                (dream_date, summary, memories_reviewed, insights)
+            )
+            conn.commit()
+            return f"Dream log saved for {dream_date}"
+        except Exception as e:
+            logger.error(f"Save dream log error: {e}")
+            return f"Error: {e}"
+
+    def get_dream_logs(self, limit=7):
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM dream_logs ORDER BY created_at DESC LIMIT ?', (limit,))
+            return [dict(row) for row in cursor.fetchall()]
+        except Exception as e:
+            logger.error(f"Get dream logs error: {e}")
+            return []
 
     # ==================== Relationship Operations ====================
 
@@ -684,15 +880,12 @@ class DatabaseManager:
         rel = self.get_relationship_by_user_id(user_id)
         if not rel:
             return None
-
         aliases = rel.get('identity_aliases', '')
         if aliases:
             try:
-                alias_list = [a.strip() for a in aliases.split(',') if a.strip()]
-                rel['identity_aliases'] = alias_list
+                rel['identity_aliases'] = [a.strip() for a in aliases.split(',') if a.strip()]
             except Exception:
                 rel['identity_aliases'] = []
-
         return rel
 
     def get_all_relationships(self, limit=100, offset=0):
@@ -863,47 +1056,70 @@ class DatabaseManager:
 
     def _extract_tags(self, content):
         tags = []
-        try:
-            jieba_mod, pseg_mod = _get_jieba()
-            if jieba_mod and pseg_mod:
-                words = pseg_mod.cut(content)
-                for word, flag in words:
-                    if flag in ('nr', 'ns', 'nt', 'nz', 'v', 'vn', 'a', 'an') and len(word) > 1:
-                        tags.append(word)
-        except Exception:
+        lightweight = self.config.get('lightweight_mode', False)
+
+        if not lightweight:
+            try:
+                jieba_mod, pseg_mod = _get_jieba()
+                if jieba_mod and pseg_mod:
+                    words = pseg_mod.cut(content)
+                    for word, flag in words:
+                        if flag in ('nr', 'ns', 'nt', 'nz', 'v', 'vn', 'a', 'an', 'n', 'ng', 'nl', 'eng') and len(word) > 1:
+                            tags.append(word)
+                    if not tags:
+                        for word in jieba_mod.cut(content):
+                            if len(word) > 1:
+                                tags.append(word)
+            except Exception:
+                words = re.findall(r'\w{2,}', content)
+                tags = words[:5]
+
+            if not self.config.get('disable_pypinyin', True):
+                try:
+                    from pypinyin import lazy_pinyin
+                    pinyin_tags = []
+                    for char in content[:20]:
+                        py = lazy_pinyin(char)
+                        if py and py[0].strip():
+                            pinyin_tags.append(py[0])
+                    tags.extend(pinyin_tags[:3])
+                except Exception:
+                    pass
+        else:
             words = re.findall(r'\w{2,}', content)
             tags = words[:5]
-
-        pypinyin_mod = _get_pypinyin()
-        if pypinyin_mod:
-            try:
-                pinyin_tags = []
-                for char in content[:20]:
-                    py = pypinyin_mod.lazy_pinyin(char)
-                    if py and py[0].strip():
-                        pinyin_tags.append(py[0])
-                tags.extend(pinyin_tags[:3])
-            except Exception:
-                pass
 
         return list(set(tags))[:self.config.get('max_extracted_tags', 6)]
 
     def _guess_category(self, content):
-        category_rules = {
-            'schedule': ['时间', '日期', '点', '号', '周', '月', '年', 'schedule', 'deadline'],
-            'preference': ['喜欢', '讨厌', '偏好', '最爱', 'prefer', 'like', 'hate'],
-            'fact': ['是', '叫做', '位于', '属于', 'means', 'is', 'called'],
-            'instruction': ['记得', '记住', '提醒', '不要', '必须', 'remember', 'remind'],
-            'emotion': ['开心', '难过', '生气', '害怕', 'happy', 'sad', 'angry'],
+        _CATEGORY_KEYWORDS = {
+            '技术笔记': ['代码', '编程', '程序', 'API', 'bug', '数据库', '服务器', '框架', 'Python', 'Java', 'JavaScript',
+                        '部署', 'Docker', 'Git', '算法', '接口', '配置', '插件', '开发', '技术', '软件', '系统',
+                        'code', 'programming', 'server', 'database', 'framework', 'deploy'],
+            '生活记录': ['今天', '昨天', '去了', '买了', '吃了', '玩了', '看了', '做了', '出门', '回家', '上班',
+                        '下班', '天气', '周末', '假期', '旅行', '运动', '做饭', '睡觉'],
+            '学习资料': ['学习', '教程', '课程', '笔记', '考试', '复习', '知识', '原理', '概念', '理论',
+                        '公式', '方法', '步骤', '总结', 'learn', 'study', 'tutorial', 'course'],
+            '个人想法': ['觉得', '认为', '想法', '感觉', '希望', '想要', '如果', '应该', '也许', '可能',
+                        '喜欢', '讨厌', '偏好', '最爱', '开心', '难过', '生气', '害怕',
+                        'prefer', 'like', 'hate', 'happy', 'sad', 'angry', 'think', 'feel'],
+            '待办事项': ['记得', '记住', '提醒', '不要', '必须', '需要', '别忘了', '记得做',
+                        '时间', '日期', '点', '号', '周', '月', '年', 'schedule', 'deadline',
+                        'remember', 'remind', 'todo', 'task'],
         }
+        configured_categories = self.config.get('memory_categories', [])
         content_lower = content.lower()
         best_cat = 'general'
         best_score = 0
-        for cat, keywords in category_rules.items():
+        for cat, keywords in _CATEGORY_KEYWORDS.items():
+            if configured_categories and cat not in configured_categories:
+                continue
             score = sum(1 for kw in keywords if kw in content_lower)
             if score > best_score:
                 best_score = score
                 best_cat = cat
+        if best_score == 0 and configured_categories:
+            return configured_categories[0] if configured_categories else 'general'
         return best_cat
 
     def cleanup_memories(self, days=None, max_memories=None):
@@ -945,3 +1161,65 @@ class DatabaseManager:
             logger.debug("Database maintenance done")
         except Exception as e:
             logger.debug(f"Maintenance error: {e}")
+
+    def bulk_import_memories(self, items):
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            imported = 0
+            skipped = 0
+            for item in items:
+                content = item.get('content', '').strip()
+                if not content:
+                    continue
+                content_hash = hashlib.md5(content.encode('utf-8')).hexdigest()
+                cursor.execute('SELECT id FROM memories WHERE hash = ?', (content_hash,))
+                if cursor.fetchone():
+                    skipped += 1
+                    continue
+                category = item.get('category') or self._guess_category(content)
+                importance = item.get('importance', 5)
+                tags = item.get('tags')
+                if tags is None:
+                    tags = self._extract_tags(content)
+                elif isinstance(tags, list):
+                    tags = tags
+                else:
+                    tags = str(tags).split(',')
+                source = item.get('source', 'import')
+                cursor.execute(
+                    'INSERT INTO memories (content, category, importance, tags, source, hash) VALUES (?, ?, ?, ?, ?, ?)',
+                    (content, category, importance, ','.join(tags) if isinstance(tags, list) else tags, source, content_hash)
+                )
+                imported += 1
+            conn.commit()
+            self.cache.clear()
+            return f"Imported: {imported}, Skipped (duplicate): {skipped}"
+        except Exception as e:
+            logger.error(f"Bulk import error: {e}")
+            return f"Error: {e}"
+
+    def get_memory_stats(self):
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute('SELECT COUNT(*) FROM memories')
+            mem_count = cursor.fetchone()[0]
+            cursor.execute('SELECT COUNT(*) FROM relationships')
+            rel_count = cursor.fetchone()[0]
+            cursor.execute('SELECT COUNT(*) FROM triples')
+            tri_count = cursor.fetchone()[0]
+            cursor.execute('SELECT COUNT(*) FROM dream_logs')
+            dream_count = cursor.fetchone()[0]
+            import sys
+            cache_size = len(self.cache)
+            return {
+                'memories': mem_count,
+                'relationships': rel_count,
+                'triples': tri_count,
+                'dream_logs': dream_count,
+                'cache_items': cache_size,
+                'python_version': sys.version.split()[0]
+            }
+        except Exception as e:
+            return {'error': str(e)}

@@ -1,6 +1,6 @@
 name: astrbot_plugin_memory_capsule
 display_name: 记忆胶囊 
 desc: 记忆胶囊插件，用于存储和检索记忆。
-version: v0.13.2
+version: v0.14.0
 author: 引灯续昼
 repo: https://github.com/HLC2757808353/astrbot_plugin_memory_capsule
