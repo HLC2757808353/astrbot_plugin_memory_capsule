@@ -73,26 +73,128 @@ class DatabaseManager:
             self._local.conn = conn
         return self._local.conn
 
-    def initialize(self):
-        plugin_dir = os.path.dirname(os.path.dirname(__file__))
-        data_dir = os.path.join(plugin_dir, "data")
-        os.makedirs(data_dir, exist_ok=True)
-        old_db = os.path.join(data_dir, "memory.db")
-        new_db = os.path.join(data_dir, "memory_capsule.db")
-        if os.path.exists(old_db) and not os.path.exists(new_db):
+    def initialize(self, data_dir=None):
+        if data_dir:
+            self.db_path = os.path.join(data_dir, "memory.db")
+        else:
+            try:
+                from astrbot.api.star import StarTools
+                data_dir = str(StarTools.get_data_dir())
+                self.db_path = os.path.join(data_dir, "memory.db")
+            except Exception:
+                plugin_dir = os.path.dirname(os.path.dirname(__file__))
+                data_dir = os.path.join(plugin_dir, "data")
+                self.db_path = os.path.join(data_dir, "memory.db")
+        os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
+
+        old_plugin_data_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
+        old_db = os.path.join(old_plugin_data_dir, "memory.db")
+
+        if os.path.exists(old_db) and not os.path.exists(self.db_path):
             import shutil
-            shutil.copy2(old_db, new_db)
-            logger.info(f"Migrated database: {old_db} -> {new_db}")
-        elif os.path.exists(old_db) and os.path.exists(new_db) and os.path.getsize(new_db) == 0:
-            import shutil
-            shutil.copy2(old_db, new_db)
-            logger.info(f"Restored database from: {old_db}")
-        self.db_path = new_db
+            shutil.copy2(old_db, self.db_path)
+            logger.info(f"Migrated database from plugin dir to persistent dir")
+
         self._initialize_database_structure()
+        self._migrate_old_data()
         from .backup import BackupManager
         self.backup_manager = BackupManager(self.db_path, self.config)
         self.backup_manager.start_auto_backup()
         logger.info(f"Database initialized: {self.db_path}")
+
+    def _migrate_old_data(self):
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            existing_tables = {r[0] for r in cursor.fetchall()}
+
+            if 'plugin_data' in existing_tables and 'memories' in existing_tables:
+                cursor.execute("SELECT COUNT(*) FROM memories")
+                mem_count = cursor.fetchone()[0]
+                if mem_count == 0:
+                    cursor.execute("SELECT content, category, created_at, updated_at FROM plugin_data")
+                    old_rows = cursor.fetchall()
+                    if old_rows:
+                        for row in old_rows:
+                            content = row[0] or ''
+                            category = row[1] or 'general'
+                            created_at = row[2]
+                            updated_at = row[3]
+                            content_hash = hashlib.md5(content.encode('utf-8')).hexdigest()
+                            try:
+                                cursor.execute(
+                                    "INSERT OR IGNORE INTO memories (content, category, importance, tags, source, hash, created_at, updated_at) "
+                                    "VALUES (?, ?, 5, '', 'migrated', ?, ?, ?)",
+                                    (content, category, content_hash, created_at, updated_at)
+                                )
+                            except Exception:
+                                pass
+                        conn.commit()
+                        logger.info(f"Migrated {len(old_rows)} records from plugin_data to memories")
+
+            if 'relations' in existing_tables and 'relationships' in existing_tables:
+                cursor.execute("SELECT COUNT(*) FROM relationships")
+                rel_count = cursor.fetchone()[0]
+                if rel_count == 0:
+                    cursor.execute("SELECT user_id, group_id, nickname, alias_history, impression_summary, created_at FROM relations")
+                    old_rows = cursor.fetchall()
+                    if old_rows:
+                        for row in old_rows:
+                            user_id = row[0] or ''
+                            group_id = row[1] or ''
+                            nickname = row[2]
+                            alias_history = row[3]
+                            impression = row[4] or ''
+                            created_at = row[5]
+                            try:
+                                cursor.execute(
+                                    "INSERT OR IGNORE INTO relationships "
+                                    "(user_id, nickname, relation_type, summary, first_met_location, known_contexts, identity_aliases, created_at) "
+                                    "VALUES (?, ?, 'friend', ?, ?, ?, ?, ?)",
+                                    (user_id, nickname, impression, group_id, group_id, alias_history, created_at)
+                                )
+                            except Exception:
+                                pass
+                        conn.commit()
+                        logger.info(f"Migrated {len(old_rows)} records from relations to relationships")
+
+            new_db_path = os.path.join(os.path.dirname(self.db_path), "memory_capsule.db")
+            if os.path.exists(new_db_path) and os.path.getsize(new_db_path) > 0:
+                try:
+                    src_conn = sqlite3.connect(new_db_path)
+                    src_cur = src_conn.cursor()
+                    src_cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
+                    src_tables = {r[0] for r in src_cur.fetchall()}
+
+                    if 'memories' in src_tables:
+                        src_cur.execute("SELECT COUNT(*) FROM memories")
+                        src_count = src_cur.fetchone()[0]
+                        if src_count > 0:
+                            cursor.execute("SELECT COUNT(*) FROM memories")
+                            cur_count = cursor.fetchone()[0]
+                            if cur_count == 0:
+                                src_cur.execute("SELECT content, category, importance, tags, source, created_at, updated_at FROM memories")
+                                for row in src_cur.fetchall():
+                                    content = row[0] or ''
+                                    content_hash = hashlib.md5(content.encode('utf-8')).hexdigest()
+                                    try:
+                                        cursor.execute(
+                                            "INSERT OR IGNORE INTO memories (content, category, importance, tags, source, hash, created_at, updated_at) "
+                                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                                            (content, row[1], row[2], row[3], row[4], content_hash, row[5], row[6])
+                                        )
+                                    except Exception:
+                                        pass
+                                conn.commit()
+                                logger.info(f"Migrated {src_count} memories from memory_capsule.db")
+
+                    src_conn.close()
+                except Exception as e:
+                    logger.debug(f"memory_capsule.db migration skipped: {e}")
+
+        except Exception as e:
+            logger.warning(f"Data migration check: {e}")
 
     def _initialize_database_structure(self):
         conn = None

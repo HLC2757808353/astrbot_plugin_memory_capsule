@@ -35,7 +35,7 @@ class WebUIServer:
         elif data_dir:
             self.auth_manager = AuthManager(data_dir)
         else:
-            default_data_dir = os.path.join(os.path.dirname(__file__), "..", "..", "data")
+            default_data_dir = os.path.dirname(self.db_manager.db_path) if self.db_manager else os.path.join(os.path.dirname(__file__), "..", "data")
             self.auth_manager = AuthManager(default_data_dir)
 
         self.public_routes = ['/login', '/api/login', '/api/auth/status']
@@ -292,7 +292,7 @@ class WebUIServer:
                         elif field_type == 'bool' and isinstance(value, str):
                             value = value.lower() in ('true', '1', 'yes')
                         self.db_manager.config[key] = value
-                config_path = os.path.join(os.path.dirname(__file__), "..", "data", "runtime_config.json")
+                config_path = os.path.join(os.path.dirname(self.db_manager.db_path), "runtime_config.json")
                 with open(config_path, 'w', encoding='utf-8') as f:
                     json.dump(self.db_manager.config if self.db_manager else data, f, ensure_ascii=False)
                 return jsonify({'result': 'Saved (some need restart)'})

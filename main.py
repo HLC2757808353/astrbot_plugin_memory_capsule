@@ -33,19 +33,28 @@ class MemoryCapsulePlugin(Star):
 
     async def initialize(self):
         self._create_directories()
+        persistent_data_dir = self._get_persistent_data_dir()
         from .databases.db_manager import DatabaseManager
         self.db_manager = DatabaseManager(self.config, self.context)
-        self.db_manager.initialize()
+        self.db_manager.initialize(persistent_data_dir)
         from . import set_global_manager
         set_global_manager(self.db_manager)
         self._start_webui()
 
     def _create_directories(self):
-        for d in ["databases", "webui/templates", "webui/static", "data"]:
+        for d in ["databases", "webui/templates", "webui/static"]:
             os.makedirs(os.path.join(os.path.dirname(__file__), d.replace('/', os.sep)), exist_ok=True)
 
+    def _get_persistent_data_dir(self):
+        try:
+            from astrbot.api.star import StarTools
+            return str(StarTools.get_data_dir())
+        except Exception:
+            return os.path.join(os.path.dirname(__file__), "data")
+
     def _start_webui(self):
-        data_dir = os.path.join(os.path.dirname(__file__), "data")
+        data_dir = self._get_persistent_data_dir()
+        os.makedirs(data_dir, exist_ok=True)
         try:
             from .webui.auth import AuthManager
             auth_manager = AuthManager(data_dir)
