@@ -122,6 +122,13 @@ class WebUIServer:
             response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
             return response
 
+        @self.app.route('/dreams')
+        @self._require_auth
+        def dreams():
+            response = make_response(render_template('dreams.html'))
+            response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+            return response
+
         @self.app.route('/relationships')
         @self._require_auth
         def relationships():
@@ -414,6 +421,35 @@ class WebUIServer:
             try:
                 stats = self.db_manager.get_memory_stats()
                 return jsonify(stats)
+            except Exception as e:
+                return jsonify({'error': str(e)}), 500
+
+        @self.app.route('/api/dreams')
+        @self._require_auth
+        def api_dreams():
+            try:
+                conn = self.db_manager._get_connection()
+                cursor = conn.cursor()
+                cursor.execute('SELECT id, dream_date, summary, memories_reviewed, conversations_reviewed, insights, new_memories_created, consolidation_done, created_at FROM dream_logs ORDER BY created_at DESC LIMIT 50')
+                rows = cursor.fetchall()
+                dreams = [dict(r) for r in rows]
+                cursor.execute('SELECT COUNT(*) FROM dream_logs')
+                total = cursor.fetchone()[0]
+                return jsonify({'dreams': dreams, 'total': total})
+            except Exception as e:
+                return jsonify({'dreams': [], 'total': 0, 'error': str(e)})
+
+        @self.app.route('/api/dreams/<int:dream_id>')
+        @self._require_auth
+        def api_dream_detail(dream_id):
+            try:
+                conn = self.db_manager._get_connection()
+                cursor = conn.cursor()
+                cursor.execute('SELECT * FROM dream_logs WHERE id = ?', (dream_id,))
+                row = cursor.fetchone()
+                if row:
+                    return jsonify(dict(row))
+                return jsonify({'error': 'not found'}), 404
             except Exception as e:
                 return jsonify({'error': str(e)}), 500
 

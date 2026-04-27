@@ -3,286 +3,249 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>记忆胶囊 - 主页</title>
+    <title>记忆胶囊 - 仪表盘</title>
     <style>
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-        }
-        
+        * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             line-height: 1.6;
-            color: #ffffff;
-            background-color: #0a0a0a;
-            background-image: 
-                radial-gradient(circle at 25% 25%, rgba(233, 30, 99, 0.1) 0%, transparent 50%),
-                radial-gradient(circle at 75% 75%, rgba(156, 39, 176, 0.1) 0%, transparent 50%);
+            color: #2d3748;
+            background: linear-gradient(135deg, #f5f7fa 0%, #e8ecf1 50%, #f0e6f6 100%);
             min-height: 100vh;
         }
-        
-        .container {
-            display: flex;
-            min-height: 100vh;
-        }
-        
-        /* 侧边栏 */
+        .container { display: flex; min-height: 100vh; }
         .sidebar {
-            width: 250px;
-            background: linear-gradient(135deg, #1a0a1e 0%, #2d1b36 100%);
-            border-right: 1px solid rgba(233, 30, 99, 0.3);
-            padding: 20px;
-            box-shadow: 2px 0 10px rgba(233, 30, 99, 0.2);
-            position: relative;
+            width: 240px;
+            background: rgba(255,255,255,0.4);
+            backdrop-filter: blur(20px);
+            border-right: 1px solid rgba(255,255,255,0.6);
+            padding: 24px 16px;
+            position: fixed;
+            top: 0;
+            left: 0;
+            height: 100vh;
+            z-index: 100;
+            transition: transform 0.4s ease;
         }
-        
-        .sidebar::before {
+        .sidebar-brand {
+            font-size: 1.6rem;
+            font-weight: 700;
+            text-align: center;
+            margin-bottom: 36px;
+            background: linear-gradient(135deg, #8b5cf6, #ec4899);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .sidebar-nav { list-style: none; }
+        .nav-item { margin-bottom: 6px; }
+        .nav-link {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px 16px;
+            color: #64748b;
+            text-decoration: none;
+            border-radius: 12px;
+            transition: all 0.4s ease;
+            font-size: 0.95rem;
+            font-weight: 500;
+        }
+        .nav-link:hover {
+            color: #8b5cf6;
+            background: rgba(139,92,246,0.08);
+            transform: translateX(4px);
+        }
+        .nav-link.active {
+            color: #ffffff;
+            background: linear-gradient(135deg, #8b5cf6, #a78bfa);
+            box-shadow: 0 4px 15px rgba(139,92,246,0.3);
+        }
+        .nav-icon { font-size: 1.1rem; width: 20px; text-align: center; }
+        .main-content {
+            flex: 1;
+            margin-left: 240px;
+            padding: 32px;
+            min-height: 100vh;
+        }
+        .page-header { margin-bottom: 28px; }
+        .page-title {
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: #2d3748;
+            margin-bottom: 6px;
+        }
+        .page-subtitle { font-size: 0.9rem; color: #94a3b8; }
+        .card {
+            background: rgba(255,255,255,0.6);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255,255,255,0.8);
+            border-radius: 16px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.08);
+            margin-bottom: 24px;
+            overflow: hidden;
+            transition: all 0.4s ease;
+        }
+        .card:hover { box-shadow: 0 12px 40px rgba(0,0,0,0.12); }
+        .card-header {
+            padding: 20px 24px;
+            border-bottom: 1px solid rgba(139,92,246,0.1);
+        }
+        .card-title {
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: #2d3748;
+        }
+        .card-body { padding: 24px; }
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+        .stat-card {
+            background: rgba(255,255,255,0.7);
+            backdrop-filter: blur(16px);
+            border: 1px solid rgba(255,255,255,0.9);
+            border-radius: 16px;
+            padding: 24px;
+            text-align: center;
+            transition: all 0.4s ease;
+            position: relative;
+            overflow: hidden;
+        }
+        .stat-card::before {
             content: '';
             position: absolute;
             top: 0;
             left: 0;
-            width: 4px;
-            height: 100%;
-            background: linear-gradient(to bottom, #e91e63, #9c27b0);
+            right: 0;
+            height: 3px;
+            border-radius: 16px 16px 0 0;
         }
-        
-        .sidebar-brand {
-            font-size: 1.8rem;
-            font-weight: bold;
-            color: #ffffff;
-            text-align: center;
-            margin-bottom: 40px;
-            text-shadow: 0 0 10px rgba(233, 30, 99, 0.7);
-        }
-        
-        .sidebar-nav {
-            list-style: none;
-        }
-        
-        .nav-item {
-            margin-bottom: 10px;
-        }
-        
-        .nav-link {
-            display: block;
-            padding: 12px 15px;
-            color: #b3b3b3;
-            text-decoration: none;
-            border-radius: 8px;
-            transition: all 0.3s ease;
-            position: relative;
-            overflow: hidden;
-        }
-        
-        .nav-link::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: -100%;
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(90deg, transparent, rgba(233, 30, 99, 0.2), transparent);
-            transition: left 0.5s ease;
-        }
-        
-        .nav-link:hover::before {
-            left: 100%;
-        }
-        
-        .nav-link:hover {
-            color: #ffffff;
-            background-color: rgba(233, 30, 99, 0.2);
-            transform: translateX(5px);
-        }
-        
-        .nav-link.active {
-            color: #ffffff;
-            background-color: rgba(233, 30, 99, 0.3);
-            box-shadow: 0 0 10px rgba(233, 30, 99, 0.5);
-        }
-        
-        /* 主内容区 */
-        .main-content {
-            flex: 1;
-            padding: 30px;
-            overflow-y: auto;
-        }
-        
-        /* 卡片 */
-        .card {
-            background: linear-gradient(135deg, rgba(26, 10, 30, 0.8) 0%, rgba(45, 27, 54, 0.8) 100%);
-            border-radius: 12px;
-            border: 1px solid rgba(233, 30, 99, 0.3);
-            box-shadow: 0 4px 15px rgba(233, 30, 99, 0.2);
-            margin-bottom: 30px;
-            overflow: hidden;
-            backdrop-filter: blur(10px);
-        }
-        
-        .card-header {
-            padding: 20px;
-            border-bottom: 1px solid rgba(233, 30, 99, 0.3);
-            background: linear-gradient(90deg, rgba(233, 30, 99, 0.1), rgba(156, 39, 176, 0.1));
-        }
-        
-        .card-title {
-            font-size: 1.5rem;
-            font-weight: bold;
-            color: #ffffff;
-            margin: 0;
-        }
-        
-        .card-body {
-            padding: 20px;
-        }
-        
-        /* 仪表盘 */
-        .dashboard-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 20px;
-            margin-bottom: 30px;
-        }
-        
-        .stat-card {
-            background: linear-gradient(135deg, rgba(233, 30, 99, 0.1) 0%, rgba(156, 39, 176, 0.1) 100%);
-            border-radius: 12px;
-            border: 1px solid rgba(233, 30, 99, 0.3);
-            padding: 20px;
-            text-align: center;
-            transition: all 0.3s ease;
-        }
-        
+        .stat-card:nth-child(1)::before { background: linear-gradient(90deg, #8b5cf6, #a78bfa); }
+        .stat-card:nth-child(2)::before { background: linear-gradient(90deg, #ec4899, #f472b6); }
+        .stat-card:nth-child(3)::before { background: linear-gradient(90deg, #3b82f6, #60a5fa); }
+        .stat-card:nth-child(4)::before { background: linear-gradient(90deg, #10b981, #34d399); }
+        .stat-card:nth-child(5)::before { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
         .stat-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 8px 20px rgba(233, 30, 99, 0.3);
+            transform: translateY(-4px);
+            box-shadow: 0 12px 40px rgba(139,92,246,0.15);
         }
-        
         .stat-value {
-            font-size: 2.5rem;
-            font-weight: bold;
-            color: #e91e63;
-            margin-bottom: 10px;
-            text-shadow: 0 0 10px rgba(233, 30, 99, 0.7);
+            font-size: 2.2rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #8b5cf6, #ec4899);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 6px;
         }
-        
         .stat-label {
-            font-size: 1rem;
-            color: #b3b3b3;
-        }
-        
-        /* 最近活动 */
-        .activity-list {
-            list-style: none;
-        }
-        
-        .activity-item {
-            padding: 15px;
-            border-bottom: 1px solid rgba(233, 30, 99, 0.2);
-            transition: all 0.3s ease;
-        }
-        
-        .activity-item:hover {
-            background-color: rgba(233, 30, 99, 0.1);
-        }
-        
-        .activity-time {
             font-size: 0.9rem;
-            color: #999;
-            margin-bottom: 5px;
+            color: #94a3b8;
+            font-weight: 500;
         }
-        
+        .activity-list { list-style: none; }
+        .activity-item {
+            padding: 14px 16px;
+            border-bottom: 1px solid rgba(139,92,246,0.06);
+            transition: all 0.4s ease;
+            border-radius: 10px;
+        }
+        .activity-item:hover { background: rgba(139,92,246,0.04); }
+        .activity-item:last-child { border-bottom: none; }
+        .activity-time {
+            font-size: 0.8rem;
+            color: #a0aec0;
+            margin-bottom: 4px;
+        }
         .activity-content {
-            color: #ffffff;
+            color: #475569;
+            font-size: 0.92rem;
         }
-        
-        /* 响应式设计 */
+        .mobile-toggle {
+            display: none;
+            position: fixed;
+            top: 16px;
+            left: 16px;
+            z-index: 200;
+            width: 40px;
+            height: 40px;
+            border: none;
+            background: rgba(255,255,255,0.7);
+            backdrop-filter: blur(16px);
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 1.2rem;
+            color: #64748b;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+        }
         @media (max-width: 768px) {
-            .container {
-                flex-direction: column;
-            }
-            
-            .sidebar {
-                width: 100%;
-                border-right: none;
-                border-bottom: 1px solid rgba(233, 30, 99, 0.3);
-            }
-            
-            .sidebar-nav {
-                display: flex;
-                overflow-x: auto;
-                gap: 10px;
-            }
-            
-            .nav-item {
-                margin-bottom: 0;
-            }
-            
-            .dashboard-grid {
-                grid-template-columns: 1fr;
-            }
+            .sidebar { transform: translateX(-100%); }
+            .sidebar.open { transform: translateX(0); }
+            .main-content { margin-left: 0; padding: 20px; padding-top: 64px; }
+            .mobile-toggle { display: flex; align-items: center; justify-content: center; }
+            .dashboard-grid { grid-template-columns: repeat(2, 1fr); }
+        }
+        @media (max-width: 480px) {
+            .dashboard-grid { grid-template-columns: 1fr; }
         }
     </style>
 </head>
 <body>
+    <button class="mobile-toggle" onclick="toggleSidebar()">&#9776;</button>
     <div class="container">
-        <!-- 侧边栏 -->
-        <aside class="sidebar">
+        <aside class="sidebar" id="sidebar">
             <div class="sidebar-brand">记忆胶囊</div>
             <ul class="sidebar-nav">
                 <li class="nav-item">
-                    <a class="nav-link active" href="/">仪表盘</a>
+                    <a class="nav-link active" href="/"><span class="nav-icon">&#9632;</span> 仪表盘</a>
                 </li>
                 <li class="nav-item">
-                    <a class="nav-link" href="/relationships">关系图谱</a>
+                    <a class="nav-link" href="/memories"><span class="nav-icon">&#9830;</span> 记忆宫殿</a>
                 </li>
                 <li class="nav-item">
-                    <a class="nav-link" href="/memories">记忆宫殿</a>
+                    <a class="nav-link" href="/dreams"><span class="nav-icon">&#9788;</span> 梦境记忆</a>
                 </li>
                 <li class="nav-item">
-                    <a class="nav-link" href="/settings">系统设置</a>
+                    <a class="nav-link" href="/relationships"><span class="nav-icon">&#10070;</span> 关系图谱</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="/settings"><span class="nav-icon">&#9881;</span> 系统设置</a>
                 </li>
             </ul>
         </aside>
-        
-        <!-- 主内容区 -->
         <main class="main-content">
-            <!-- 仪表盘卡片 -->
-            <div class="card">
-                <div class="card-header">
-                    <h2 class="card-title">数据概览</h2>
+            <div class="page-header">
+                <h1 class="page-title">仪表盘</h1>
+                <p class="page-subtitle">记忆胶囊数据概览</p>
+            </div>
+            <div class="dashboard-grid">
+                <div class="stat-card">
+                    <div class="stat-value" id="total-memories">0</div>
+                    <div class="stat-label">总记忆数</div>
                 </div>
-                <div class="card-body">
-                    <div class="dashboard-grid">
-                        <div class="stat-card">
-                            <div class="stat-value" id="total-memories">0</div>
-                            <div class="stat-label">总记忆数</div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="stat-value" id="total-relationships">0</div>
-                            <div class="stat-label">总关系数</div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="stat-value" id="total-categories">0</div>
-                            <div class="stat-label">分类数</div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="stat-value" id="total-triples">0</div>
-                            <div class="stat-label">知识三元组</div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="stat-value" id="total-dreams">0</div>
-                            <div class="stat-label">梦境记录</div>
-                        </div>
-                    </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="total-relationships">0</div>
+                    <div class="stat-label">总关系数</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="total-categories">0</div>
+                    <div class="stat-label">分类数</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="total-triples">0</div>
+                    <div class="stat-label">知识三元组</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="total-dreams">0</div>
+                    <div class="stat-label">梦境记录</div>
                 </div>
             </div>
-            
-            <!-- 最近活动卡片 -->
             <div class="card">
                 <div class="card-header">
-                    <h2 class="card-title">最近活动 <span style="font-size: 12px; font-weight: normal; color: #b3b3b3;">(只显示最新30条活动)</span></h2>
+                    <h2 class="card-title">最近活动 <span style="font-size: 12px; font-weight: 400; color: #a0aec0;">(最新30条)</span></h2>
                 </div>
                 <div class="card-body">
                     <ul class="activity-list" id="activity-list">
@@ -294,22 +257,17 @@
             </div>
         </main>
     </div>
-    
     <script>
-        // 加载数据
         async function loadDashboardData() {
             try {
-                // 获取记忆总数
                 const memoriesResponse = await fetch('/api/memories');
                 const memoriesData = await memoriesResponse.json();
                 document.getElementById('total-memories').textContent = memoriesData.total;
-                
-                // 获取关系总数
+
                 const relationshipsResponse = await fetch('/api/relationships');
                 const relationshipsData = await relationshipsResponse.json();
                 document.getElementById('total-relationships').textContent = relationshipsData.total;
-                
-                // 获取分类数
+
                 const categoriesResponse = await fetch('/api/categories');
                 const categories = await categoriesResponse.json();
                 const statsResponse = await fetch('/api/stats');
@@ -319,13 +277,12 @@
                 document.getElementById('total-relationships').textContent = stats.relationships || relationshipsData.total;
                 document.getElementById('total-triples').textContent = stats.triples || 0;
                 document.getElementById('total-dreams').textContent = stats.dream_logs || 0;
-                
-                // 获取最近活动（限制30条）
+
                 const activitiesResponse = await fetch('/api/activities?limit=30');
                 const activities = await activitiesResponse.json();
                 const activityList = document.getElementById('activity-list');
                 activityList.innerHTML = '';
-                
+
                 if (activities.length === 0) {
                     activityList.innerHTML = '<li class="activity-item"><div class="activity-time">暂无活动记录</div><div class="activity-content">开始使用记忆胶囊，添加第一条记忆吧！</div></li>';
                 } else {
@@ -345,8 +302,11 @@
                 console.error('加载仪表盘数据失败:', error);
             }
         }
-        
-        // 页面加载时执行
+
+        function toggleSidebar() {
+            document.getElementById('sidebar').classList.toggle('open');
+        }
+
         window.onload = function() {
             loadDashboardData();
         };

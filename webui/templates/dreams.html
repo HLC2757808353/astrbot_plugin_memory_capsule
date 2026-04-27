@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>记忆胶囊 - 梦境记忆</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #2d3748;
+            background: linear-gradient(135deg, #f5f7fa 0%, #e8ecf1 50%, #f0e6f6 100%);
+            min-height: 100vh;
+        }
+        .container { display: flex; min-height: 100vh; }
+        .sidebar {
+            width: 240px;
+            background: rgba(255,255,255,0.4);
+            backdrop-filter: blur(20px);
+            border-right: 1px solid rgba(255,255,255,0.6);
+            padding: 24px 16px;
+            position: fixed;
+            top: 0;
+            left: 0;
+            height: 100vh;
+            z-index: 100;
+            transition: transform 0.4s ease;
+        }
+        .sidebar-brand {
+            font-size: 1.6rem;
+            font-weight: 700;
+            text-align: center;
+            margin-bottom: 36px;
+            background: linear-gradient(135deg, #8b5cf6, #ec4899);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .sidebar-nav { list-style: none; }
+        .nav-item { margin-bottom: 6px; }
+        .nav-link {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px 16px;
+            color: #64748b;
+            text-decoration: none;
+            border-radius: 12px;
+            transition: all 0.4s ease;
+            font-size: 0.95rem;
+            font-weight: 500;
+        }
+        .nav-link:hover {
+            color: #8b5cf6;
+            background: rgba(139,92,246,0.08);
+            transform: translateX(4px);
+        }
+        .nav-link.active {
+            color: #ffffff;
+            background: linear-gradient(135deg, #8b5cf6, #a78bfa);
+            box-shadow: 0 4px 15px rgba(139,92,246,0.3);
+        }
+        .nav-icon { font-size: 1.1rem; width: 20px; text-align: center; }
+        .main-content {
+            flex: 1;
+            margin-left: 240px;
+            padding: 32px;
+            min-height: 100vh;
+        }
+        .page-header {
+            margin-bottom: 28px;
+        }
+        .page-title {
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: #2d3748;
+            margin-bottom: 6px;
+        }
+        .page-subtitle {
+            font-size: 0.9rem;
+            color: #94a3b8;
+        }
+        .card {
+            background: rgba(255,255,255,0.6);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255,255,255,0.8);
+            border-radius: 16px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.08);
+            margin-bottom: 24px;
+            overflow: hidden;
+            transition: all 0.4s ease;
+        }
+        .card:hover {
+            box-shadow: 0 12px 40px rgba(0,0,0,0.12);
+        }
+        .card-header {
+            padding: 20px 24px;
+            border-bottom: 1px solid rgba(139,92,246,0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .card-title {
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: #2d3748;
+        }
+        .card-body { padding: 24px; }
+        .dreams-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+            gap: 20px;
+        }
+        .dream-card {
+            background: rgba(255,255,255,0.7);
+            backdrop-filter: blur(16px);
+            border: 1px solid rgba(255,255,255,0.9);
+            border-radius: 16px;
+            padding: 24px;
+            transition: all 0.4s ease;
+            cursor: pointer;
+            position: relative;
+            overflow: hidden;
+        }
+        .dream-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, #8b5cf6, #ec4899);
+            opacity: 0;
+            transition: opacity 0.4s ease;
+        }
+        .dream-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 12px 40px rgba(139,92,246,0.15);
+        }
+        .dream-card:hover::before { opacity: 1; }
+        .dream-date {
+            font-size: 0.85rem;
+            color: #8b5cf6;
+            font-weight: 600;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .dream-summary {
+            font-size: 0.95rem;
+            color: #475569;
+            margin-bottom: 14px;
+            line-height: 1.6;
+        }
+        .dream-stats {
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+            margin-bottom: 12px;
+        }
+        .dream-stat {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 0.8rem;
+            color: #94a3b8;
+            background: rgba(139,92,246,0.06);
+            padding: 4px 10px;
+            border-radius: 8px;
+        }
+        .dream-stat-value {
+            font-weight: 600;
+            color: #8b5cf6;
+        }
+        .dream-insights {
+            font-size: 0.85rem;
+            color: #64748b;
+            padding: 12px;
+            background: rgba(236,72,153,0.05);
+            border-radius: 10px;
+            border-left: 3px solid #ec4899;
+            margin-top: 10px;
+            display: none;
+        }
+        .dream-card.expanded .dream-insights { display: block; }
+        .dream-expand-hint {
+            font-size: 0.78rem;
+            color: #a0aec0;
+            text-align: center;
+            margin-top: 8px;
+        }
+        .dream-card.expanded .dream-expand-hint { display: none; }
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #94a3b8;
+        }
+        .empty-icon {
+            font-size: 3rem;
+            margin-bottom: 16px;
+            opacity: 0.5;
+        }
+        .empty-text {
+            font-size: 1.1rem;
+            margin-bottom: 8px;
+            color: #64748b;
+        }
+        .empty-hint { font-size: 0.9rem; }
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 12px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            font-weight: 500;
+            transition: all 0.4s ease;
+        }
+        .btn:hover { transform: scale(1.02); }
+        .btn-primary {
+            background: linear-gradient(135deg, #8b5cf6, #a78bfa);
+            color: #ffffff;
+            box-shadow: 0 4px 15px rgba(139,92,246,0.3);
+        }
+        .btn-primary:hover { box-shadow: 0 6px 20px rgba(139,92,246,0.4); }
+        .btn-outline {
+            background: rgba(255,255,255,0.6);
+            color: #8b5cf6;
+            border: 1px solid rgba(139,92,246,0.3);
+        }
+        .btn-outline:hover {
+            background: rgba(139,92,246,0.08);
+            border-color: #8b5cf6;
+        }
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.3);
+            backdrop-filter: blur(10px);
+            animation: fadeIn 0.4s ease;
+        }
+        .modal.show { display: flex; align-items: center; justify-content: center; }
+        .modal-content {
+            background: rgba(255,255,255,0.85);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255,255,255,0.9);
+            border-radius: 16px;
+            padding: 32px;
+            width: 90%;
+            max-width: 600px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.15);
+            animation: slideUp 0.4s ease;
+        }
+        .modal-header {
+            padding-bottom: 16px;
+            border-bottom: 1px solid rgba(139,92,246,0.1);
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .modal-title {
+            font-size: 1.3rem;
+            font-weight: 600;
+            color: #2d3748;
+        }
+        .modal-close {
+            width: 32px;
+            height: 32px;
+            border: none;
+            background: rgba(139,92,246,0.08);
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1.1rem;
+            color: #64748b;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.4s ease;
+        }
+        .modal-close:hover { background: rgba(139,92,246,0.15); color: #8b5cf6; }
+        .detail-row {
+            margin-bottom: 16px;
+        }
+        .detail-label {
+            font-size: 0.85rem;
+            color: #94a3b8;
+            font-weight: 500;
+            margin-bottom: 4px;
+        }
+        .detail-value {
+            font-size: 0.95rem;
+            color: #2d3748;
+            line-height: 1.6;
+        }
+        .detail-stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+            margin: 16px 0;
+        }
+        .detail-stat-card {
+            background: rgba(139,92,246,0.06);
+            border-radius: 12px;
+            padding: 14px;
+            text-align: center;
+        }
+        .detail-stat-value {
+            font-size: 1.4rem;
+            font-weight: 700;
+            color: #8b5cf6;
+        }
+        .detail-stat-label {
+            font-size: 0.78rem;
+            color: #94a3b8;
+            margin-top: 2px;
+        }
+        .pagination {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 8px;
+            margin-top: 24px;
+            flex-wrap: wrap;
+        }
+        .pagination button {
+            padding: 8px 14px;
+            background: rgba(255,255,255,0.6);
+            border: 1px solid rgba(139,92,246,0.15);
+            border-radius: 10px;
+            color: #64748b;
+            cursor: pointer;
+            transition: all 0.4s ease;
+            font-size: 0.85rem;
+        }
+        .pagination button:hover {
+            background: rgba(139,92,246,0.08);
+            border-color: #8b5cf6;
+            color: #8b5cf6;
+        }
+        .pagination button.active {
+            background: linear-gradient(135deg, #8b5cf6, #a78bfa);
+            color: #ffffff;
+            border-color: transparent;
+        }
+        .pagination button:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+        .pagination .page-info {
+            font-size: 0.85rem;
+            color: #94a3b8;
+            margin-left: 8px;
+        }
+        .mobile-toggle {
+            display: none;
+            position: fixed;
+            top: 16px;
+            left: 16px;
+            z-index: 200;
+            width: 40px;
+            height: 40px;
+            border: none;
+            background: rgba(255,255,255,0.7);
+            backdrop-filter: blur(16px);
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 1.2rem;
+            color: #64748b;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        @media (max-width: 768px) {
+            .sidebar { transform: translateX(-100%); }
+            .sidebar.open { transform: translateX(0); }
+            .main-content { margin-left: 0; padding: 20px; padding-top: 64px; }
+            .mobile-toggle { display: flex; align-items: center; justify-content: center; }
+            .dreams-grid { grid-template-columns: 1fr; }
+            .detail-stats { grid-template-columns: repeat(3, 1fr); }
+        }
+    </style>
+</head>
+<body>
+    <button class="mobile-toggle" onclick="toggleSidebar()">&#9776;</button>
+    <div class="container">
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-brand">记忆胶囊</div>
+            <ul class="sidebar-nav">
+                <li class="nav-item">
+                    <a class="nav-link" href="/"><span class="nav-icon">&#9632;</span> 仪表盘</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="/memories"><span class="nav-icon">&#9830;</span> 记忆宫殿</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link active" href="/dreams"><span class="nav-icon">&#9788;</span> 梦境记忆</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="/relationships"><span class="nav-icon">&#10070;</span> 关系图谱</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="/settings"><span class="nav-icon">&#9881;</span> 系统设置</a>
+                </li>
+            </ul>
+        </aside>
+        <main class="main-content">
+            <div class="page-header">
+                <h1 class="page-title">梦境记忆</h1>
+                <p class="page-subtitle">回顾每一次梦境的洞察与发现</p>
+            </div>
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">梦境日志</h2>
+                    <button class="btn btn-outline" onclick="loadDreams()">刷新</button>
+                </div>
+                <div class="card-body">
+                    <div class="dreams-grid" id="dreams-grid"></div>
+                    <div id="pagination" class="pagination"></div>
+                </div>
+            </div>
+        </main>
+    </div>
+    <div id="dream-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title" id="modal-title">梦境详情</h3>
+                <button class="modal-close" onclick="closeModal()">&times;</button>
+            </div>
+            <div id="modal-body"></div>
+        </div>
+    </div>
+    <script>
+        let currentPage = 1;
+        const pageSize = 12;
+        let allDreams = [];
+
+        function formatDate(dateStr) {
+            if (!dateStr) return '未知';
+            try {
+                const date = new Date(dateStr);
+                const year = date.getFullYear();
+                const month = String(date.getMonth() + 1).padStart(2, '0');
+                const day = String(date.getDate()).padStart(2, '0');
+                const hours = String(date.getHours()).padStart(2, '0');
+                const minutes = String(date.getMinutes()).padStart(2, '0');
+                return `${year}年${month}月${day}日 ${hours}:${minutes}`;
+            } catch (e) {
+                return '未知';
+            }
+        }
+
+        function formatShortDate(dateStr) {
+            if (!dateStr) return '未知';
+            try {
+                const date = new Date(dateStr);
+                const month = String(date.getMonth() + 1).padStart(2, '0');
+                const day = String(date.getDate()).padStart(2, '0');
+                return `${month}月${day}日`;
+            } catch (e) {
+                return '未知';
+            }
+        }
+
+        async function loadDreams() {
+            try {
+                const response = await fetch('/api/dreams');
+                const data = await response.json();
+                allDreams = data.dreams || [];
+                renderDreams();
+            } catch (error) {
+                console.error('加载梦境数据失败:', error);
+            }
+        }
+
+        function renderDreams() {
+            const grid = document.getElementById('dreams-grid');
+            grid.innerHTML = '';
+
+            if (allDreams.length === 0) {
+                grid.innerHTML = `
+                    <div class="empty-state" style="grid-column: 1 / -1;">
+                        <div class="empty-icon">&#9788;</div>
+                        <div class="empty-text">暂无梦境记录</div>
+                        <div class="empty-hint">让 AI 进入梦境模式后，梦境日志将在这里展示</div>
+                    </div>
+                `;
+                document.getElementById('pagination').innerHTML = '';
+                return;
+            }
+
+            const totalPages = Math.ceil(allDreams.length / pageSize);
+            const start = (currentPage - 1) * pageSize;
+            const end = start + pageSize;
+            const pageDreams = allDreams.slice(start, end);
+
+            pageDreams.forEach(dream => {
+                const card = document.createElement('div');
+                card.className = 'dream-card';
+                card.onclick = () => showDreamDetail(dream.id);
+
+                const insightsPreview = dream.insights
+                    ? (dream.insights.length > 80 ? dream.insights.substring(0, 80) + '...' : dream.insights)
+                    : '无洞察';
+
+                card.innerHTML = `
+                    <div class="dream-date">&#9788; ${dream.dream_date || '未知日期'}</div>
+                    <div class="dream-summary">${dream.summary || '无摘要'}</div>
+                    <div class="dream-stats">
+                        <div class="dream-stat">回顾记忆 <span class="dream-stat-value">${dream.memories_reviewed || 0}</span></div>
+                        <div class="dream-stat">回顾对话 <span class="dream-stat-value">${dream.conversations_reviewed || 0}</span></div>
+                        <div class="dream-stat">新建记忆 <span class="dream-stat-value">${dream.new_memories_created || 0}</span></div>
+                    </div>
+                    <div class="dream-insights">${dream.insights || '无洞察记录'}</div>
+                    <div class="dream-expand-hint">点击查看完整详情</div>
+                `;
+                grid.appendChild(card);
+            });
+
+            renderPagination(totalPages);
+        }
+
+        function renderPagination(totalPages) {
+            const pagination = document.getElementById('pagination');
+            pagination.innerHTML = '';
+
+            if (totalPages <= 1) return;
+
+            const prevBtn = document.createElement('button');
+            prevBtn.textContent = '上一页';
+            prevBtn.disabled = currentPage === 1;
+            prevBtn.onclick = () => { currentPage--; renderDreams(); };
+            pagination.appendChild(prevBtn);
+
+            const maxPagesToShow = 5;
+            let startPage = Math.max(1, currentPage - Math.floor(maxPagesToShow / 2));
+            let endPage = Math.min(totalPages, startPage + maxPagesToShow - 1);
+            startPage = Math.max(1, endPage - maxPagesToShow + 1);
+
+            for (let i = startPage; i <= endPage; i++) {
+                const pageBtn = document.createElement('button');
+                pageBtn.textContent = i;
+                pageBtn.className = i === currentPage ? 'active' : '';
+                pageBtn.onclick = () => { currentPage = i; renderDreams(); };
+                pagination.appendChild(pageBtn);
+            }
+
+            const nextBtn = document.createElement('button');
+            nextBtn.textContent = '下一页';
+            nextBtn.disabled = currentPage === totalPages;
+            nextBtn.onclick = () => { currentPage++; renderDreams(); };
+            pagination.appendChild(nextBtn);
+
+            const pageInfo = document.createElement('span');
+            pageInfo.className = 'page-info';
+            pageInfo.textContent = `共 ${totalPages} 页`;
+            pagination.appendChild(pageInfo);
+        }
+
+        async function showDreamDetail(dreamId) {
+            try {
+                const response = await fetch(`/api/dreams/${dreamId}`);
+                if (!response.ok) {
+                    alert('获取梦境详情失败');
+                    return;
+                }
+                const dream = await response.json();
+
+                document.getElementById('modal-title').textContent = `梦境 - ${dream.dream_date || '未知日期'}`;
+                document.getElementById('modal-body').innerHTML = `
+                    <div class="detail-row">
+                        <div class="detail-label">日期</div>
+                        <div class="detail-value">${dream.dream_date || '未知'}</div>
+                    </div>
+                    <div class="detail-row">
+                        <div class="detail-label">摘要</div>
+                        <div class="detail-value">${dream.summary || '无摘要'}</div>
+                    </div>
+                    <div class="detail-stats">
+                        <div class="detail-stat-card">
+                            <div class="detail-stat-value">${dream.memories_reviewed || 0}</div>
+                            <div class="detail-stat-label">回顾记忆数</div>
+                        </div>
+                        <div class="detail-stat-card">
+                            <div class="detail-stat-value">${dream.conversations_reviewed || 0}</div>
+                            <div class="detail-stat-label">回顾对话数</div>
+                        </div>
+                        <div class="detail-stat-card">
+                            <div class="detail-stat-value">${dream.new_memories_created || 0}</div>
+                            <div class="detail-stat-label">新建记忆数</div>
+                        </div>
+                    </div>
+                    <div class="detail-row">
+                        <div class="detail-label">洞察</div>
+                        <div class="detail-value" style="background:rgba(236,72,153,0.05);padding:14px;border-radius:10px;border-left:3px solid #ec4899;">${dream.insights || '无洞察记录'}</div>
+                    </div>
+                    <div class="detail-row">
+                        <div class="detail-label">巩固状态</div>
+                        <div class="detail-value">${dream.consolidation_done ? '已完成' : '未完成'}</div>
+                    </div>
+                    <div class="detail-row">
+                        <div class="detail-label">创建时间</div>
+                        <div class="detail-value">${formatDate(dream.created_at)}</div>
+                    </div>
+                `;
+
+                document.getElementById('dream-modal').classList.add('show');
+            } catch (error) {
+                console.error('获取梦境详情失败:', error);
+                alert('获取详情失败');
+            }
+        }
+
+        function closeModal() {
+            document.getElementById('dream-modal').classList.remove('show');
+        }
+
+        function toggleSidebar() {
+            document.getElementById('sidebar').classList.toggle('open');
+        }
+
+        document.getElementById('dream-modal').addEventListener('click', function(e) {
+            if (e.target === this) closeModal();
+        });
+
+        window.onload = function() {
+            loadDreams();
+        };
+    </script>
+</body>
+</html>

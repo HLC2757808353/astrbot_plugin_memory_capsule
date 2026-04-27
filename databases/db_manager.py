@@ -65,11 +65,12 @@ class DatabaseManager:
 
     def _get_connection(self):
         if not hasattr(self._local, 'conn') or self._local.conn is None:
-            conn = sqlite3.connect(self.db_path, check_same_thread=False)
+            conn = sqlite3.connect(self.db_path, check_same_thread=False, timeout=30)
             conn.row_factory = sqlite3.Row
             conn.execute('PRAGMA foreign_keys = ON')
             conn.execute('PRAGMA journal_mode = WAL')
             conn.execute('PRAGMA synchronous = NORMAL')
+            conn.execute('PRAGMA busy_timeout = 30000')
             self._local.conn = conn
         return self._local.conn
 
@@ -163,8 +164,9 @@ class DatabaseManager:
 
             new_db_path = os.path.join(os.path.dirname(self.db_path), "memory_capsule.db")
             if os.path.exists(new_db_path) and os.path.getsize(new_db_path) > 0:
+                src_conn = None
                 try:
-                    src_conn = sqlite3.connect(new_db_path)
+                    src_conn = sqlite3.connect(new_db_path, timeout=10)
                     src_cur = src_conn.cursor()
                     src_cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
                     src_tables = {r[0] for r in src_cur.fetchall()}
@@ -190,10 +192,12 @@ class DatabaseManager:
                                         pass
                                 conn.commit()
                                 logger.info(f"Migrated {src_count} memories from memory_capsule.db")
-
-                    src_conn.close()
                 except Exception as e:
                     logger.debug(f"memory_capsule.db migration skipped: {e}")
+                finally:
+                    if src_conn:
+                        try: src_conn.close()
+                        except Exception: pass
 
         except Exception as e:
             logger.warning(f"Data migration check: {e}")
@@ -201,9 +205,10 @@ class DatabaseManager:
     def _initialize_database_structure(self):
         conn = None
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = sqlite3.connect(self.db_path, timeout=30)
             conn.execute('PRAGMA journal_mode = WAL')
             conn.execute('PRAGMA foreign_keys = ON')
+            conn.execute('PRAGMA busy_timeout = 30000')
             cursor = conn.cursor()
 
             cursor.execute('''CREATE TABLE IF NOT EXISTS memories (

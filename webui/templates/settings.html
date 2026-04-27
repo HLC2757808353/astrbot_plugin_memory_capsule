@@ -8,106 +8,308 @@
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            line-height: 1.6; color: #fff;
-            background-color: #0a0a0a;
-            background-image: radial-gradient(circle at 25% 25%, rgba(233,30,99,.1) 0%, transparent 50%),
-                              radial-gradient(circle at 75% 75%, rgba(156,39,176,.1) 0%, transparent 50%);
+            line-height: 1.6;
+            color: #2d3748;
+            background: linear-gradient(135deg, #f5f7fa 0%, #e8ecf1 50%, #f0e6f6 100%);
             min-height: 100vh;
         }
         .container { display: flex; min-height: 100vh; }
         .sidebar {
-            width: 220px; background: linear-gradient(135deg, #1a0a1e, #2d1b36);
-            border-right: 1px solid rgba(233,30,99,.3); padding: 20px;
-            position: relative;
+            width: 240px;
+            background: rgba(255,255,255,0.4);
+            backdrop-filter: blur(20px);
+            border-right: 1px solid rgba(255,255,255,0.6);
+            padding: 24px 16px;
+            position: fixed;
+            top: 0;
+            left: 0;
+            height: 100vh;
+            z-index: 100;
+            transition: transform 0.4s ease;
         }
-        .sidebar::before {
-            content: ''; position: absolute; top: 0; left: 0; width: 4px; height: 100%;
-            background: linear-gradient(to bottom, #e91e63, #9c27b0);
+        .sidebar-brand {
+            font-size: 1.6rem;
+            font-weight: 700;
+            text-align: center;
+            margin-bottom: 36px;
+            background: linear-gradient(135deg, #8b5cf6, #ec4899);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
         }
-        .sidebar-brand { font-size: 1.5rem; font-weight: bold; text-align: center; margin-bottom: 30px; text-shadow: 0 0 10px rgba(233,30,99,.7); }
         .sidebar-nav { list-style: none; }
-        .nav-item { margin-bottom: 8px; }
+        .nav-item { margin-bottom: 6px; }
         .nav-link {
-            display: block; padding: 10px 12px; color: #b3b3b3; text-decoration: none;
-            border-radius: 6px; transition: all .3s;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px 16px;
+            color: #64748b;
+            text-decoration: none;
+            border-radius: 12px;
+            transition: all 0.4s ease;
+            font-size: 0.95rem;
+            font-weight: 500;
         }
-        .nav-link:hover { color: #fff; background: rgba(233,30,99,.2); transform: translateX(4px); }
-        .nav-link.active { color: #fff; background: rgba(233,30,99,.3); box-shadow: 0 0 8px rgba(233,30,99,.4); }
-        .main-content { flex: 1; padding: 24px; overflow-y: auto; }
+        .nav-link:hover {
+            color: #8b5cf6;
+            background: rgba(139,92,246,0.08);
+            transform: translateX(4px);
+        }
+        .nav-link.active {
+            color: #ffffff;
+            background: linear-gradient(135deg, #8b5cf6, #a78bfa);
+            box-shadow: 0 4px 15px rgba(139,92,246,0.3);
+        }
+        .nav-icon { font-size: 1.1rem; width: 20px; text-align: center; }
+        .main-content {
+            flex: 1;
+            margin-left: 240px;
+            padding: 32px;
+            min-height: 100vh;
+        }
+        .page-header { margin-bottom: 28px; }
+        .page-title {
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: #2d3748;
+            margin-bottom: 6px;
+        }
+        .page-subtitle { font-size: 0.9rem; color: #94a3b8; }
         .card {
-            background: linear-gradient(135deg, rgba(26,10,30,.8), rgba(45,27,54,.8));
-            border-radius: 10px; border: 1px solid rgba(233,30,99,.3);
-            box-shadow: 0 4px 12px rgba(233,30,99,.15); margin-bottom: 24px;
-            backdrop-filter: blur(8px);
+            background: rgba(255,255,255,0.6);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255,255,255,0.8);
+            border-radius: 16px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.08);
+            margin-bottom: 24px;
+            overflow: hidden;
+            transition: all 0.4s ease;
         }
+        .card:hover { box-shadow: 0 12px 40px rgba(0,0,0,0.12); }
         .card-header {
-            padding: 16px 20px; border-bottom: 1px solid rgba(233,30,99,.3);
-            background: linear-gradient(90deg, rgba(233,30,99,.08), rgba(156,39,176,.08));
+            padding: 20px 24px;
+            border-bottom: 1px solid rgba(139,92,246,0.1);
         }
-        .card-title { font-size: 1.2rem; font-weight: bold; }
-        .card-body { padding: 20px; }
+        .card-title {
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: #2d3748;
+        }
+        .card-body { padding: 24px; }
         .section-title {
-            font-size: .9rem; color: #e91e63; font-weight: 600;
-            margin: 24px 0 12px; padding-bottom: 6px; border-bottom: 1px solid rgba(233,30,99,.2);
+            font-size: 0.95rem;
+            color: #8b5cf6;
+            font-weight: 600;
+            margin: 28px 0 14px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid rgba(139,92,246,0.1);
         }
         .section-title:first-child { margin-top: 0; }
-        .cfg-item { margin-bottom: 16px; }
-        .cfg-row { display: flex; align-items: center; gap: 12px; }
+        .cfg-item { margin-bottom: 18px; }
+        .cfg-row {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+        }
         .cfg-label {
-            min-width: 150px; font-weight: 500; color: #ccc; font-size: .9rem;
+            min-width: 160px;
+            font-weight: 500;
+            color: #475569;
+            font-size: 0.9rem;
         }
         .cfg-hint {
-            font-size: .75rem; color: #777; margin-top: 4px; margin-left: 162px;
+            font-size: 0.78rem;
+            color: #a0aec0;
+            margin-top: 4px;
+            margin-left: 174px;
         }
         .form-control {
-            padding: 8px 10px; background: rgba(255,255,255,.08);
-            border: 1px solid rgba(233,30,99,.25); border-radius: 5px;
-            color: #fff; font-size: .9rem;
+            padding: 10px 14px;
+            background: rgba(255,255,255,0.7);
+            border: 1px solid rgba(139,92,246,0.15);
+            border-radius: 12px;
+            color: #2d3748;
+            font-size: 0.9rem;
+            transition: all 0.4s ease;
         }
-        .form-control:focus { outline: none; border-color: #e91e63; box-shadow: 0 0 8px rgba(233,30,99,.25); }
-        select.form-control { appearance: auto; }
+        .form-control:focus {
+            outline: none;
+            border-color: #8b5cf6;
+            box-shadow: 0 0 0 3px rgba(139,92,246,0.1);
+        }
+        select.form-control {
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            appearance: none;
+            background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 12 12"><path fill="%2364748b" d="M6 9L1 4h10L6 9z"/></svg>');
+            background-repeat: no-repeat;
+            background-position: right 12px center;
+            padding-right: 32px;
+        }
+        select.form-control option {
+            background: #ffffff;
+            color: #2d3748;
+        }
         .toggle-switch {
-            position: relative; width: 44px; height: 22px; flex-shrink: 0;
+            position: relative;
+            width: 48px;
+            height: 26px;
+            flex-shrink: 0;
         }
         .toggle-switch input { opacity: 0; width: 0; height: 0; }
         .toggle-slider {
-            position: absolute; top: 0; left: 0; right: 0; bottom: 0;
-            background: #444; border-radius: 22px; cursor: pointer; transition: .3s;
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: #cbd5e1;
+            border-radius: 26px;
+            cursor: pointer;
+            transition: all 0.4s ease;
         }
         .toggle-slider::before {
-            content: ''; position: absolute; width: 18px; height: 18px;
-            left: 2px; bottom: 2px; background: #fff; border-radius: 50%; transition: .3s;
+            content: '';
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            left: 3px;
+            bottom: 3px;
+            background: #ffffff;
+            border-radius: 50%;
+            transition: all 0.4s ease;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
-        .toggle-switch input:checked + .toggle-slider { background: #e91e63; }
-        .toggle-switch input:checked + .toggle-slider::before { transform: translateX(22px); }
+        .toggle-switch input:checked + .toggle-slider {
+            background: linear-gradient(135deg, #8b5cf6, #a78bfa);
+        }
+        .toggle-switch input:checked + .toggle-slider::before {
+            transform: translateX(22px);
+        }
         .btn {
-            display: inline-block; padding: 8px 18px; border: none; border-radius: 5px;
-            cursor: pointer; font-size: .9rem; transition: all .3s;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 12px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            font-weight: 500;
+            transition: all 0.4s ease;
         }
-        .btn-primary { background: #e91e63; color: #fff; }
-        .btn-primary:hover { background: #c2185b; box-shadow: 0 0 10px rgba(233,30,99,.4); }
-        .btn-outline { background: transparent; color: #e91e63; border: 1px solid #e91e63; }
-        .btn-outline:hover { background: #e91e63; color: #fff; }
-        .btn-sm { padding: 5px 12px; font-size: .8rem; }
+        .btn:hover { transform: scale(1.02); }
+        .btn-primary {
+            background: linear-gradient(135deg, #8b5cf6, #a78bfa);
+            color: #ffffff;
+            box-shadow: 0 4px 15px rgba(139,92,246,0.3);
+        }
+        .btn-primary:hover { box-shadow: 0 6px 20px rgba(139,92,246,0.4); }
+        .btn-outline {
+            background: rgba(255,255,255,0.6);
+            color: #8b5cf6;
+            border: 1px solid rgba(139,92,246,0.3);
+        }
+        .btn-outline:hover {
+            background: rgba(139,92,246,0.08);
+            border-color: #8b5cf6;
+        }
+        .btn-danger {
+            background: rgba(255,255,255,0.6);
+            color: #ef4444;
+            border: 1px solid rgba(239,68,68,0.3);
+        }
+        .btn-danger:hover {
+            background: rgba(239,68,68,0.08);
+            border-color: #ef4444;
+        }
+        .btn-sm {
+            padding: 6px 14px;
+            font-size: 0.8rem;
+        }
         .backup-list { list-style: none; }
         .backup-item {
-            padding: 12px; border-bottom: 1px solid rgba(233,30,99,.15);
-            display: flex; justify-content: space-between; align-items: center;
+            padding: 16px;
+            border-bottom: 1px solid rgba(139,92,246,0.06);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: all 0.4s ease;
+            border-radius: 10px;
         }
-        .backup-item:hover { background: rgba(233,30,99,.06); }
-        .backup-time { font-size: .8rem; color: #999; }
-        .backup-size { font-size: .75rem; color: #777; }
+        .backup-item:hover { background: rgba(139,92,246,0.04); }
+        .backup-item:last-child { border-bottom: none; }
+        .backup-time {
+            font-size: 0.85rem;
+            color: #475569;
+            font-weight: 500;
+        }
+        .backup-size {
+            font-size: 0.78rem;
+            color: #a0aec0;
+            margin-top: 2px;
+        }
         .status-badge {
-            display: inline-block; padding: 2px 8px; border-radius: 10px;
-            font-size: .75rem; font-weight: 600;
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 10px;
+            font-size: 0.78rem;
+            font-weight: 600;
         }
-        .status-on { background: rgba(76,175,80,.2); color: #4caf50; }
-        .status-off { background: rgba(244,67,54,.2); color: #f44336; }
+        .status-on {
+            background: rgba(16,185,129,0.1);
+            color: #10b981;
+        }
+        .status-off {
+            background: rgba(239,68,68,0.1);
+            color: #ef4444;
+        }
+        .auth-info {
+            display: flex;
+            gap: 16px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .auth-item {
+            font-size: 0.9rem;
+            color: #475569;
+        }
+        .token-preview {
+            background: rgba(139,92,246,0.06);
+            padding: 3px 10px;
+            border-radius: 8px;
+            font-size: 0.8rem;
+            font-family: monospace;
+            color: #8b5cf6;
+        }
+        .save-hint {
+            font-size: 0.8rem;
+            color: #a0aec0;
+            margin-left: 14px;
+        }
+        .mobile-toggle {
+            display: none;
+            position: fixed;
+            top: 16px;
+            left: 16px;
+            z-index: 200;
+            width: 40px;
+            height: 40px;
+            border: none;
+            background: rgba(255,255,255,0.7);
+            backdrop-filter: blur(16px);
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 1.2rem;
+            color: #64748b;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+        }
         @media (max-width: 768px) {
-            .container { flex-direction: column; }
-            .sidebar { width: 100%; border-right: none; border-bottom: 1px solid rgba(233,30,99,.3); }
-            .sidebar-nav { display: flex; overflow-x: auto; gap: 8px; }
-            .nav-item { margin-bottom: 0; }
+            .sidebar { transform: translateX(-100%); }
+            .sidebar.open { transform: translateX(0); }
+            .main-content { margin-left: 0; padding: 20px; padding-top: 64px; }
+            .mobile-toggle { display: flex; align-items: center; justify-content: center; }
             .cfg-row { flex-direction: column; align-items: flex-start; }
             .cfg-label { min-width: auto; }
             .cfg-hint { margin-left: 0; }
@@ -115,33 +317,55 @@
     </style>
 </head>
 <body>
+    <button class="mobile-toggle" onclick="toggleSidebar()">&#9776;</button>
     <div class="container">
-        <aside class="sidebar">
+        <aside class="sidebar" id="sidebar">
             <div class="sidebar-brand">记忆胶囊</div>
             <ul class="sidebar-nav">
-                <li class="nav-item"><a class="nav-link" href="/">仪表盘</a></li>
-                <li class="nav-item"><a class="nav-link" href="/relationships">关系图谱</a></li>
-                <li class="nav-item"><a class="nav-link" href="/memories">记忆宫殿</a></li>
-                <li class="nav-item"><a class="nav-link active" href="/settings">系统设置</a></li>
+                <li class="nav-item">
+                    <a class="nav-link" href="/"><span class="nav-icon">&#9632;</span> 仪表盘</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="/memories"><span class="nav-icon">&#9830;</span> 记忆宫殿</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="/dreams"><span class="nav-icon">&#9788;</span> 梦境记忆</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="/relationships"><span class="nav-icon">&#10070;</span> 关系图谱</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link active" href="/settings"><span class="nav-icon">&#9881;</span> 系统设置</a>
+                </li>
             </ul>
         </aside>
         <main class="main-content">
+            <div class="page-header">
+                <h1 class="page-title">系统设置</h1>
+                <p class="page-subtitle">配置插件参数和管理备份</p>
+            </div>
             <div class="card">
-                <div class="card-header"><h2 class="card-title">插件配置</h2></div>
+                <div class="card-header">
+                    <h2 class="card-title">插件配置</h2>
+                </div>
                 <div class="card-body">
                     <div id="config-form"></div>
-                    <div style="margin-top:20px;">
+                    <div style="margin-top:24px;">
                         <button class="btn btn-primary" onclick="saveSettings()">保存设置</button>
-                        <span style="margin-left:12px;font-size:.8rem;color:#888;">部分设置需重启插件生效</span>
+                        <span class="save-hint">部分设置需重启插件生效</span>
                     </div>
                 </div>
             </div>
             <div class="card">
-                <div class="card-header"><h2 class="card-title">认证状态</h2></div>
+                <div class="card-header">
+                    <h2 class="card-title">认证状态</h2>
+                </div>
                 <div class="card-body" id="auth-status"></div>
             </div>
             <div class="card">
-                <div class="card-header"><h2 class="card-title">备份管理</h2></div>
+                <div class="card-header">
+                    <h2 class="card-title">备份管理</h2>
+                </div>
                 <div class="card-body">
                     <button class="btn btn-primary btn-sm" onclick="createBackup()">创建备份</button>
                     <ul class="backup-list" id="backup-list"></ul>
@@ -151,15 +375,15 @@
     </div>
     <script>
         const GROUPS = {
-    '记忆功能': ['memory_palace', 'auto_inject_enabled', 'dream_mode_enabled', 'conversation_logging_enabled', 'conversation_log_retention_days', 'identity_mapping_enabled', 'auto_fact_extraction_enabled'],
-    '每日总结': ['daily_summary_injection_enabled', 'daily_summary_retention_days', 'daily_global_digest_enabled', 'daily_summary_group_whitelist', 'auto_summary_enabled', 'auto_summary_interval_hours'],
-    '记忆注入': ['working_memory_limit', 'working_memory_max_chars', 'context_inject_position', 'relation_injection_refresh_time'],
-    '搜索与排序': ['search_max_results', 'rrf_k', 'mmr_enabled', 'mmr_lambda', 'max_extracted_tags', 'tfidf_search_enabled', 'tfidf_search_limit'],
-    'RAG混合记忆': ['memory_decay_enabled', 'memory_decay_base_stability', 'auto_merge_similar_enabled', 'similarity_threshold', 'cross_group_association_enabled'],
-    '内存与缓存': ['lightweight_mode', 'disable_pypinyin', 'cache_ttl', 'max_cache_size'],
-    '数据管理': ['memory_cleanup_enabled', 'memory_cleanup_days', 'memory_cleanup_max', 'backup_interval', 'backup_max_count'],
-    '网络与分类': ['webui_host', 'webui_port', 'category_model', 'memory_categories', 'max_aliases_per_user']
-};
+            '记忆功能': ['memory_palace', 'auto_inject_enabled', 'dream_mode_enabled', 'conversation_logging_enabled', 'conversation_log_retention_days', 'identity_mapping_enabled', 'auto_fact_extraction_enabled'],
+            '每日总结': ['daily_summary_injection_enabled', 'daily_summary_retention_days', 'daily_global_digest_enabled', 'daily_summary_group_whitelist', 'auto_summary_enabled', 'auto_summary_interval_hours'],
+            '记忆注入': ['working_memory_limit', 'working_memory_max_chars', 'context_inject_position', 'relation_injection_refresh_time'],
+            '搜索与排序': ['search_max_results', 'rrf_k', 'mmr_enabled', 'mmr_lambda', 'max_extracted_tags', 'tfidf_search_enabled', 'tfidf_search_limit'],
+            'RAG混合记忆': ['memory_decay_enabled', 'memory_decay_base_stability', 'auto_merge_similar_enabled', 'similarity_threshold', 'cross_group_association_enabled'],
+            '内存与缓存': ['lightweight_mode', 'disable_pypinyin', 'cache_ttl', 'max_cache_size'],
+            '数据管理': ['memory_cleanup_enabled', 'memory_cleanup_days', 'memory_cleanup_max', 'backup_interval', 'backup_max_count'],
+            '网络与分类': ['webui_host', 'webui_port', 'category_model', 'memory_categories', 'max_aliases_per_user']
+        };
 
         let currentSettings = {};
 
@@ -236,9 +460,9 @@
                 if (data.auth_status) {
                     const as = data.auth_status;
                     document.getElementById('auth-status').innerHTML = `
-                        <div style="display:flex;gap:16px;align-items:center;">
-                            <span>认证: <span class="status-badge ${as.enabled ? 'status-on' : 'status-off'}">${as.enabled ? '已启用' : '未启用'}</span></span>
-                            <span>Token: <code style="background:rgba(255,255,255,.1);padding:2px 6px;border-radius:3px;font-size:.8rem;">${as.token_preview || '***'}</code></span>
+                        <div class="auth-info">
+                            <span class="auth-item">认证: <span class="status-badge ${as.enabled ? 'status-on' : 'status-off'}">${as.enabled ? '已启用' : '未启用'}</span></span>
+                            <span class="auth-item">Token: <span class="token-preview">${as.token_preview || '***'}</span></span>
                         </div>
                     `;
                 }
@@ -289,15 +513,18 @@
                 const backups = await resp.json();
                 const list = document.getElementById('backup-list');
                 list.innerHTML = '';
-                if (!backups.length) { list.innerHTML = '<li class="backup-item" style="color:#888;">暂无备份</li>'; return; }
+                if (!backups.length) { list.innerHTML = '<li class="backup-item" style="color:#a0aec0;">暂无备份</li>'; return; }
                 backups.forEach(b => {
                     const li = document.createElement('li');
                     li.className = 'backup-item';
                     li.innerHTML = `
-                        <div><div class="backup-time">${b.time || ''}</div><div class="backup-size">${b.size || ''}</div></div>
-                        <div style="display:flex;gap:6px;">
+                        <div>
+                            <div class="backup-time">${b.time || ''}</div>
+                            <div class="backup-size">${b.size || ''}</div>
+                        </div>
+                        <div style="display:flex;gap:8px;">
                             <button class="btn btn-outline btn-sm" onclick="restoreBackup('${b.filename}')">恢复</button>
-                            <button class="btn btn-outline btn-sm" onclick="deleteBackup('${b.filename}')">删除</button>
+                            <button class="btn btn-danger btn-sm" onclick="deleteBackup('${b.filename}')">删除</button>
                         </div>
                     `;
                     list.appendChild(li);
@@ -320,6 +547,10 @@
                 alert((await resp.json()).result);
                 loadBackups();
             } catch (e) { alert('删除失败'); }
+        }
+
+        function toggleSidebar() {
+            document.getElementById('sidebar').classList.toggle('open');
         }
 
         window.onload = function() { loadSettings(); loadBackups(); };

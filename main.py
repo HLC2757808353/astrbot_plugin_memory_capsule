@@ -12,7 +12,7 @@ from .security import validate_content, sanitize_content, filter_relationship_co
 
 _IMPORTANT_KEYWORDS = frozenset(['约定','承诺','重要','记得','提醒','待办'])
 
-@register("memory_capsule", "引灯续昼", "记忆胶囊插件", "v0.19.0", "https://github.com/HLC2757808353/astrbot_plugin_memory_capsule")
+@register("memory_capsule", "引灯续昼", "记忆胶囊插件", "v0.21.0", "https://github.com/HLC2757808353/astrbot_plugin_memory_capsule")
 class MemoryCapsulePlugin(Star):
     def __init__(self, context: Context, config=None):
         super().__init__(context)
@@ -446,7 +446,12 @@ class MemoryCapsulePlugin(Star):
     @filter.llm_tool(name="dream")
     async def dream(self, event):
         """
-        进入梦境模式：回顾今天的完整对话和记忆，然后巩固。模拟人类睡眠记忆巩固——重播、提取遗漏事实、发现模式、巩固重要记忆。在夜间或一天结束时调用。
+        进入梦境模式。返回今天所有群的完整对话数据，供你自由生成梦境叙事。
+        你需要做的事：阅读所有数据→发现跨群模式/隐藏关联/遗漏的重要信息→生成一段有洞察的梦境叙事。
+        叙事完成后调用save_dream保存。后台会自动执行每日总结、记忆衰减、日志清理等机械操作，你不需要手动调用这些。
+
+        梦境是全局的（跨所有群），不是一个群的。
+        就像人睡觉时大脑会整合一天所有经历——你在A群聊的技术、B群聊的生活、C群聊的游戏都会在梦中交织。
 
         Returns:
             dict
@@ -460,39 +465,61 @@ class MemoryCapsulePlugin(Star):
             if conv_count == 0 and mem_count == 0:
                 return json.dumps({"status": "no_data"})
 
-            conv_summary = []
-            for c in materials.get('conversations', [])[:50]:
-                role = 'User' if c['role'] == 'user' else 'AI'
-                conv_summary.append(f"[{role}]: {c['content'][:60]}")
+            grouped_convs = {}
+            for c in materials.get('conversations', []):
+                gid = c.get('group_id', '') or '私聊'
+                if gid not in grouped_convs:
+                    grouped_convs[gid] = []
+                role_label = '用户' if c['role'] == 'user' else 'AI'
+                grouped_convs[gid].append(f"[{role_label}] {c['content']}")
+
+            conv_dump = []
+            for gid, msgs in grouped_convs.items():
+                conv_dump.append(f"=== {gid}（{len(msgs)}条）===")
+                conv_dump.extend(msgs[:80])
 
             mem_summary = []
             for m in materials.get('memories', []):
-                mem_summary.append(f"[{m.get('category','')}] {m['content'][:50]} (imp:{m.get('importance',5)})")
+                mem_summary.append(
+                    f"[{m.get('category','')}] {m['content']} (重要性{m.get('importance',5)})"
+                )
 
-            hot_topics = materials.get('hot_topics', [])
-            topic_str = ', '.join(f'{t}({c})' for t, c in hot_topics[:8])
+            daily_sums = await asyncio.to_thread(
+                self.db_manager.get_daily_summaries, 1
+            )
 
             all_facts = []
             try:
-                all_facts = await asyncio.to_thread(self.db_manager.search_auto_facts, '', None, 30)
+                all_facts = await asyncio.to_thread(
+                    self.db_manager.search_auto_facts, '', None, 50
+                )
             except Exception:
                 pass
 
+            digest_list = await asyncio.to_thread(
+                self.db_manager.get_global_daily_digest, 1
+            )
+
             return json.dumps({
                 "status": "dreaming",
-                "conversations_today": conv_summary,
-                "memories_today": mem_summary,
-                "hot_topics": topic_str,
+                "conversations_by_group": '\n'.join(conv_dump[:300]),
+                "memories": mem_summary[:20],
+                "daily_summaries": [s.get('summary','')[:200] for s in (daily_sums or [])[:5]],
+                "auto_facts": all_facts[:30],
+                "global_digest": digest_list[0] if digest_list else None,
+                "total_conversations": conv_count,
+                "total_groups": len(grouped_convs),
                 "active_users": materials.get('active_users', []),
-                "auto_facts": all_facts[:20],
-                "steps": [
-                    "1. 每日压缩：调用daily_summary自动生成本群今日摘要（零LLM消耗，抽取式）",
-                    "2. 全局汇总：调用get_daily_digest获取跨群全局日报",
-                    "3. 重播：回顾上面的对话和记忆",
-                    "4. 提取：找出对话中重要但尚未记录的事实 → 对每条调用write_memory（自行判断importance）",
-                    "5. 关联：发现跨对话的隐藏模式和关联 → 记录洞察",
-                    "6. 巩固：确认最重要的主题 → 调用save_dream"
-                ]
+                "instruction": (
+                    "你是梦境叙事者。上面是今天所有群的完整对话和数据。\n"
+                    "请生成一段梦境叙事（200-500字），内容包括：\n"
+                    "1. 今天最重要的主题是什么？（跨群提炼）\n"
+                    "2. 有哪些跨群的隐藏关联？（同一人在不同群的表现）\n"
+                    "3. 有哪些重要但尚未记录的信息？\n"
+                    "4. 对未来的洞察或预测\n"
+                    "叙事风格：自由、有洞察力，像人类做梦一样可以跳跃联想。"
+                    "完成叙事后调用 save_dream(summary=叙事, insights=核心洞察, new_facts_count=新记录的记忆数)。"
+                )
             }, ensure_ascii=False)
         except Exception as e:
             return json.dumps({"status": "error", "message": str(e)[:100]})
@@ -500,12 +527,13 @@ class MemoryCapsulePlugin(Star):
     @filter.llm_tool(name="save_dream")
     async def save_dream(self, event, summary, insights, new_facts_count=0):
         """
-        保存梦境洞察并触发记忆巩固。在dream模式回顾完成后调用此工具。
+        保存梦境叙事并自动触发记忆巩固。在dream回顾完成、写好了梦境叙事之后调用。
+        调用此工具后，系统会自动执行每日总结→记忆衰减→日志清理→相似合并，你不需要手动调用这些机械操作。
 
         Args:
-            summary(str): 梦境回顾摘要（回顾了什么内容）
-            insights(str): 发现的关键模式和洞察
-            new_facts_count(int): 梦境中提取的新事实数量
+            summary(str): 你生成的梦境叙事（200-500字，你自由写的梦境回顾）
+            insights(str): 核心洞察（发现的模式、关联、遗漏信息，简短总结）
+            new_facts_count(int): 梦境中你新记录的记忆条数（你调用了write_memory的次数）
         Returns:
             str
         """
@@ -516,34 +544,43 @@ class MemoryCapsulePlugin(Star):
             mem_count = len(materials.get('memories', []))
             conv_count = materials.get('conversation_count', 0)
 
-            consolidation = await asyncio.to_thread(self.db_manager.consolidate_memories, 24)
+            await asyncio.to_thread(self.db_manager.consolidate_memories, 24)
+
+            if summary and len(summary) > 10:
+                dream_content = f"[梦境 {today}] {summary[:300]}"
+                await asyncio.to_thread(
+                    self.db_manager.write_memory,
+                    dream_content, 'dream', 8, 'dream,梦境,洞察', 'dream'
+                )
 
             await asyncio.to_thread(self.db_manager.compress_conversation_logs, 24)
             await asyncio.to_thread(self.db_manager.cleanup_old_conversation_logs)
             await asyncio.to_thread(self.db_manager.cleanup_old_daily_summaries)
 
             if self.config.get('daily_global_digest_enabled', True):
-                digest_result = await asyncio.to_thread(
+                await asyncio.to_thread(
                     self.db_manager.generate_all_groups_daily_summaries, 24
                 )
 
-            decay_result = await asyncio.to_thread(self.db_manager.apply_memory_decay)
+            await asyncio.to_thread(self.db_manager.apply_memory_decay)
+            await asyncio.to_thread(self.db_manager.merge_similar_memories)
 
-            merge_result = await asyncio.to_thread(self.db_manager.merge_similar_memories)
-
-            if insights and len(insights) > 10:
-                await asyncio.to_thread(
-                    self.db_manager.write_memory,
-                    f"[Dream {today}] {insights[:200]}", 'dream', 7, 'dream', 'dream'
-                )
-
-            return await asyncio.to_thread(
+            await asyncio.to_thread(
                 self.db_manager.save_dream_log,
-                today, str(summary)[:300], mem_count, str(insights)[:500],
+                today, str(summary)[:500], mem_count, str(insights)[:300],
                 conv_count, int(new_facts_count), 1
             )
+
+            return json.dumps({
+                "status": "dream_saved",
+                "consolidated": True,
+                "summaries_generated": True,
+                "decay_applied": True,
+                "memory_decay_applied": True,
+                "message": "梦境已保存。每日总结、记忆衰减、日志清理已自动完成。"
+            }, ensure_ascii=False)
         except Exception as e:
-            return f"Failed: {e}"
+            return json.dumps({"status": "error", "message": str(e)[:100]})
 
     @filter.on_llm_request()
     async def inject_context(self, event: AstrMessageEvent, req: ProviderRequest):

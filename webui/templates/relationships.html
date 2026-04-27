@@ -5,204 +5,268 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>记忆胶囊 - 关系图谱</title>
     <style>
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-        }
-        
+        * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             line-height: 1.6;
-            color: #ffffff;
-            background-color: #0a0a0a;
-            background-image: 
-                radial-gradient(circle at 25% 25%, rgba(233, 30, 99, 0.1) 0%, transparent 50%),
-                radial-gradient(circle at 75% 75%, rgba(156, 39, 176, 0.1) 0%, transparent 50%);
+            color: #2d3748;
+            background: linear-gradient(135deg, #f5f7fa 0%, #e8ecf1 50%, #f0e6f6 100%);
             min-height: 100vh;
         }
-        
-        .container {
-            display: flex;
-            min-height: 100vh;
-        }
-        
+        .container { display: flex; min-height: 100vh; }
         .sidebar {
-            width: 250px;
-            background: linear-gradient(135deg, #1a0a1e 0%, #2d1b36 100%);
-            border-right: 1px solid rgba(233, 30, 99, 0.3);
-            padding: 20px;
-            box-shadow: 2px 0 10px rgba(233, 30, 99, 0.2);
-            position: relative;
-        }
-        
-        .sidebar::before {
-            content: '';
-            position: absolute;
+            width: 240px;
+            background: rgba(255,255,255,0.4);
+            backdrop-filter: blur(20px);
+            border-right: 1px solid rgba(255,255,255,0.6);
+            padding: 24px 16px;
+            position: fixed;
             top: 0;
             left: 0;
-            width: 4px;
-            height: 100%;
-            background: linear-gradient(to bottom, #e91e63, #9c27b0);
+            height: 100vh;
+            z-index: 100;
+            transition: transform 0.4s ease;
         }
-        
         .sidebar-brand {
-            font-size: 1.8rem;
-            font-weight: bold;
-            color: #ffffff;
+            font-size: 1.6rem;
+            font-weight: 700;
             text-align: center;
-            margin-bottom: 40px;
-            text-shadow: 0 0 10px rgba(233, 30, 99, 0.7);
+            margin-bottom: 36px;
+            background: linear-gradient(135deg, #8b5cf6, #ec4899);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
         }
-        
-        .sidebar-nav {
-            list-style: none;
-        }
-        
-        .nav-item {
-            margin-bottom: 10px;
-        }
-        
+        .sidebar-nav { list-style: none; }
+        .nav-item { margin-bottom: 6px; }
         .nav-link {
-            display: block;
-            padding: 12px 15px;
-            color: #b3b3b3;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px 16px;
+            color: #64748b;
             text-decoration: none;
-            border-radius: 8px;
-            transition: all 0.3s ease;
-            position: relative;
-            overflow: hidden;
+            border-radius: 12px;
+            transition: all 0.4s ease;
+            font-size: 0.95rem;
+            font-weight: 500;
         }
-        
-        .nav-link::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: -100%;
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(90deg, transparent, rgba(233, 30, 99, 0.2), transparent);
-            transition: left 0.5s ease;
-        }
-        
-        .nav-link:hover::before {
-            left: 100%;
-        }
-        
         .nav-link:hover {
-            color: #ffffff;
-            background-color: rgba(233, 30, 99, 0.2);
-            transform: translateX(5px);
+            color: #8b5cf6;
+            background: rgba(139,92,246,0.08);
+            transform: translateX(4px);
         }
-        
         .nav-link.active {
             color: #ffffff;
-            background-color: rgba(233, 30, 99, 0.3);
-            box-shadow: 0 0 10px rgba(233, 30, 99, 0.5);
+            background: linear-gradient(135deg, #8b5cf6, #a78bfa);
+            box-shadow: 0 4px 15px rgba(139,92,246,0.3);
         }
-        
+        .nav-icon { font-size: 1.1rem; width: 20px; text-align: center; }
         .main-content {
             flex: 1;
-            padding: 30px;
-            overflow-y: auto;
+            margin-left: 240px;
+            padding: 32px;
+            min-height: 100vh;
         }
-        
+        .page-header { margin-bottom: 28px; }
+        .page-title {
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: #2d3748;
+            margin-bottom: 6px;
+        }
+        .page-subtitle { font-size: 0.9rem; color: #94a3b8; }
         .card {
-            background: linear-gradient(135deg, rgba(26, 10, 30, 0.8) 0%, rgba(45, 27, 54, 0.8) 100%);
-            border-radius: 12px;
-            border: 1px solid rgba(233, 30, 99, 0.3);
-            box-shadow: 0 4px 15px rgba(233, 30, 99, 0.2);
-            margin-bottom: 30px;
+            background: rgba(255,255,255,0.6);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255,255,255,0.8);
+            border-radius: 16px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.08);
+            margin-bottom: 24px;
             overflow: hidden;
-            backdrop-filter: blur(10px);
+            transition: all 0.4s ease;
         }
-        
+        .card:hover { box-shadow: 0 12px 40px rgba(0,0,0,0.12); }
         .card-header {
-            padding: 20px;
-            border-bottom: 1px solid rgba(233, 30, 99, 0.3);
-            background: linear-gradient(90deg, rgba(233, 30, 99, 0.1), rgba(156, 39, 176, 0.1));
+            padding: 20px 24px;
+            border-bottom: 1px solid rgba(139,92,246,0.1);
             display: flex;
             justify-content: space-between;
             align-items: center;
+            flex-wrap: wrap;
+            gap: 12px;
         }
-        
         .card-title {
-            font-size: 1.5rem;
-            font-weight: bold;
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: #2d3748;
+        }
+        .card-body { padding: 24px; }
+        .header-actions {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        .search-input {
+            padding: 10px 14px;
+            background: rgba(255,255,255,0.7);
+            border: 1px solid rgba(139,92,246,0.15);
+            border-radius: 12px;
+            color: #2d3748;
+            font-size: 0.9rem;
+            transition: all 0.4s ease;
+            width: 220px;
+        }
+        .search-input:focus {
+            outline: none;
+            border-color: #8b5cf6;
+            box-shadow: 0 0 0 3px rgba(139,92,246,0.1);
+        }
+        .search-input::placeholder { color: #a0aec0; }
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 12px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            font-weight: 500;
+            transition: all 0.4s ease;
+        }
+        .btn:hover { transform: scale(1.02); }
+        .btn-primary {
+            background: linear-gradient(135deg, #8b5cf6, #a78bfa);
             color: #ffffff;
-            margin: 0;
+            box-shadow: 0 4px 15px rgba(139,92,246,0.3);
         }
-        
-        .card-body {
-            padding: 20px;
+        .btn-primary:hover { box-shadow: 0 6px 20px rgba(139,92,246,0.4); }
+        .btn-outline {
+            background: rgba(255,255,255,0.6);
+            color: #8b5cf6;
+            border: 1px solid rgba(139,92,246,0.3);
         }
-        
+        .btn-outline:hover {
+            background: rgba(139,92,246,0.08);
+            border-color: #8b5cf6;
+        }
+        .btn-danger {
+            background: rgba(255,255,255,0.6);
+            color: #ef4444;
+            border: 1px solid rgba(239,68,68,0.3);
+        }
+        .btn-danger:hover {
+            background: rgba(239,68,68,0.08);
+            border-color: #ef4444;
+        }
+        .btn-sm {
+            padding: 6px 14px;
+            font-size: 0.8rem;
+        }
         .relationship-list {
             width: 100%;
-            border-collapse: collapse;
+            border-collapse: separate;
+            border-spacing: 0;
         }
-        
         .relationship-list th,
         .relationship-list td {
-            padding: 12px 15px;
+            padding: 14px 16px;
             text-align: left;
-            border-bottom: 1px solid rgba(233, 30, 99, 0.2);
+            border-bottom: 1px solid rgba(139,92,246,0.06);
         }
-        
         .relationship-list th {
-            background-color: rgba(233, 30, 99, 0.1);
-            font-weight: bold;
-            color: #ffffff;
+            background: rgba(139,92,246,0.04);
+            font-weight: 600;
+            color: #64748b;
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
-        
-        .relationship-list tr:hover {
-            background-color: rgba(233, 30, 99, 0.1);
+        .relationship-list th:first-child { border-radius: 10px 0 0 0; }
+        .relationship-list th:last-child { border-radius: 0 10px 0 0; }
+        .relationship-list tr {
+            transition: all 0.4s ease;
         }
-        
+        .relationship-list tbody tr:hover {
+            background: rgba(139,92,246,0.04);
+        }
+        .relationship-list td {
+            font-size: 0.9rem;
+            color: #475569;
+        }
         .tag {
             display: inline-block;
-            padding: 4px 12px;
-            margin-right: 8px;
-            margin-bottom: 8px;
-            background-color: rgba(233, 30, 99, 0.2);
-            border: 1px solid rgba(233, 30, 99, 0.3);
-            border-radius: 16px;
-            font-size: 12px;
-            color: #ffffff;
+            padding: 3px 10px;
+            margin-right: 4px;
+            margin-bottom: 4px;
+            background: rgba(139,92,246,0.08);
+            border: 1px solid rgba(139,92,246,0.15);
+            border-radius: 10px;
+            font-size: 0.78rem;
+            color: #8b5cf6;
         }
-        
-        .btn {
+        .relation-type {
             display: inline-block;
-            padding: 8px 16px;
-            border: none;
-            border-radius: 6px;
+            padding: 3px 12px;
+            background: rgba(236,72,153,0.08);
+            border: 1px solid rgba(236,72,153,0.15);
+            border-radius: 10px;
+            font-size: 0.8rem;
+            color: #ec4899;
+            font-weight: 500;
+        }
+        .pagination {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 8px;
+            margin-top: 24px;
+            flex-wrap: wrap;
+        }
+        .pagination button {
+            padding: 8px 14px;
+            background: rgba(255,255,255,0.6);
+            border: 1px solid rgba(139,92,246,0.15);
+            border-radius: 10px;
+            color: #64748b;
             cursor: pointer;
-            font-size: 14px;
-            transition: all 0.3s ease;
+            transition: all 0.4s ease;
+            font-size: 0.85rem;
         }
-        
-        .btn-primary {
-            background-color: #e91e63;
+        .pagination button:hover {
+            background: rgba(139,92,246,0.08);
+            border-color: #8b5cf6;
+            color: #8b5cf6;
+        }
+        .pagination button.active {
+            background: linear-gradient(135deg, #8b5cf6, #a78bfa);
             color: #ffffff;
+            border-color: transparent;
         }
-        
-        .btn-primary:hover {
-            background-color: #c2185b;
-            box-shadow: 0 0 10px rgba(233, 30, 99, 0.5);
+        .pagination button:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
         }
-        
-        .btn-outline {
-            background-color: transparent;
-            color: #e91e63;
-            border: 1px solid #e91e63;
+        .pagination input {
+            width: 60px;
+            padding: 8px;
+            background: rgba(255,255,255,0.7);
+            border: 1px solid rgba(139,92,246,0.15);
+            border-radius: 10px;
+            color: #2d3748;
+            text-align: center;
+            font-size: 0.85rem;
         }
-        
-        .btn-outline:hover {
-            background-color: #e91e63;
-            color: #ffffff;
-            box-shadow: 0 0 10px rgba(233, 30, 99, 0.5);
+        .pagination input:focus {
+            outline: none;
+            border-color: #8b5cf6;
         }
-        
+        .pagination .page-info {
+            font-size: 0.85rem;
+            color: #94a3b8;
+            margin-left: 8px;
+        }
         .modal {
             display: none;
             position: fixed;
@@ -211,144 +275,165 @@
             top: 0;
             width: 100%;
             height: 100%;
-            overflow: auto;
-            background-color: rgba(0, 0, 0, 0.8);
-            backdrop-filter: blur(5px);
+            background: rgba(0,0,0,0.3);
+            backdrop-filter: blur(10px);
         }
-        
+        .modal.show {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            animation: fadeIn 0.4s ease;
+        }
         .modal-content {
-            background: linear-gradient(135deg, rgba(26, 10, 30, 0.95) 0%, rgba(45, 27, 54, 0.95) 100%);
-            margin: 15% auto;
-            padding: 30px;
-            border: 1px solid rgba(233, 30, 99, 0.3);
-            border-radius: 12px;
-            width: 80%;
+            background: rgba(255,255,255,0.85);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255,255,255,0.9);
+            border-radius: 16px;
+            padding: 32px;
+            width: 90%;
             max-width: 600px;
-            box-shadow: 0 0 30px rgba(233, 30, 99, 0.3);
+            box-shadow: 0 20px 60px rgba(0,0,0,0.15);
+            animation: slideUp 0.4s ease;
+            max-height: 90vh;
+            overflow-y: auto;
         }
-        
         .modal-header {
-            padding-bottom: 20px;
-            border-bottom: 1px solid rgba(233, 30, 99, 0.3);
+            padding-bottom: 16px;
+            border-bottom: 1px solid rgba(139,92,246,0.1);
             margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
         }
-        
         .modal-title {
-            font-size: 1.5rem;
-            font-weight: bold;
-            color: #ffffff;
+            font-size: 1.3rem;
+            font-weight: 600;
+            color: #2d3748;
         }
-        
-        .form-group {
-            margin-bottom: 20px;
+        .modal-close {
+            width: 32px;
+            height: 32px;
+            border: none;
+            background: rgba(139,92,246,0.08);
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1.1rem;
+            color: #64748b;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.4s ease;
         }
-        
+        .modal-close:hover { background: rgba(139,92,246,0.15); color: #8b5cf6; }
+        .form-group { margin-bottom: 20px; }
         .form-label {
             display: block;
             margin-bottom: 8px;
             font-weight: 500;
-            color: #b3b3b3;
+            color: #64748b;
+            font-size: 0.9rem;
         }
-        
         .form-control {
             width: 100%;
-            padding: 10px;
-            background-color: rgba(255, 255, 255, 0.1);
-            border: 1px solid rgba(233, 30, 99, 0.3);
-            border-radius: 6px;
-            color: #ffffff;
-            font-size: 14px;
+            padding: 10px 14px;
+            background: rgba(255,255,255,0.7);
+            border: 1px solid rgba(139,92,246,0.15);
+            border-radius: 12px;
+            color: #2d3748;
+            font-size: 0.9rem;
+            transition: all 0.4s ease;
         }
-        
         .form-control:focus {
             outline: none;
-            border-color: #e91e63;
-            box-shadow: 0 0 10px rgba(233, 30, 99, 0.3);
+            border-color: #8b5cf6;
+            box-shadow: 0 0 0 3px rgba(139,92,246,0.1);
         }
-        
-        .pagination {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            gap: 10px;
+        .form-control::placeholder { color: #a0aec0; }
+        textarea.form-control {
+            resize: vertical;
+            min-height: 100px;
+        }
+        .modal-footer {
+            padding-top: 20px;
+            border-top: 1px solid rgba(139,92,246,0.1);
             margin-top: 20px;
-            flex-wrap: wrap;
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
         }
-        
-        .pagination button {
-            padding: 8px 12px;
-            background-color: rgba(233, 30, 99, 0.2);
-            border: 1px solid rgba(233, 30, 99, 0.3);
-            border-radius: 4px;
-            color: #ffffff;
+        .mobile-toggle {
+            display: none;
+            position: fixed;
+            top: 16px;
+            left: 16px;
+            z-index: 200;
+            width: 40px;
+            height: 40px;
+            border: none;
+            background: rgba(255,255,255,0.7);
+            backdrop-filter: blur(16px);
+            border-radius: 10px;
             cursor: pointer;
+            font-size: 1.2rem;
+            color: #64748b;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.08);
         }
-        
-        .pagination button.active {
-            background-color: #e91e63;
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
         }
-        
-        .pagination button:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
         }
-        
         @media (max-width: 768px) {
-            .container {
-                flex-direction: column;
-            }
-            
-            .sidebar {
-                width: 100%;
-                border-right: none;
-                border-bottom: 1px solid rgba(233, 30, 99, 0.3);
-            }
-            
-            .sidebar-nav {
-                display: flex;
-                overflow-x: auto;
-                gap: 10px;
-            }
-            
-            .nav-item {
-                margin-bottom: 0;
-            }
-            
+            .sidebar { transform: translateX(-100%); }
+            .sidebar.open { transform: translateX(0); }
+            .main-content { margin-left: 0; padding: 20px; padding-top: 64px; }
+            .mobile-toggle { display: flex; align-items: center; justify-content: center; }
+            .card-header { flex-direction: column; align-items: stretch; }
+            .header-actions { flex-wrap: wrap; }
+            .search-input { width: 100%; }
             .relationship-list th,
-            .relationship-list td {
-                padding: 8px 10px;
-            }
+            .relationship-list td { padding: 10px 12px; font-size: 0.82rem; }
         }
     </style>
 </head>
 <body>
+    <button class="mobile-toggle" onclick="toggleSidebar()">&#9776;</button>
     <div class="container">
-        <aside class="sidebar">
+        <aside class="sidebar" id="sidebar">
             <div class="sidebar-brand">记忆胶囊</div>
             <ul class="sidebar-nav">
                 <li class="nav-item">
-                    <a class="nav-link" href="/">仪表盘</a>
+                    <a class="nav-link" href="/"><span class="nav-icon">&#9632;</span> 仪表盘</a>
                 </li>
                 <li class="nav-item">
-                    <a class="nav-link active" href="/relationships">关系图谱</a>
+                    <a class="nav-link" href="/memories"><span class="nav-icon">&#9830;</span> 记忆宫殿</a>
                 </li>
                 <li class="nav-item">
-                    <a class="nav-link" href="/memories">记忆宫殿</a>
+                    <a class="nav-link" href="/dreams"><span class="nav-icon">&#9788;</span> 梦境记忆</a>
                 </li>
                 <li class="nav-item">
-                    <a class="nav-link" href="/settings">系统设置</a>
+                    <a class="nav-link active" href="/relationships"><span class="nav-icon">&#10070;</span> 关系图谱</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="/settings"><span class="nav-icon">&#9881;</span> 系统设置</a>
                 </li>
             </ul>
         </aside>
-        
         <main class="main-content">
+            <div class="page-header">
+                <h1 class="page-title">关系图谱</h1>
+                <p class="page-subtitle">管理和浏览人物关系</p>
+            </div>
             <div class="card">
                 <div class="card-header">
-                    <h2 class="card-title">关系图谱</h2>
-                    <div style="display: flex; gap: 10px; align-items: center;">
-                        <input type="text" id="search-input" placeholder="输入ID或群号查询..." style="padding: 8px; background-color: rgba(255, 255, 255, 0.1); border: 1px solid rgba(233, 30, 99, 0.3); border-radius: 6px; color: #ffffff;">
-                        <button class="btn btn-primary" onclick="searchRelationships()">查询</button>
-                        <button class="btn btn-primary" onclick="addRelationship()">添加关系</button>
+                    <h2 class="card-title">关系列表</h2>
+                    <div class="header-actions">
+                        <input type="text" class="search-input" id="search-input" placeholder="输入ID或群号查询...">
+                        <button class="btn btn-outline btn-sm" onclick="searchRelationships()">查询</button>
+                        <button class="btn btn-primary btn-sm" onclick="addRelationship()">添加关系</button>
                     </div>
                 </div>
                 <div class="card-body">
@@ -357,26 +442,25 @@
                             <tr>
                                 <th>ID</th>
                                 <th>昵称</th>
-                                <th>初次见面地点</th>
-                                <th>多次相遇群组</th>
+                                <th>初次见面</th>
+                                <th>群组</th>
                                 <th>关系类型</th>
                                 <th>核心印象</th>
                                 <th>操作</th>
                             </tr>
                         </thead>
-                        <tbody>
-                        </tbody>
+                        <tbody></tbody>
                     </table>
                     <div id="pagination" class="pagination"></div>
                 </div>
             </div>
         </main>
     </div>
-    
     <div id="edit-modal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
-                <h3 class="modal-title">编辑关系</h3>
+                <h3 class="modal-title" id="edit-modal-title">编辑关系</h3>
+                <button class="modal-close" onclick="closeModal()">&times;</button>
             </div>
             <form id="edit-form">
                 <input type="hidden" id="edit-user-id">
@@ -411,162 +495,137 @@
             </form>
         </div>
     </div>
-    
     <script>
         let currentPage = 1;
         const pageSize = 20;
-        
+
         async function loadRelationships(page = 1) {
             try {
+                currentPage = page;
                 const response = await fetch(`/api/relationships?page=${page}&limit=${pageSize}`);
                 const data = await response.json();
                 const relationships = data.relationships;
-                
                 const tbody = document.querySelector('#relationship-list tbody');
                 tbody.innerHTML = '';
-                
+
                 if (relationships.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 20px;">暂无关系数据</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:40px;color:#94a3b8;">暂无关系数据</td></tr>';
                     return;
                 }
-                
+
                 relationships.forEach(relationship => {
                     const tr = document.createElement('tr');
-                    
                     let knownGroupsHtml = '';
                     if (relationship.known_contexts) {
                         const groups = relationship.known_contexts.split(',');
                         groups.forEach(group => {
                             group = group.trim();
-                            if (group) {
-                                knownGroupsHtml += `<span class="tag">${group}</span>`;
-                            }
+                            if (group) knownGroupsHtml += `<span class="tag">${group}</span>`;
                         });
                     }
-                    
                     let firstMetLocation = relationship.first_met_location || '未知';
                     if (firstMetLocation !== '未知') {
                         firstMetLocation = firstMetLocation.split('+')[0].trim() || firstMetLocation;
                     }
-                    
                     tr.innerHTML = `
                         <td>${relationship.user_id}</td>
                         <td>${relationship.nickname || '无'}</td>
                         <td>${firstMetLocation}</td>
                         <td>${knownGroupsHtml || '无'}</td>
-                        <td>${relationship.relation_type || '未知'}</td>
+                        <td><span class="relation-type">${relationship.relation_type || '未知'}</span></td>
                         <td>${relationship.summary || '无'}</td>
                         <td>
-                            <button class="btn btn-outline" onclick="editRelationship('${relationship.user_id}')">编辑</button>
-                            <button class="btn btn-outline" onclick="deleteRelationship('${relationship.user_id}')">删除</button>
+                            <div style="display:flex;gap:6px;">
+                                <button class="btn btn-outline btn-sm" onclick="editRelationship('${relationship.user_id}')">编辑</button>
+                                <button class="btn btn-danger btn-sm" onclick="deleteRelationship('${relationship.user_id}')">删除</button>
+                            </div>
                         </td>
                     `;
-                    
                     tbody.appendChild(tr);
                 });
-                
                 updatePagination(data.total);
             } catch (error) {
                 console.error('加载关系列表失败:', error);
             }
         }
-        
+
         function updatePagination(totalItems) {
             const totalPages = Math.ceil(totalItems / pageSize);
-            const paginationContainer = document.getElementById('pagination');
-            
+            let paginationContainer = document.getElementById('pagination');
             if (!paginationContainer) {
                 const container = document.createElement('div');
                 container.id = 'pagination';
                 container.className = 'pagination';
                 document.querySelector('.card-body').appendChild(container);
             }
-            
             const pagination = document.getElementById('pagination');
             pagination.innerHTML = '';
-            
+
             const prevBtn = document.createElement('button');
             prevBtn.textContent = '上一页';
             prevBtn.disabled = currentPage === 1;
-            prevBtn.onclick = () => {
-                if (currentPage > 1) {
-                    currentPage--;
-                loadRelationships(currentPage);
-                }
-            };
+            prevBtn.onclick = () => { if (currentPage > 1) { currentPage--; loadRelationships(currentPage); } };
             pagination.appendChild(prevBtn);
-            
+
             const maxPagesToShow = 5;
             let startPage = Math.max(1, currentPage - Math.floor(maxPagesToShow / 2));
             let endPage = Math.min(totalPages, startPage + maxPagesToShow - 1);
-            
+            startPage = Math.max(1, endPage - maxPagesToShow + 1);
+
             for (let i = startPage; i <= endPage; i++) {
                 const pageBtn = document.createElement('button');
                 pageBtn.textContent = i;
                 pageBtn.className = i === currentPage ? 'active' : '';
-                pageBtn.onclick = () => {
-                    currentPage = i;
-                loadRelationships(currentPage);
-            };
-            pagination.appendChild(pageBtn);
+                pageBtn.onclick = () => { currentPage = i; loadRelationships(currentPage); };
+                pagination.appendChild(pageBtn);
             }
-            
+
             const nextBtn = document.createElement('button');
             nextBtn.textContent = '下一页';
             nextBtn.disabled = currentPage === totalPages;
-            nextBtn.onclick = () => {
-                if (currentPage < totalPages) {
-                    currentPage++;
-                loadRelationships(currentPage);
-                }
-            };
+            nextBtn.onclick = () => { if (currentPage < totalPages) { currentPage++; loadRelationships(currentPage); } };
             pagination.appendChild(nextBtn);
-            
+
             const jumpContainer = document.createElement('div');
             jumpContainer.style.display = 'flex';
             jumpContainer.style.alignItems = 'center';
-            jumpContainer.style.gap = '10px';
-            
+            jumpContainer.style.gap = '8px';
+
             const jumpText = document.createElement('span');
             jumpText.textContent = '前往';
-            jumpText.style.color = '#b3b3b3';
-            
+            jumpText.style.color = '#94a3b8';
+            jumpText.style.fontSize = '0.85rem';
+
             const jumpInput = document.createElement('input');
             jumpInput.type = 'number';
             jumpInput.min = 1;
             jumpInput.max = totalPages;
             jumpInput.value = currentPage;
-            
+
             const jumpBtn = document.createElement('button');
             jumpBtn.textContent = '确定';
             jumpBtn.onclick = () => {
                 const page = parseInt(jumpInput.value);
-                if (page >= 1 && page <= totalPages) {
-                    currentPage = page;
-                    loadRelationships(currentPage);
-                }
+                if (page >= 1 && page <= totalPages) { currentPage = page; loadRelationships(currentPage); }
             };
-            
+
             jumpContainer.appendChild(jumpText);
             jumpContainer.appendChild(jumpInput);
             jumpContainer.appendChild(jumpBtn);
             pagination.appendChild(jumpContainer);
-            
+
             const totalText = document.createElement('span');
+            totalText.className = 'page-info';
             totalText.textContent = `共 ${totalPages} 页`;
-            totalText.style.color = '#b3b3b3';
-            totalText.style.marginLeft = '10px';
             pagination.appendChild(totalText);
         }
-        
+
         async function editRelationship(userId) {
             try {
                 const response = await fetch('/api/relationships/search?q=' + userId);
                 const relationships = await response.json();
-                
                 if (relationships.length > 0) {
                     const relationship = relationships[0];
-                    
                     document.getElementById('edit-user-id').value = relationship.user_id;
                     document.getElementById('edit-user-id-input').value = relationship.user_id;
                     document.getElementById('edit-nickname').value = relationship.nickname || '';
@@ -574,24 +633,22 @@
                     document.getElementById('edit-known-groups').value = relationship.known_contexts || '';
                     document.getElementById('edit-relation-type').value = relationship.relation_type || '';
                     document.getElementById('edit-summary').value = relationship.summary || '';
-                    
-                    document.getElementById('edit-modal').style.display = 'block';
+                    document.getElementById('edit-modal-title').textContent = '编辑关系';
+                    document.getElementById('edit-modal').classList.add('show');
                 }
             } catch (error) {
                 console.error('获取关系详情失败:', error);
             }
         }
-        
+
         function closeModal() {
-            document.getElementById('edit-modal').style.display = 'none';
+            document.getElementById('edit-modal').classList.remove('show');
         }
-        
+
         async function deleteRelationship(userId) {
             if (confirm('确定要删除这条关系吗？')) {
                 try {
-                    const response = await fetch(`/api/relationships/${userId}`, {
-                        method: 'DELETE'
-                    });
+                    const response = await fetch(`/api/relationships/${userId}`, { method: 'DELETE' });
                     const result = await response.json();
                     alert(result.result);
                     loadRelationships();
@@ -601,7 +658,7 @@
                 }
             }
         }
-        
+
         function addRelationship() {
             document.getElementById('edit-user-id').value = '';
             document.getElementById('edit-user-id-input').value = '';
@@ -610,31 +667,25 @@
             document.getElementById('edit-known-groups').value = '';
             document.getElementById('edit-relation-type').value = '';
             document.getElementById('edit-summary').value = '';
-            
-            document.getElementById('edit-modal').style.display = 'block';
+            document.getElementById('edit-modal-title').textContent = '添加关系';
+            document.getElementById('edit-modal').classList.add('show');
         }
-        
+
         document.getElementById('edit-form').addEventListener('submit', async function(e) {
             e.preventDefault();
-            
             const userId = document.getElementById('edit-user-id').value || document.getElementById('edit-user-id-input').value;
             const nickname = document.getElementById('edit-nickname').value;
             const firstMetLocation = document.getElementById('edit-first-met-location').value;
             const knownGroups = document.getElementById('edit-known-groups').value;
             const relationType = document.getElementById('edit-relation-type').value;
             const summary = document.getElementById('edit-summary').value;
-            
-            if (!userId) {
-                alert('请输入用户ID');
-                return;
-            }
-            
+
+            if (!userId) { alert('请输入用户ID'); return; }
+
             try {
                 const response = await fetch('/api/relationships', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         user_id: userId,
                         nickname: nickname,
@@ -644,7 +695,6 @@
                         known_contexts: knownGroups
                     })
                 });
-                
                 const result = await response.json();
                 alert(result.result);
                 closeModal();
@@ -654,78 +704,68 @@
                 alert('保存失败');
             }
         });
-        
-        window.onclick = function(event) {
-            const modal = document.getElementById('edit-modal');
-            if (event.target === modal) {
-                closeModal();
-            }
-        }
-        
+
         async function searchRelationships() {
             const query = document.getElementById('search-input').value;
-            if (!query) {
-                loadRelationships();
-                return;
-            }
-            
+            if (!query) { loadRelationships(); return; }
             try {
                 const response = await fetch(`/api/relationships/search?q=${encodeURIComponent(query)}`);
                 const relationships = await response.json();
-                
                 const tbody = document.querySelector('#relationship-list tbody');
                 tbody.innerHTML = '';
-                
+
                 if (relationships.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 20px;">没有找到匹配的关系</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:40px;color:#94a3b8;">没有找到匹配的关系</td></tr>';
                     return;
                 }
-                
+
                 relationships.forEach(relationship => {
                     const tr = document.createElement('tr');
-                    
                     let knownGroupsHtml = '';
                     if (relationship.known_contexts) {
                         const groups = relationship.known_contexts.split(',');
                         groups.forEach(group => {
                             group = group.trim();
-                            if (group) {
-                                knownGroupsHtml += `<span class="tag">${group}</span>`;
-                            }
+                            if (group) knownGroupsHtml += `<span class="tag">${group}</span>`;
                         });
                     }
-                    
                     let firstMetLocation = relationship.first_met_location || '未知';
                     if (firstMetLocation !== '未知') {
                         firstMetLocation = firstMetLocation.split('+')[0].trim() || firstMetLocation;
                     }
-                    
                     tr.innerHTML = `
                         <td>${relationship.user_id}</td>
                         <td>${relationship.nickname || '无'}</td>
                         <td>${firstMetLocation}</td>
                         <td>${knownGroupsHtml || '无'}</td>
-                        <td>${relationship.relation_type || '未知'}</td>
+                        <td><span class="relation-type">${relationship.relation_type || '未知'}</span></td>
                         <td>${relationship.summary || '无'}</td>
                         <td>
-                            <button class="btn btn-outline" onclick="editRelationship('${relationship.user_id}')">编辑</button>
-                            <button class="btn btn-outline" onclick="deleteRelationship('${relationship.user_id}')">删除</button>
+                            <div style="display:flex;gap:6px;">
+                                <button class="btn btn-outline btn-sm" onclick="editRelationship('${relationship.user_id}')">编辑</button>
+                                <button class="btn btn-danger btn-sm" onclick="deleteRelationship('${relationship.user_id}')">删除</button>
+                            </div>
                         </td>
                     `;
-                    
                     tbody.appendChild(tr);
                 });
-                
+
                 const pagination = document.getElementById('pagination');
-                if (pagination) {
-                    pagination.style.display = 'flex';
-                }
+                if (pagination) pagination.innerHTML = '';
             } catch (error) {
                 console.error('搜索关系失败:', error);
                 alert('搜索失败');
             }
         }
-        
+
+        function toggleSidebar() {
+            document.getElementById('sidebar').classList.toggle('open');
+        }
+
+        document.getElementById('edit-modal').addEventListener('click', function(e) {
+            if (e.target === this) closeModal();
+        });
+
         loadRelationships();
     </script>
 </body>
