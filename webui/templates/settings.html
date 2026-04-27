@@ -151,13 +151,15 @@
     </div>
     <script>
         const GROUPS = {
-            '记忆功能': ['memory_palace', 'auto_inject_enabled', 'dream_mode_enabled', 'identity_mapping_enabled'],
-            '记忆注入': ['working_memory_limit', 'working_memory_max_chars', 'context_inject_position', 'relation_injection_refresh_time'],
-            '搜索与排序': ['search_max_results', 'rrf_k', 'mmr_enabled', 'mmr_lambda', 'max_extracted_tags'],
-            '内存与缓存': ['lightweight_mode', 'disable_pypinyin', 'cache_ttl', 'max_cache_size'],
-            '数据管理': ['memory_cleanup_enabled', 'memory_cleanup_days', 'memory_cleanup_max', 'backup_interval', 'backup_max_count'],
-            '网络与分类': ['webui_host', 'webui_port', 'category_model', 'memory_categories', 'max_aliases_per_user']
-        };
+    '记忆功能': ['memory_palace', 'auto_inject_enabled', 'dream_mode_enabled', 'conversation_logging_enabled', 'conversation_log_retention_days', 'identity_mapping_enabled', 'auto_fact_extraction_enabled'],
+    '每日总结': ['daily_summary_injection_enabled', 'daily_summary_retention_days', 'daily_global_digest_enabled', 'daily_summary_group_whitelist', 'auto_summary_enabled', 'auto_summary_interval_hours'],
+    '记忆注入': ['working_memory_limit', 'working_memory_max_chars', 'context_inject_position', 'relation_injection_refresh_time'],
+    '搜索与排序': ['search_max_results', 'rrf_k', 'mmr_enabled', 'mmr_lambda', 'max_extracted_tags', 'tfidf_search_enabled', 'tfidf_search_limit'],
+    'RAG混合记忆': ['memory_decay_enabled', 'memory_decay_base_stability', 'auto_merge_similar_enabled', 'similarity_threshold', 'cross_group_association_enabled'],
+    '内存与缓存': ['lightweight_mode', 'disable_pypinyin', 'cache_ttl', 'max_cache_size'],
+    '数据管理': ['memory_cleanup_enabled', 'memory_cleanup_days', 'memory_cleanup_max', 'backup_interval', 'backup_max_count'],
+    '网络与分类': ['webui_host', 'webui_port', 'category_model', 'memory_categories', 'max_aliases_per_user']
+};
 
         let currentSettings = {};
 

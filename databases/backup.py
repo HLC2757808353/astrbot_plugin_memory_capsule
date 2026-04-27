@@ -16,7 +16,7 @@ class BackupManager:
         self.db_path = db_path
         self.backup_dir = os.path.join(os.path.dirname(db_path), "memory_capsule_backups")
         self.config = config or {}
-        self.auto_backup_enabled = self.config.get('backup_enabled', True)
+        self.auto_backup_enabled = self.config.get('backup_interval', 24) > 0
         self.auto_backup_interval = self.config.get('backup_interval', 24) * 60 * 60
         self.backup_thread = None
         self.running = False

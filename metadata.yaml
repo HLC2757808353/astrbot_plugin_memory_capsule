@@ -1,6 +1,6 @@
 name: astrbot_plugin_memory_capsule
-display_name: 记忆胶囊 
-desc: 记忆胶囊插件，用于存储和检索记忆。
-version: v0.14.1
+display_name: 记忆胶囊
+desc: RAG混合记忆系统 - 群白名单·跨群联想·定时自动总结·抽取式摘要·零LLM消耗
+version: v0.19.0
 author: 引灯续昼
 repo: https://github.com/HLC2757808353/astrbot_plugin_memory_capsule

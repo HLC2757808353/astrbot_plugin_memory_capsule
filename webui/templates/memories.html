@@ -512,6 +512,29 @@
                 grid-template-columns: 1fr;
             }
         }
+        
+        .importance-slider {
+            width: 100%;
+            height: 8px;
+            -webkit-appearance: none;
+            appearance: none;
+            background: rgba(255,255,255,.15);
+            border-radius: 4px;
+            outline: none;
+        }
+        .importance-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 20px;
+            height: 20px;
+            background: #e91e63;
+            border-radius: 50%;
+            cursor: pointer;
+        }
+        .importance-hint {
+            font-size: 12px;
+            color: #888;
+            margin-top: 4px;
+        }
     </style>
 </head>
 <body>
@@ -604,8 +627,9 @@
                     <input type="text" class="form-control" id="edit-tags">
                 </div>
                 <div class="form-group">
-                    <label class="form-label" for="edit-importance">重要性</label>
-                    <input type="number" class="form-control" id="edit-importance" min="1" max="10">
+                    <label class="form-label" for="edit-importance">重要性 <span id="importance-display">5</span>/10</label>
+                    <input type="range" class="importance-slider" id="edit-importance" min="1" max="10" value="5" oninput="document.getElementById('importance-display').textContent=this.value">
+                    <div class="importance-hint">1-3=闲聊 | 4-6=普通笔记 | 7-9=重要信息 | 10=核心身份/约定</div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-outline" onclick="closeModal()">取消</button>
@@ -719,13 +743,9 @@
                     const result = await response.json();
                     // 根据是否有记忆ID显示不同的成功消息
                     if (memoryId) {
-                        alert('编辑记忆成功');
-                        // 只更新当前编辑的卡片，而不是重新加载整个列表
-                        updateMemoryCard(memoryId, content, category, tags, importance);
-                    } else {
-                        alert(result.result);
-                        // 重新加载列表以显示新添加的记忆
                         loadMemories(currentPage);
+                    } else {
+                        loadMemories(1);
                     }
                     closeModal();
                 } catch (error) {
@@ -734,45 +754,6 @@
                 }
             });
         };
-        
-        // 更新单个记忆卡片
-        function updateMemoryCard(memoryId, content, category, tags, importance) {
-            // 查找对应的记忆卡片
-            const cards = document.querySelectorAll('.memory-card');
-            for (const card of cards) {
-                const checkboxes = card.querySelectorAll('.memory-checkbox');
-                for (const checkbox of checkboxes) {
-                    if (checkbox.dataset.id === memoryId) {
-                        // 更新卡片内容
-                        card.className = `memory-card ${category}`;
-                        card.querySelector('.memory-category').textContent = `分类: ${category}`;
-                        card.querySelector('.memory-content').textContent = content;
-                        card.querySelector('.memory-importance').textContent = `重要性: ${importance}`;
-                        
-                        // 更新标签
-                        let tagsHtml = '';
-                        if (tags) {
-                            const tagArray = tags.split(',');
-                            tagArray.forEach(tag => {
-                                tag = tag.trim();
-                                if (tag) {
-                                    tagsHtml += `<span class="tag">${tag}</span>`;
-                                }
-                            });
-                        }
-                        card.querySelector('.memory-tags').innerHTML = tagsHtml || '无';
-                        
-                        // 重新绑定事件
-                        card.querySelector('button[onclick*="editMemory"]').onclick = () => editMemory(memoryId);
-                        card.querySelector('button[onclick*="deleteMemory"]').onclick = () => deleteMemory(memoryId);
-                        card.querySelector('button[onclick*="increaseImportance"]').onclick = () => increaseImportance(memoryId);
-                        checkbox.addEventListener('change', updateSelectedMemories);
-                        
-                        return;
-                    }
-                }
-            }
-        }
         
         // 加载记忆列表
         async function loadMemories(page = 1) {
@@ -1157,50 +1138,22 @@
         // 编辑记忆
         async function editMemory(memoryId) {
             try {
-                // 从当前页面的卡片中获取记忆详情
-                const cards = document.querySelectorAll('.memory-card');
-                let memory = null;
-                
-                for (const card of cards) {
-                    const checkboxes = card.querySelectorAll('.memory-checkbox');
-                    for (const checkbox of checkboxes) {
-                        if (checkbox.dataset.id === memoryId) {
-                            // 从卡片中提取信息
-                            memory = {
-                                id: memoryId,
-                                content: card.querySelector('.memory-content').textContent,
-                                category: card.querySelector('.memory-category').textContent.replace('分类: ', ''),
-                                tags: '',
-                                importance: parseInt(card.querySelector('.memory-importance').textContent.replace('重要性: ', ''))
-                            };
-                            
-                            // 提取标签
-                            const tagElements = card.querySelectorAll('.tag');
-                            if (tagElements.length > 0) {
-                                memory.tags = Array.from(tagElements).map(tag => tag.textContent).join(',');
-                            }
-                            break;
-                        }
-                    }
-                    if (memory) break;
-                }
-                
-                if (memory) {
-                    // 填充表单
-                    document.getElementById('edit-memory-id').value = memory.id;
-                    document.getElementById('edit-content').value = memory.content;
-                    document.getElementById('edit-category').value = memory.category;
-                    document.getElementById('edit-tags').value = memory.tags || '';
-                    document.getElementById('edit-importance').value = memory.importance;
-                    
-                    // 更改模态框标题
-                    document.querySelector('.modal-title').textContent = '编辑记忆';
-                    
-                    // 显示模态框
-                    document.getElementById('edit-modal').style.display = 'block';
-                } else {
+                const response = await fetch(`/api/memories/${memoryId}/detail`);
+                if (!response.ok) {
                     alert('未找到记忆详情');
+                    return;
                 }
+                const memory = await response.json();
+                
+                document.getElementById('edit-memory-id').value = memory.id;
+                document.getElementById('edit-content').value = memory.content || '';
+                document.getElementById('edit-category').value = memory.category || '';
+                document.getElementById('edit-tags').value = memory.tags || '';
+                document.getElementById('edit-importance').value = memory.importance || 5;
+                document.getElementById('importance-display').textContent = memory.importance || 5;
+                
+                document.querySelector('.modal-title').textContent = '编辑记忆';
+                document.getElementById('edit-modal').style.display = 'block';
             } catch (error) {
                 console.error('获取记忆详情失败:', error);
                 alert('获取记忆详情失败');
@@ -1240,66 +1193,16 @@
         // 增加重要性
         async function increaseImportance(memoryId) {
             try {
-                // 从当前页面的卡片中获取记忆详情
-                const cards = document.querySelectorAll('.memory-card');
-                let memory = null;
-                
-                for (const card of cards) {
-                    const checkboxes = card.querySelectorAll('.memory-checkbox');
-                    for (const checkbox of checkboxes) {
-                        if (checkbox.dataset.id === memoryId) {
-                            // 从卡片中提取信息
-                            memory = {
-                                id: memoryId,
-                                content: card.querySelector('.memory-content').textContent,
-                                category: card.querySelector('.memory-category').textContent.replace('分类: ', ''),
-                                tags: '',
-                                importance: parseInt(card.querySelector('.memory-importance').textContent.replace('重要性: ', ''))
-                            };
-                            
-                            // 提取标签
-                            const tagElements = card.querySelectorAll('.tag');
-                            if (tagElements.length > 0) {
-                                memory.tags = Array.from(tagElements).map(tag => tag.textContent).join(',');
-                            }
-                            break;
-                        }
-                    }
-                    if (memory) break;
-                }
-                
-                if (memory) {
-                    if (memory.importance >= 10) {
-                        alert('重要性已经达到最大值');
-                        return;
-                    }
-                    
-                    const newImportance = Math.min(10, memory.importance + 1);
-                    
-                    // 直接更新记忆
-                    const response = await fetch(`/api/memories/${memoryId}`, {
-                        method: 'PUT',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({
-                            content: memory.content,
-                            category: memory.category,
-                            tags: memory.tags,
-                            importance: newImportance
-                        })
-                    });
-                    
-                    if (response.ok) {
-                        alert('重要性已提升');
-                        // 更新单个卡片而不是重新加载整个列表
-                        updateMemoryCard(memoryId, memory.content, memory.category, memory.tags, newImportance);
-                    } else {
-                        const result = await response.json();
-                        alert('提升重要性失败: ' + result.result);
-                    }
+                const response = await fetch(`/api/memories/${memoryId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ importance: 'boost' })
+                });
+                const result = await response.json();
+                if (response.ok) {
+                    loadMemories(currentPage);
                 } else {
-                    alert('未找到记忆详情');
+                    alert('提升重要性失败: ' + result.result);
                 }
             } catch (error) {
                 console.error('提升重要性失败:', error);
@@ -1315,6 +1218,7 @@
             document.getElementById('edit-category').value = '';
             document.getElementById('edit-tags').value = '';
             document.getElementById('edit-importance').value = 5;
+            document.getElementById('importance-display').textContent = 5;
             
             // 更改模态框标题
             document.querySelector('.modal-title').textContent = '添加记忆';
@@ -1337,7 +1241,11 @@
         async function loadCategories() {
             try {
                 const response = await fetch('/api/categories');
-                const categories = await response.json();
+                let categories = await response.json();
+                
+                if (categories.length === 0) {
+                    categories = ['技术笔记', '生活记录', '学习资料', '个人想法', '待办事项', 'dream', 'general'];
+                }
                 
                 const categorySelect = document.getElementById('edit-category');
                 categorySelect.innerHTML = '';
@@ -1350,6 +1258,14 @@
                 });
             } catch (error) {
                 console.error('加载分类列表失败:', error);
+                const categorySelect = document.getElementById('edit-category');
+                categorySelect.innerHTML = '';
+                ['技术笔记', '生活记录', '学习资料', '个人想法', '待办事项', 'dream', 'general'].forEach(c => {
+                    const option = document.createElement('option');
+                    option.value = c;
+                    option.textContent = c;
+                    categorySelect.appendChild(option);
+                });
             }
         }
         

@@ -26,9 +26,9 @@ def _get_jieba():
             _jieba_instance = jieba
             _pseg_instance = pseg
             _jieba_initialized = True
-            logger.debug("jieba loaded")
+            logger.info("jieba分词器已加载")
         except ImportError:
-            pass
+            logger.warning("jieba未安装，将使用正则分词（安装jieba可提升中文搜索质量）")
     return _jieba_instance, _pseg_instance
 
 _pypinyin_initialized = False
@@ -57,8 +57,8 @@ class DatabaseManager:
         self.context = context
         self.db_path = None
         self.cache = TTLCache(
-            maxsize=self.config.get('max_cache_size', 200),
-            ttl=self.config.get('cache_ttl', 300)
+            maxsize=self.config.get('max_cache_size', 50),
+            ttl=self.config.get('cache_ttl', 120)
         )
         self._local = threading.local()
         self.backup_manager = None
@@ -97,6 +97,8 @@ class DatabaseManager:
 
         self._initialize_database_structure()
         self._migrate_old_data()
+        if not self.config.get('lightweight_mode', False):
+            _get_jieba()
         from .backup import BackupManager
         self.backup_manager = BackupManager(self.db_path, self.config)
         self.backup_manager.start_auto_backup()
@@ -266,10 +268,72 @@ class DatabaseManager:
                 dream_date TEXT NOT NULL,
                 summary TEXT DEFAULT '',
                 memories_reviewed INTEGER DEFAULT 0,
+                conversations_reviewed INTEGER DEFAULT 0,
                 insights TEXT DEFAULT '',
+                new_memories_created INTEGER DEFAULT 0,
+                consolidation_done INTEGER DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(dream_date)
             )''')
+
+            cursor.execute('''CREATE TABLE IF NOT EXISTS conversation_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                role TEXT NOT NULL,
+                content TEXT NOT NULL,
+                user_id TEXT DEFAULT '',
+                group_id TEXT DEFAULT '',
+                topics TEXT DEFAULT '',
+                compressed INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )''')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_convlogs_time ON conversation_logs(created_at)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_convlogs_user ON conversation_logs(user_id)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_convlogs_role ON conversation_logs(role)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_convlogs_group ON conversation_logs(group_id)')
+
+            cursor.execute('''CREATE TABLE IF NOT EXISTS daily_summaries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                summary_date TEXT NOT NULL,
+                summary TEXT NOT NULL,
+                key_topics TEXT DEFAULT '',
+                group_id TEXT DEFAULT '',
+                active_users TEXT DEFAULT '',
+                importance INTEGER DEFAULT 5,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(summary_date, group_id)
+            )''')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_dailysumm_date ON daily_summaries(summary_date)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_dailysumm_group ON daily_summaries(group_id)')
+
+            cursor.execute('''CREATE TABLE IF NOT EXISTS daily_global_digest (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                digest_date TEXT NOT NULL UNIQUE,
+                total_groups INTEGER DEFAULT 0,
+                total_messages INTEGER DEFAULT 0,
+                merged_topics TEXT DEFAULT '',
+                global_summary TEXT DEFAULT '',
+                active_users TEXT DEFAULT '',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )''')
+
+            cursor.execute('''CREATE TABLE IF NOT EXISTS auto_facts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                subject TEXT NOT NULL,
+                predicate TEXT NOT NULL,
+                object TEXT NOT NULL,
+                fact_type TEXT DEFAULT 'extracted',
+                user_id TEXT DEFAULT '',
+                confidence REAL DEFAULT 1.0,
+                source TEXT DEFAULT 'auto',
+                hash TEXT UNIQUE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_accessed TIMESTAMP,
+                access_count INTEGER DEFAULT 0
+            )''')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_facts_subject ON auto_facts(subject)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_facts_predicate ON auto_facts(predicate)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_facts_user ON auto_facts(user_id)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_facts_type ON auto_facts(fact_type)')
 
             cursor.execute('''CREATE INDEX IF NOT EXISTS idx_memories_category ON memories(category)''')
             cursor.execute('''CREATE INDEX IF NOT EXISTS idx_memories_importance ON memories(importance)''')
@@ -396,6 +460,10 @@ class DatabaseManager:
             if tag_results:
                 result_lists.append(tag_results)
 
+            tfidf_results = self._tfidf_search(conn, query, limit * 2)
+            if tfidf_results:
+                result_lists.append(tfidf_results)
+
             if not result_lists:
                 fallback = self._fallback_search(conn, query, limit * 3)
                 if fallback:
@@ -440,6 +508,7 @@ class DatabaseManager:
             if not row:
                 return "Memory not found"
             cursor.execute('DELETE FROM memories WHERE id = ?', (memory_id,))
+            self._record_activity(memory_id, 'delete', f'deleted: {row[0][:30]}')
             cursor.execute('DELETE FROM activities WHERE memory_id = ?', (memory_id,))
             cursor.execute('DELETE FROM triples WHERE source_memory_id = ?', (memory_id,))
             conn.commit()
@@ -473,7 +542,7 @@ class DatabaseManager:
             if importance is not None:
                 updates.append("importance = ?")
                 params.append(importance)
-            if tags is not None:
+            if tags is not None and tags != '':
                 updates.append("tags = ?")
                 params.append(','.join(tags) if isinstance(tags, list) else tags)
 
@@ -484,6 +553,7 @@ class DatabaseManager:
             cursor.execute(f'UPDATE memories SET {", ".join(updates)} WHERE id = ?', params)
             conn.commit()
             self.cache.clear()
+            self._record_activity(memory_id, 'update', f'importance={importance}' if importance else 'content updated')
             return f"Memory updated (ID:{memory_id})"
         except Exception as e:
             logger.error(f"Update memory error: {e}")
@@ -494,10 +564,10 @@ class DatabaseManager:
         try:
             cursor = conn.cursor()
             if category:
-                cursor.execute('SELECT id, content, category, importance, created_at FROM memories WHERE category = ? ORDER BY created_at DESC LIMIT ? OFFSET ?',
+                cursor.execute('SELECT id, content, category, importance, tags, access_count, created_at FROM memories WHERE category = ? ORDER BY created_at DESC LIMIT ? OFFSET ?',
                              (category, limit, offset))
             else:
-                cursor.execute('SELECT id, content, category, importance, created_at FROM memories ORDER BY created_at DESC LIMIT ? OFFSET ?',
+                cursor.execute('SELECT id, content, category, importance, tags, access_count, created_at FROM memories ORDER BY created_at DESC LIMIT ? OFFSET ?',
                              (limit, offset))
             return [dict(row) for row in cursor.fetchall()]
         except Exception as e:
@@ -578,6 +648,10 @@ class DatabaseManager:
                 if tag_results:
                     result_lists.append(tag_results)
 
+                tfidf_results = self._tfidf_search(conn, context_query, limit)
+                if tfidf_results:
+                    result_lists.append(tfidf_results)
+
             if result_lists:
                 fused = self._rrf_fuse(result_lists, k=self.config.get('rrf_k', 60))
             else:
@@ -602,11 +676,17 @@ class DatabaseManager:
                 if activated_tags:
                     seen_ids = {m['id'] for m in top}
                     for atag in list(activated_tags)[:3]:
-                        cursor.execute(
-                            'SELECT id, content, category, importance, tags, created_at, access_count FROM memories WHERE id NOT IN ({}) AND tags LIKE ? LIMIT 2'.format(
-                                ','.join('?' * len(seen_ids)) if seen_ids else '0'),
-                            list(seen_ids) + [f'%{atag}%']
-                        )
+                        if seen_ids:
+                            placeholders = ','.join('?' * len(seen_ids))
+                            cursor.execute(
+                                f'SELECT id, content, category, importance, tags, created_at, access_count FROM memories WHERE id NOT IN ({placeholders}) AND tags LIKE ? LIMIT 2',
+                                list(seen_ids) + [f'%{atag}%']
+                            )
+                        else:
+                            cursor.execute(
+                                'SELECT id, content, category, importance, tags, created_at, access_count FROM memories WHERE tags LIKE ? LIMIT 2',
+                                [f'%{atag}%']
+                            )
                         for row in cursor.fetchall():
                             m = dict(row)
                             if m['id'] not in seen_ids:
@@ -871,31 +951,219 @@ class DatabaseManager:
         except Exception as e:
             return f"Error: {e}"
 
-    # ==================== Dream Mode ====================
+    # ==================== Conversation Logs ====================
 
-    def get_dream_candidates(self, hours=24, limit=20):
+    def log_conversation(self, role, content, user_id='', group_id=''):
         conn = self._get_connection()
         try:
+            topics = ''
+            if not self.config.get('lightweight_mode', False):
+                try:
+                    jieba_mod, _ = _get_jieba()
+                    if jieba_mod:
+                        words = [w for w in jieba_mod.cut(content) if len(w) > 1][:5]
+                        topics = ','.join(words)
+                except Exception:
+                    pass
+            if not topics:
+                topics = ','.join(re.findall(r'\w{2,}', content)[:5])
             cursor = conn.cursor()
-            cutoff = (datetime.now() - timedelta(hours=hours)).isoformat()
             cursor.execute(
-                'SELECT id, content, category, importance, tags, access_count FROM memories '
-                'WHERE created_at > ? OR importance >= 7 OR access_count > 3 '
-                'ORDER BY importance DESC, created_at DESC LIMIT ?',
+                'INSERT INTO conversation_logs (role, content, user_id, group_id, topics) VALUES (?, ?, ?, ?, ?)',
+                (role, content[:500], str(user_id), str(group_id), topics)
+            )
+            conn.commit()
+            if role == 'user' and content.strip():
+                try:
+                    self.save_auto_facts(content, user_id)
+                except Exception:
+                    pass
+        except Exception as e:
+            logger.debug(f"Log conversation error: {e}")
+
+    def get_conversation_logs(self, hours=24, limit=200):
+        conn = self._get_connection()
+        try:
+            cutoff = (datetime.now() - timedelta(hours=hours)).isoformat()
+            cursor = conn.cursor()
+            cursor.execute(
+                'SELECT id, role, content, user_id, group_id, topics, created_at FROM conversation_logs '
+                'WHERE created_at > ? ORDER BY created_at ASC LIMIT ?',
                 (cutoff, limit)
             )
             return [dict(row) for row in cursor.fetchall()]
         except Exception as e:
-            logger.error(f"Get dream candidates error: {e}")
+            logger.error(f"Get conversation logs error: {e}")
             return []
 
-    def save_dream_log(self, dream_date, summary, memories_reviewed, insights):
+    def compress_conversation_logs(self, hours=24):
+        conn = self._get_connection()
+        try:
+            cutoff = (datetime.now() - timedelta(hours=hours)).isoformat()
+            cursor = conn.cursor()
+            cursor.execute(
+                'SELECT topics FROM conversation_logs WHERE created_at > ? AND compressed = 0 AND topics != ""',
+                (cutoff,)
+            )
+            all_topics = []
+            for row in cursor.fetchall():
+                if row[0]:
+                    all_topics.extend(row[0].split(','))
+            from collections import Counter
+            topic_counts = Counter(t.strip() for t in all_topics if t.strip())
+            top_topics = topic_counts.most_common(10)
+            cursor.execute(
+                'UPDATE conversation_logs SET compressed = 1 WHERE created_at < ? AND compressed = 0',
+                ((datetime.now() - timedelta(hours=hours)).isoformat(),)
+            )
+            conn.commit()
+            return top_topics
+        except Exception as e:
+            logger.debug(f"Compress logs error: {e}")
+            return []
+
+    def cleanup_old_conversation_logs(self, days=None):
+        if days is None:
+            days = self.config.get('conversation_log_retention_days', 7)
+        if days <= 0:
+            return
+        conn = self._get_connection()
+        try:
+            cutoff = (datetime.now() - timedelta(days=days)).isoformat()
+            cursor = conn.cursor()
+            cursor.execute('DELETE FROM conversation_logs WHERE created_at < ? AND compressed = 1', (cutoff,))
+            deleted = cursor.rowcount
+            conn.commit()
+            if deleted > 0:
+                logger.info(f"Cleaned up {deleted} old conversation logs")
+        except Exception as e:
+            logger.debug(f"Cleanup conversation logs error: {e}")
+
+    def cleanup_old_daily_summaries(self, days=None):
+        if days is None:
+            days = self.config.get('daily_summary_retention_days', 30)
+        if days <= 0:
+            return
+        conn = self._get_connection()
+        try:
+            cutoff = (datetime.now() - timedelta(days=days)).isoformat()
+            cursor = conn.cursor()
+            cursor.execute('DELETE FROM daily_summaries WHERE created_at < ?', (cutoff,))
+            deleted_sum = cursor.rowcount
+            cursor.execute('DELETE FROM daily_global_digest WHERE created_at < ?', (cutoff,))
+            deleted_dig = cursor.rowcount
+            conn.commit()
+            if deleted_sum > 0 or deleted_dig > 0:
+                logger.info(f"Cleaned up {deleted_sum} old daily summaries, {deleted_dig} old global digests")
+        except Exception as e:
+            logger.debug(f"Cleanup daily summaries error: {e}")
+
+    # ==================== Dream Mode ====================
+
+    def get_dream_materials(self, hours=24):
+        conn = self._get_connection()
+        try:
+            cutoff = (datetime.now() - timedelta(hours=hours)).isoformat()
+            cursor = conn.cursor()
+
+            cursor.execute(
+                'SELECT id, content, category, importance, tags, access_count FROM memories '
+                'WHERE created_at > ? OR importance >= 7 OR access_count > 3 '
+                'ORDER BY importance DESC, created_at DESC LIMIT 30',
+                (cutoff,)
+            )
+            memories = [dict(row) for row in cursor.fetchall()]
+
+            cursor.execute(
+                'SELECT role, content, user_id, group_id, topics, created_at FROM conversation_logs '
+                'WHERE created_at > ? ORDER BY created_at ASC LIMIT 200',
+                (cutoff,)
+            )
+            conversations = [dict(row) for row in cursor.fetchall()]
+
+            user_messages = [c for c in conversations if c['role'] == 'user']
+            topic_counter = {}
+            for c in conversations:
+                if c.get('topics'):
+                    for t in c['topics'].split(','):
+                        t = t.strip()
+                        if t:
+                            topic_counter[t] = topic_counter.get(t, 0) + 1
+            hot_topics = sorted(topic_counter.items(), key=lambda x: x[1], reverse=True)[:10]
+
+            active_users = list(set(c['user_id'] for c in user_messages if c.get('user_id')))
+
+            return {
+                'memories': memories,
+                'conversations': conversations,
+                'conversation_count': len(conversations),
+                'user_message_count': len(user_messages),
+                'hot_topics': hot_topics,
+                'active_users': active_users
+            }
+        except Exception as e:
+            logger.error(f"Get dream materials error: {e}")
+            return {'memories': [], 'conversations': [], 'conversation_count': 0,
+                    'user_message_count': 0, 'hot_topics': [], 'active_users': []}
+
+    def consolidate_memories(self, hours=24):
+        conn = self._get_connection()
+        try:
+            cutoff = (datetime.now() - timedelta(hours=hours)).isoformat()
+            cursor = conn.cursor()
+
+            cursor.execute(
+                'SELECT id, tags, importance FROM memories WHERE last_accessed > ? AND access_count > 0',
+                (cutoff,)
+            )
+            accessed = cursor.fetchall()
+            boosted = 0
+            for row in accessed:
+                mid, tags, importance = row[0], row[1], row[2]
+                new_importance = min(importance + 1, 10)
+                if new_importance > importance:
+                    cursor.execute('UPDATE memories SET importance = ? WHERE id = ?', (new_importance, mid))
+                    boosted += 1
+
+            cursor.execute(
+                'SELECT m1.id, m1.tags, m2.id, m2.tags FROM memories m1, memories m2 '
+                'WHERE m1.id < m2.id AND m1.created_at > ? AND m2.created_at > ?',
+                (cutoff, cutoff)
+            )
+            links_created = 0
+            tag_pairs = cursor.fetchall()
+            for pair in tag_pairs[:50]:
+                tags1 = set(t.strip() for t in (pair[1] or '').split(',') if t.strip())
+                tags2 = set(t.strip() for t in (pair[3] or '').split(',') if t.strip())
+                shared = tags1 & tags2
+                if len(shared) >= 2:
+                    for tag in shared:
+                        try:
+                            cursor.execute(
+                                'INSERT OR IGNORE INTO triples (subject, predicate, object) VALUES (?, ?, ?)',
+                                (f'mem:{pair[0]}', f'shared:{tag}', f'mem:{pair[2]}')
+                            )
+                            links_created += 1
+                        except Exception:
+                            pass
+
+            conn.commit()
+            return {'boosted': boosted, 'links_created': links_created}
+        except Exception as e:
+            logger.error(f"Consolidate memories error: {e}")
+            return {'boosted': 0, 'links_created': 0}
+
+    def save_dream_log(self, dream_date, summary, memories_reviewed, insights,
+                       conversations_reviewed=0, new_memories_created=0, consolidation_done=0):
         conn = self._get_connection()
         try:
             cursor = conn.cursor()
             cursor.execute(
-                'INSERT OR REPLACE INTO dream_logs (dream_date, summary, memories_reviewed, insights) VALUES (?, ?, ?, ?)',
-                (dream_date, summary, memories_reviewed, insights)
+                'INSERT OR REPLACE INTO dream_logs '
+                '(dream_date, summary, memories_reviewed, conversations_reviewed, insights, new_memories_created, consolidation_done) '
+                'VALUES (?, ?, ?, ?, ?, ?, ?)',
+                (dream_date, summary, memories_reviewed, conversations_reviewed,
+                 insights, new_memories_created, consolidation_done)
             )
             conn.commit()
             return f"Dream log saved for {dream_date}"
@@ -912,6 +1180,252 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Get dream logs error: {e}")
             return []
+
+    # ==================== Daily Summaries (Extractive + TextRank, Zero LLM) ====================
+
+    def _extractive_summarize(self, sentences, top_n=5):
+        if not sentences or len(sentences) <= top_n:
+            return sentences
+        all_text = ' '.join(sentences)
+        tokens = self._tokenize(all_text.lower())
+        if not tokens:
+            return sentences[:top_n]
+        from collections import Counter
+        tf = Counter(tokens)
+        N = len(sentences)
+        df = Counter()
+        for s in sentences:
+            st = set(self._tokenize(s.lower()))
+            for t in st:
+                df[t] += 1
+        scored = []
+        for s in sentences:
+            st = self._tokenize(s.lower())
+            if not st:
+                scored.append((0, s))
+                continue
+            score = sum(tf.get(t, 0) * math.log(N / (1 + df.get(t, 1))) for t in st) / len(st)
+            scored.append((score, s))
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return [s for _, s in scored[:top_n]]
+
+    def _textrank_keywords(self, texts, top_k=10, window=4):
+        words_list = []
+        for text in texts:
+            words = [w for w in self._tokenize(text.lower()) if len(w) >= 2]
+            words_list.append(words)
+        graph = {}
+        for words in words_list:
+            for i, w1 in enumerate(words):
+                if w1 not in graph:
+                    graph[w1] = {}
+                for j in range(i + 1, min(i + window, len(words))):
+                    w2 = words[j]
+                    if w2 not in graph:
+                        graph[w2] = {}
+                    graph[w1][w2] = graph[w1].get(w2, 0) + 1
+                    graph[w2][w1] = graph[w2].get(w1, 0) + 1
+        if not graph:
+            return []
+        scores = {w: 1.0 for w in graph}
+        for _ in range(20):
+            for w in graph:
+                s = sum(scores.get(n, 0) * graph[w].get(n, 0) for n in graph[w])
+                d = sum(graph[w].get(n, 0) for n in graph[w]) or 1
+                scores[w] = 0.85 * (s / d) + 0.15
+        ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+        return [w for w, _ in ranked[:top_k]]
+
+    def generate_group_daily_summary(self, group_id='', hours=24):
+        conn = self._get_connection()
+        try:
+            cutoff = (datetime.now() - timedelta(hours=hours)).isoformat()
+            cursor = conn.cursor()
+            if group_id:
+                cursor.execute(
+                    "SELECT content, user_id FROM conversation_logs WHERE created_at > ? AND group_id = ? AND role = 'user' ORDER BY created_at ASC",
+                    (cutoff, str(group_id))
+                )
+            else:
+                cursor.execute(
+                    "SELECT content, user_id FROM conversation_logs WHERE created_at > ? AND role = 'user' ORDER BY created_at ASC",
+                    (cutoff,)
+                )
+            rows = cursor.fetchall()
+            if not rows:
+                return None
+            contents = [r[0] for r in rows]
+            all_users = list(set(r[1] for r in rows if r[1]))
+            all_text = ' '.join(contents)
+            raw_sentences = []
+            for c in contents:
+                parts = re.split(r'[。！？\n.!?]', c)
+                for p in parts:
+                    p = p.strip()
+                    if len(p) > 4:
+                        raw_sentences.append(p)
+            top_sentences = self._extractive_summarize(raw_sentences, top_n=8)
+            keywords = self._textrank_keywords(contents, top_k=10)
+            summary = '。'.join(top_sentences[:6]) + '。'
+            key_topics = ','.join(keywords[:8])
+            from datetime import date
+            today = date.today().isoformat()
+            self.save_daily_summary(today, summary, key_topics, group_id, ','.join(all_users[:15]), 5)
+            return {
+                'summary': summary,
+                'key_topics': key_topics,
+                'message_count': len(contents),
+                'active_users': all_users[:10],
+                'group_id': group_id
+            }
+        except Exception as e:
+            logger.error(f"Generate group daily summary error: {e}")
+            return None
+
+    def generate_all_groups_daily_summaries(self, hours=24):
+        conn = self._get_connection()
+        try:
+            cutoff = (datetime.now() - timedelta(hours=hours)).isoformat()
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT DISTINCT group_id FROM conversation_logs WHERE created_at > ? AND group_id != ''",
+                (cutoff,)
+            )
+            groups = [r[0] for r in cursor.fetchall()]
+            cursor.execute(
+                "SELECT COUNT(*) FROM conversation_logs WHERE created_at > ? AND group_id = '' AND role = 'user'",
+                (cutoff,)
+            )
+            has_global = cursor.fetchone()[0] > 0
+            if has_global:
+                groups.append('')
+
+            whitelist = self.config.get('daily_summary_group_whitelist', [])
+            if whitelist:
+                groups = [g for g in groups if g in whitelist or g == '']
+
+            results = []
+            total_messages = 0
+            all_users = set()
+            all_keywords = []
+            for gid in groups:
+                r = self.generate_group_daily_summary(gid, hours)
+                if r:
+                    results.append(r)
+                    total_messages += r.get('message_count', 0)
+                    for u in r.get('active_users', []):
+                        all_users.add(u)
+                    if r.get('key_topics'):
+                        all_keywords.extend(r['key_topics'].split(','))
+            if results:
+                from collections import Counter
+                kw_counter = Counter(k.strip() for k in all_keywords if k.strip())
+                merged_topics = ','.join(t for t, _ in kw_counter.most_common(15))
+                global_text_parts = []
+                for r in results:
+                    gid = r.get('group_id', '')
+                    label = f"群{gid}" if gid else "私聊"
+                    global_text_parts.append(f"[{label}] {r['summary'][:100]}")
+                global_summary = ' | '.join(global_text_parts[:10])
+                from datetime import date
+                today = date.today().isoformat()
+                cursor = conn.cursor()
+                cursor.execute(
+                    'INSERT OR REPLACE INTO daily_global_digest (digest_date, total_groups, total_messages, merged_topics, global_summary, active_users) VALUES (?, ?, ?, ?, ?, ?)',
+                    (today, len(results), total_messages, merged_topics, global_summary[:2000], ','.join(list(all_users)[:30]))
+                )
+                conn.commit()
+            return {
+                'groups_processed': len(results),
+                'total_messages': total_messages,
+                'unique_users': len(all_users),
+                'merged_topics': merged_topics if results else ''
+            }
+        except Exception as e:
+            logger.error(f"Generate all groups summaries error: {e}")
+            return {'groups_processed': 0}
+
+    def get_global_daily_digest(self, days=3):
+        conn = self._get_connection()
+        try:
+            cutoff = (datetime.now() - timedelta(days=days)).isoformat()
+            cursor = conn.cursor()
+            cursor.execute(
+                'SELECT digest_date, total_groups, total_messages, merged_topics, global_summary, active_users FROM daily_global_digest WHERE digest_date > ? ORDER BY digest_date DESC',
+                (cutoff,)
+            )
+            return [dict(row) for row in cursor.fetchall()]
+        except Exception as e:
+            logger.error(f"Get global digest error: {e}")
+            return []
+
+    def save_daily_summary(self, summary_date, summary, key_topics='', group_id='', active_users='', importance=5):
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                'INSERT OR REPLACE INTO daily_summaries (summary_date, summary, key_topics, group_id, active_users, importance) '
+                'VALUES (?, ?, ?, ?, ?, ?)',
+                (summary_date, str(summary)[:2000], str(key_topics)[:200],
+                 str(group_id), str(active_users)[:300], int(importance or 5))
+            )
+            conn.commit()
+            return f"Daily summary saved for {summary_date}"
+        except Exception as e:
+            logger.error(f"Save daily summary error: {e}")
+            return f"Error: {e}"
+
+    def get_daily_summaries(self, days=7, group_id=None):
+        conn = self._get_connection()
+        try:
+            cutoff = (datetime.now() - timedelta(days=days)).isoformat()
+            cursor = conn.cursor()
+            if group_id:
+                cursor.execute(
+                    'SELECT summary_date, summary, key_topics, group_id, active_users FROM daily_summaries '
+                    'WHERE summary_date > ? AND (group_id = ? OR group_id = "") ORDER BY summary_date DESC LIMIT 30',
+                    (cutoff, str(group_id))
+                )
+            else:
+                cursor.execute(
+                    'SELECT summary_date, summary, key_topics, group_id, active_users FROM daily_summaries '
+                    'WHERE summary_date > ? ORDER BY summary_date DESC LIMIT 30',
+                    (cutoff,)
+                )
+            return [dict(row) for row in cursor.fetchall()]
+        except Exception as e:
+            logger.error(f"Get daily summaries error: {e}")
+            return []
+
+    def get_today_daily_summary(self, group_id=''):
+        conn = self._get_connection()
+        try:
+            from datetime import date
+            today = date.today().isoformat()
+            cursor = conn.cursor()
+            if group_id:
+                cursor.execute(
+                    'SELECT summary, key_topics, active_users FROM daily_summaries '
+                    'WHERE summary_date = ? AND group_id = ?',
+                    (today, str(group_id))
+                )
+                row = cursor.fetchone()
+                if row: return dict(row)
+                cursor.execute(
+                    'SELECT summary, key_topics, active_users FROM daily_summaries '
+                    'WHERE summary_date = ? AND group_id = ""',
+                    (today,)
+                )
+            else:
+                cursor.execute(
+                    'SELECT summary, key_topics, active_users FROM daily_summaries '
+                    'WHERE summary_date = ?',
+                    (today,)
+                )
+            row = cursor.fetchone()
+            return dict(row) if row else None
+        except Exception:
+            return None
 
     # ==================== Relationship Operations ====================
 
@@ -954,6 +1468,7 @@ class DatabaseManager:
 
                 cursor.execute(f'UPDATE relationships SET {", ".join(updates)} WHERE user_id = ?', params)
                 conn.commit()
+                self._record_activity(0, 'update_relation', f'{nickname or user_id}: {summary[:30] if summary else ""}')
                 return f"Relationship updated: {nickname or user_id}"
             else:
                 cursor.execute(
@@ -962,6 +1477,7 @@ class DatabaseManager:
                      first_met_location or '', known_contexts or '')
                 )
                 conn.commit()
+                self._record_activity(0, 'create_relation', f'{nickname or user_id}')
                 return f"Relationship created: {nickname or user_id}"
         except Exception as e:
             logger.error(f"Update relationship error: {e}")
@@ -1320,8 +1836,346 @@ class DatabaseManager:
                 'relationships': rel_count,
                 'triples': tri_count,
                 'dream_logs': dream_count,
+                'auto_facts': cursor.execute('SELECT COUNT(*) FROM auto_facts').fetchone()[0] if self._table_exists(conn, 'auto_facts') else 0,
+                'daily_summaries': cursor.execute('SELECT COUNT(*) FROM daily_summaries').fetchone()[0] if self._table_exists(conn, 'daily_summaries') else 0,
+                'daily_global_digest': cursor.execute('SELECT COUNT(*) FROM daily_global_digest').fetchone()[0] if self._table_exists(conn, 'daily_global_digest') else 0,
                 'cache_items': cache_size,
                 'python_version': sys.version.split()[0]
             }
         except Exception as e:
             return {'error': str(e)}
+
+    def _table_exists(self, conn, table_name):
+        cursor = conn.cursor()
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table_name,))
+        return cursor.fetchone() is not None
+
+    # ==================== Auto-Fact Extraction (Zero Token) ====================
+
+    _FACT_PATTERNS = [
+        (r'(.{1,10}?)(喜欢|爱|偏好|讨厌|恨|最爱|最讨厌)(.{1,20})', 'preference'),
+        (r'(.{1,10}?)(是|叫|名为|叫做|就是)(.{1,20})', 'identity'),
+        (r'(.{1,10}?)的(.{1,10}?)(是|为|有)(.{1,20})', 'attribute'),
+        (r'(记住|记得|别忘了|提醒我|待办|必须)(.{1,30})', 'reminder'),
+        (r'(.{1,10}?)(在|来自|住在|去了|搬到)(.{1,20})', 'location'),
+        (r'(.{1,10}?)(会|能|可以|擅长|精通)(.{1,20})', 'ability'),
+        (r'(.{1,10}?)(的生日|的年龄|的岁数)(.{0,10})', 'personal'),
+        (r'(我的|我的名字|我叫|我是)(.{1,20})', 'self_identity'),
+    ]
+
+    def _extract_facts(self, content, user_id=''):
+        facts = []
+        for pattern, fact_type in self._FACT_PATTERNS:
+            try:
+                matches = re.findall(pattern, content)
+                for match in matches:
+                    if isinstance(match, tuple):
+                        parts = [p.strip() for p in match if p.strip()]
+                        if len(parts) >= 2:
+                            if fact_type == 'reminder':
+                                subj = user_id or 'user'
+                                pred = '待办'
+                                obj = parts[-1][:50]
+                            elif fact_type == 'self_identity':
+                                subj = user_id or 'user'
+                                pred = '身份'
+                                obj = parts[-1][:50]
+                            elif len(parts) >= 3:
+                                subj = parts[0] if parts[0] else (user_id or 'user')
+                                pred = parts[1]
+                                obj = parts[2]
+                            else:
+                                subj = user_id or 'user'
+                                pred = parts[0]
+                                obj = parts[1] if len(parts) > 1 else ''
+                            if subj and pred and obj and len(obj) > 0:
+                                facts.append({
+                                    'subject': subj[:30],
+                                    'predicate': pred[:15],
+                                    'object': obj[:50],
+                                    'fact_type': fact_type,
+                                    'user_id': str(user_id)
+                                })
+            except Exception:
+                pass
+        return facts[:5]
+
+    def save_auto_facts(self, content, user_id=''):
+        if not self.config.get('auto_fact_extraction_enabled', True):
+            return 0
+        facts = self._extract_facts(content, user_id)
+        if not facts:
+            return 0
+        conn = self._get_connection()
+        saved = 0
+        try:
+            cursor = conn.cursor()
+            for fact in facts:
+                fact_hash = hashlib.md5(f"{fact['subject']}|{fact['predicate']}|{fact['object']}".encode()).hexdigest()
+                cursor.execute('SELECT id FROM auto_facts WHERE hash = ?', (fact_hash,))
+                if cursor.fetchone():
+                    continue
+                cursor.execute(
+                    'INSERT OR IGNORE INTO auto_facts (subject, predicate, object, fact_type, user_id, confidence, hash) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                    (fact['subject'], fact['predicate'], fact['object'], fact['fact_type'],
+                     fact['user_id'], 1.0, fact_hash)
+                )
+                saved += 1
+            conn.commit()
+        except Exception as e:
+            logger.debug(f"Save auto facts error: {e}")
+        return saved
+
+    def search_auto_facts(self, query, user_id=None, limit=10):
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            if user_id:
+                cursor.execute(
+                    'SELECT id, subject, predicate, object, fact_type, confidence FROM auto_facts '
+                    'WHERE user_id = ? AND (subject LIKE ? OR predicate LIKE ? OR object LIKE ?) '
+                    'ORDER BY confidence DESC, created_at DESC LIMIT ?',
+                    (user_id, f'%{query}%', f'%{query}%', f'%{query}%', limit)
+                )
+            else:
+                cursor.execute(
+                    'SELECT id, subject, predicate, object, fact_type, confidence FROM auto_facts '
+                    'WHERE subject LIKE ? OR predicate LIKE ? OR object LIKE ? '
+                    'ORDER BY confidence DESC, created_at DESC LIMIT ?',
+                    (f'%{query}%', f'%{query}%', f'%{query}%', limit)
+                )
+            results = [dict(row) for row in cursor.fetchall()]
+            if results:
+                ids = [r['id'] for r in results]
+                placeholders = ','.join('?' * len(ids))
+                conn.execute(f'UPDATE auto_facts SET access_count = access_count + 1, last_accessed = ? WHERE id IN ({placeholders})',
+                           [datetime.now().isoformat()] + ids)
+                conn.commit()
+            return results
+        except Exception as e:
+            logger.debug(f"Search auto facts error: {e}")
+            return []
+
+    def get_user_facts(self, user_id, limit=20):
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                'SELECT subject, predicate, object, fact_type FROM auto_facts '
+                'WHERE user_id = ? ORDER BY created_at DESC LIMIT ?',
+                (user_id, limit)
+            )
+            return [dict(row) for row in cursor.fetchall()]
+        except Exception:
+            return []
+
+    def get_cross_group_facts(self, user_id, current_group, limit=5):
+        conn = self._get_connection()
+        try:
+            cutoff = (datetime.now() - timedelta(hours=72)).isoformat()
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT content FROM conversation_logs "
+                "WHERE user_id = ? AND group_id != ? AND group_id != '' AND created_at > ? "
+                "ORDER BY created_at DESC LIMIT 50",
+                (user_id, str(current_group), cutoff)
+            )
+            other_group_contents = [r[0] for r in cursor.fetchall()]
+            if not other_group_contents:
+                return []
+
+            cursor.execute(
+                "SELECT DISTINCT group_id FROM conversation_logs "
+                "WHERE user_id = ? AND group_id != ? AND group_id != '' AND created_at > ? LIMIT 5",
+                (user_id, str(current_group), cutoff)
+            )
+            other_groups = [r[0] for r in cursor.fetchall()]
+
+            all_facts = []
+            for content in other_group_contents:
+                facts = self._extract_facts(content, user_id)
+                for f in facts[:2]:
+                    gid = other_groups[0] if other_groups else ''
+                    f['group_id'] = gid
+                    all_facts.append(f)
+                if len(all_facts) >= limit:
+                    break
+
+            seen = set()
+            unique = []
+            for f in all_facts:
+                key = f"{f['subject']}|{f['predicate']}|{f['object']}"
+                if key not in seen:
+                    seen.add(key)
+                    unique.append(f)
+            return unique[:limit]
+        except Exception:
+            return []
+
+    # ==================== TF-IDF Similarity Search ====================
+
+    def _tokenize(self, text):
+        if not self.config.get('lightweight_mode', False):
+            jieba_mod, _ = _get_jieba()
+            if jieba_mod:
+                return [w for w in jieba_mod.cut(text) if len(w) > 1]
+        return re.findall(r'\w{2,}', text)
+
+    def _tfidf_search(self, conn, query, limit):
+        if not self.config.get('tfidf_search_enabled', True):
+            return []
+        try:
+            cursor = conn.cursor()
+            cursor.execute('SELECT id, content, category, importance, tags, created_at, access_count FROM memories LIMIT ?',
+                           (self.config.get('tfidf_search_limit', 200),))
+            all_memories = [dict(row) for row in cursor.fetchall()]
+            if not all_memories:
+                return []
+
+            query_tokens = self._tokenize(query.lower())
+            if not query_tokens:
+                return []
+
+            from collections import Counter
+            doc_freq = Counter()
+            doc_tokens = {}
+            for m in all_memories:
+                tokens = self._tokenize(m['content'].lower())
+                tags_tokens = self._tokenize(m.get('tags', '').lower())
+                tokens = list(set(tokens + tags_tokens))
+                doc_tokens[m['id']] = tokens
+                for t in tokens:
+                    doc_freq[t] += 1
+
+            N = len(all_memories)
+            idf = {t: math.log(N / (1 + df)) for t, df in doc_freq.items()}
+
+            query_tf = Counter(query_tokens)
+            query_vec = {}
+            for t, tf in query_tf.items():
+                if t in idf:
+                    query_vec[t] = tf * idf[t]
+
+            if not query_vec:
+                return []
+
+            query_norm = math.sqrt(sum(v ** 2 for v in query_vec.values()))
+            if query_norm == 0:
+                return []
+
+            scored = []
+            for m in all_memories:
+                doc_tf = Counter(doc_tokens.get(m['id'], []))
+                doc_vec = {}
+                for t, tf in doc_tf.items():
+                    if t in idf:
+                        doc_vec[t] = tf * idf[t]
+
+                dot = sum(query_vec.get(t, 0) * doc_vec.get(t, 0) for t in query_vec)
+                doc_norm = math.sqrt(sum(v ** 2 for v in doc_vec.values()))
+                if doc_norm == 0:
+                    continue
+                cosine = dot / (query_norm * doc_norm)
+                if cosine > 0.05:
+                    m['tfidf_score'] = cosine
+                    scored.append(m)
+
+            scored.sort(key=lambda x: x['tfidf_score'], reverse=True)
+            return scored[:limit]
+        except Exception as e:
+            logger.debug(f"TF-IDF search error: {e}")
+            return []
+
+    # ==================== Ebbinghaus Memory Decay ====================
+
+    def apply_memory_decay(self):
+        if not self.config.get('memory_decay_enabled', True):
+            return {'decayed': 0, 'removed': 0}
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute('SELECT id, importance, access_count, last_accessed, created_at FROM memories WHERE importance < 9')
+            memories = cursor.fetchall()
+            decayed = 0
+            removed = 0
+            base_stability = self.config.get('memory_decay_base_stability', 48)
+            now = datetime.now()
+
+            for row in memories:
+                mid, importance, access_count, last_accessed, created_at = row
+                last = last_accessed or created_at or now.isoformat()
+                try:
+                    last_dt = datetime.fromisoformat(last)
+                    hours_elapsed = max((now - last_dt).total_seconds() / 3600, 0)
+                except Exception:
+                    hours_elapsed = 0
+
+                stability = base_stability * (1 + math.log1p(access_count))
+                retention = math.exp(-hours_elapsed / stability)
+
+                if retention < 0.1 and importance <= 2:
+                    cursor.execute('DELETE FROM memories WHERE id = ?', (mid,))
+                    cursor.execute('DELETE FROM activities WHERE memory_id = ?', (mid,))
+                    removed += 1
+                elif retention < 0.3 and importance > 1:
+                    new_imp = max(1, importance - 1)
+                    cursor.execute('UPDATE memories SET importance = ? WHERE id = ?', (new_imp, mid))
+                    decayed += 1
+
+            cursor.execute('DELETE FROM auto_facts WHERE confidence < 0.3')
+            conn.commit()
+            self.cache.clear()
+            return {'decayed': decayed, 'removed': removed}
+        except Exception as e:
+            logger.error(f"Memory decay error: {e}")
+            return {'decayed': 0, 'removed': 0}
+
+    # ==================== Similar Memory Merging ====================
+
+    def merge_similar_memories(self, threshold=None):
+        if not self.config.get('auto_merge_similar_enabled', False):
+            return {'merged': 0}
+        if threshold is None:
+            threshold = self.config.get('similarity_threshold', 0.7)
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute('SELECT id, content, tags, importance FROM memories ORDER BY created_at DESC LIMIT ?',
+                           (self.config.get('merge_scan_limit', 100),))
+            memories = cursor.fetchall()
+            merged = 0
+
+            for i in range(len(memories)):
+                if memories[i] is None:
+                    continue
+                id1, content1, tags1, imp1 = memories[i]
+                tokens1 = set(self._tokenize(content1.lower()))
+
+                for j in range(i + 1, len(memories)):
+                    if memories[j] is None:
+                        continue
+                    id2, content2, tags2, imp2 = memories[j]
+                    tokens2 = set(self._tokenize(content2.lower()))
+
+                    if not tokens1 or not tokens2:
+                        continue
+                    jaccard = len(tokens1 & tokens2) / len(tokens1 | tokens2)
+
+                    if jaccard >= threshold:
+                        keep_id = id1 if imp1 >= imp2 else id2
+                        remove_id = id2 if keep_id == id1 else id1
+                        keep_content = content1 if keep_id == id1 else content2
+                        new_imp = max(imp1, imp2)
+
+                        cursor.execute('UPDATE memories SET importance = ? WHERE id = ?', (new_imp, keep_id))
+                        cursor.execute('DELETE FROM memories WHERE id = ?', (remove_id,))
+                        cursor.execute('DELETE FROM activities WHERE memory_id = ?', (remove_id,))
+                        merged += 1
+                        memories[j] = None
+
+            conn.commit()
+            self.cache.clear()
+            return {'merged': merged}
+        except Exception as e:
+            logger.error(f"Merge similar error: {e}")
+            return {'merged': 0}

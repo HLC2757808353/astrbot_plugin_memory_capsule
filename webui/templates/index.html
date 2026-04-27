@@ -267,6 +267,14 @@
                             <div class="stat-value" id="total-categories">0</div>
                             <div class="stat-label">分类数</div>
                         </div>
+                        <div class="stat-card">
+                            <div class="stat-value" id="total-triples">0</div>
+                            <div class="stat-label">知识三元组</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value" id="total-dreams">0</div>
+                            <div class="stat-label">梦境记录</div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -279,16 +287,7 @@
                 <div class="card-body">
                     <ul class="activity-list" id="activity-list">
                         <li class="activity-item">
-                            <div class="activity-time">2026-02-27 10:30</div>
-                            <div class="activity-content">添加了新的记忆</div>
-                        </li>
-                        <li class="activity-item">
-                            <div class="activity-time">2026-02-27 09:15</div>
-                            <div class="activity-content">更新了用户关系</div>
-                        </li>
-                        <li class="activity-item">
-                            <div class="activity-time">2026-02-26 18:45</div>
-                            <div class="activity-content">删除了一条记忆</div>
+                            <div class="activity-content">加载中...</div>
                         </li>
                     </ul>
                 </div>
@@ -313,7 +312,13 @@
                 // 获取分类数
                 const categoriesResponse = await fetch('/api/categories');
                 const categories = await categoriesResponse.json();
+                const statsResponse = await fetch('/api/stats');
+                const stats = await statsResponse.json();
                 document.getElementById('total-categories').textContent = categories.length;
+                document.getElementById('total-memories').textContent = stats.memories || memoriesData.total;
+                document.getElementById('total-relationships').textContent = stats.relationships || relationshipsData.total;
+                document.getElementById('total-triples').textContent = stats.triples || 0;
+                document.getElementById('total-dreams').textContent = stats.dream_logs || 0;
                 
                 // 获取最近活动（限制30条）
                 const activitiesResponse = await fetch('/api/activities?limit=30');
@@ -327,9 +332,11 @@
                     activities.forEach(activity => {
                         const li = document.createElement('li');
                         li.className = 'activity-item';
+                        const desc = activity.description || '';
+                        const content = activity.content ? ` - ${activity.content.substring(0, 50)}` : '';
                         li.innerHTML = `
-                            <div class="activity-time">${activity.created_at}</div>
-                            <div class="activity-content">${activity.action} ${activity.details ? `- ${activity.details}` : ''}</div>
+                            <div class="activity-time">${activity.created_at || ''}</div>
+                            <div class="activity-content">${activity.activity_type || ''} ${desc}${content}</div>
                         `;
                         activityList.appendChild(li);
                     });

@@ -18,7 +18,22 @@ class AuthManager:
         self.auth_file = os.path.join(data_dir, "auth.json")
         self.sessions = {}
         self.session_timeout = 86400
-        self.config = self._generate_new_token()
+        self.config = self._load_or_generate_token()
+
+    def _load_or_generate_token(self):
+        try:
+            if os.path.exists(self.auth_file):
+                with open(self.auth_file, 'r', encoding='utf-8') as f:
+                    config = json.load(f)
+                expires_at = config.get('expires_at', '')
+                if expires_at:
+                    expires_dt = datetime.fromisoformat(expires_at)
+                    if datetime.now() < expires_dt:
+                        logger.info(f"WebUI token loaded from cache (expires {expires_at[:19].replace('T', ' ')})")
+                        return config
+        except Exception:
+            pass
+        return self._generate_new_token()
 
     def _generate_new_token(self):
         temp_token = self._generate_secure_token(length=32)

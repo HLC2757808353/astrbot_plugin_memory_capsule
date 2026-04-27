@@ -12,7 +12,7 @@ from .security import validate_content, sanitize_content, filter_relationship_co
 
 _IMPORTANT_KEYWORDS = frozenset(['约定','承诺','重要','记得','提醒','待办'])
 
-@register("memory_capsule", "引灯续昼", "记忆胶囊插件", "v0.14.0", "https://github.com/HLC2757808353/astrbot_plugin_memory_capsule")
+@register("memory_capsule", "引灯续昼", "记忆胶囊插件", "v0.19.0", "https://github.com/HLC2757808353/astrbot_plugin_memory_capsule")
 class MemoryCapsulePlugin(Star):
     def __init__(self, context: Context, config=None):
         super().__init__(context)
@@ -30,6 +30,10 @@ class MemoryCapsulePlugin(Star):
         self._wm_cache = None
         self._wm_cache_time = 0
         self._wm_cache_ttl = 60
+        self._last_decay_time = 0
+        self._decay_interval = 86400
+        self._auto_summary_task = None
+        self._auto_summary_interval = self.config.get('auto_summary_interval_hours', 6) * 3600
 
     async def initialize(self):
         self._create_directories()
@@ -40,6 +44,26 @@ class MemoryCapsulePlugin(Star):
         from . import set_global_manager
         set_global_manager(self.db_manager)
         self._start_webui()
+        if self.config.get('auto_summary_enabled', True):
+            self._auto_summary_task = asyncio.create_task(self._auto_summary_loop())
+
+    async def _auto_summary_loop(self):
+        await asyncio.sleep(300)
+        while True:
+            try:
+                interval = self.config.get('auto_summary_interval_hours', 6) * 3600
+                await asyncio.sleep(interval)
+                logger.info("定时自动总结开始...")
+                await asyncio.to_thread(self.db_manager.generate_all_groups_daily_summaries, 24)
+                await asyncio.to_thread(self.db_manager.apply_memory_decay)
+                await asyncio.to_thread(self.db_manager.cleanup_old_conversation_logs)
+                await asyncio.to_thread(self.db_manager.cleanup_old_daily_summaries)
+                logger.info("定时自动总结完成")
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"定时自动总结出错: {e}")
+                await asyncio.sleep(3600)
 
     def _create_directories(self):
         for d in ["databases", "webui/templates", "webui/static"]:
@@ -48,7 +72,7 @@ class MemoryCapsulePlugin(Star):
     def _get_persistent_data_dir(self):
         try:
             from astrbot.api.star import StarTools
-            return str(StarTools.get_data_dir())
+            return str(StarTools.get_data_dir("memory_capsule"))
         except Exception:
             return os.path.join(os.path.dirname(__file__), "data")
 
@@ -83,6 +107,9 @@ class MemoryCapsulePlugin(Star):
             logger.error(f"WebUI start failed: {e}")
 
     async def terminate(self):
+        if self._auto_summary_task:
+            self._auto_summary_task.cancel()
+            self._auto_summary_task = None
         if self.webui_server:
             try: self.webui_server.stop()
             except Exception: pass
@@ -97,15 +124,15 @@ class MemoryCapsulePlugin(Star):
     @filter.llm_tool(name="update_relationship")
     async def update_relationship(self, event, user_id, relation_type=None, summary=None, nickname=None, first_met_location=None, known_contexts=None):
         """
-        Record interpersonal relationship (impression/promise/habit). For objective knowledge use write_memory
+        记录或更新与某人的关系信息（印象、约定、习惯等）。当用户提到关于人的信息时使用此工具。客观知识用write_memory。
 
         Args:
-            user_id(str): User ID
-            relation_type(str): Relationship type
-            summary(str): Impression summary
-            nickname(str): Nickname
-            first_met_location(str): First meeting location
-            known_contexts(str): Shared groups (append, comma separated)
+            user_id(str): 用户ID
+            relation_type(str): 关系类型（如朋友、老师、同事等）
+            summary(str): 对此人的印象总结
+            nickname(str): 昵称
+            first_met_location(str): 初次见面地点
+            known_contexts(str): 共同所在的群组（逗号分隔，会追加不覆盖）
         Returns:
             str
         """
@@ -152,12 +179,13 @@ class MemoryCapsulePlugin(Star):
             return f"Failed: {e}"
 
     @filter.llm_tool(name="write_memory")
-    async def write_memory(self, event, content):
+    async def write_memory(self, event, content, importance=None):
         """
-        Record objective info (knowledge/notes/URLs). For personal impressions use update_relationship
+        记录信息到长期记忆。AI只需传入内容，可选传入重要性（1-10，不传则自动评估）。当用户提到重要信息、知识、约定、待办时必须使用此工具。关于人的印象用update_relationship。
 
         Args:
-            content(str): Content to remember
+            content(str): 要记住的内容
+            importance(int): 重要性1-10（可选，不传则自动判断。10=核心身份/约定/密码等极重要信息，7-9=重要偏好/知识，4-6=普通笔记/记录，1-3=闲聊参数）
         Returns:
             str
         """
@@ -172,8 +200,16 @@ class MemoryCapsulePlugin(Star):
 
         content = sanitize_content(content)
 
+        if importance is not None:
+            importance = max(1, min(10, int(importance)))
+        else:
+            importance = 5
+            for kw in _IMPORTANT_KEYWORDS:
+                if kw in content:
+                    importance = 7
+                    break
+
         category = None
-        importance = 5
         category_model = self.config.get('category_model', '')
         if category_model and self.context:
             try:
@@ -182,15 +218,13 @@ class MemoryCapsulePlugin(Star):
                     provider = self.context.get_provider_by_id(category_model)
                     if provider:
                         resp = await provider.text_chat(
-                            prompt=f'Analyze content, pick category from [{",".join(categories)}], rate importance 1-10.\nContent:{content}\nReturn JSON:{{"category":"cat","importance":num}}',
+                            prompt=f'Analyze content, pick category from [{",".join(categories)}].\nContent:{content}\nReturn JSON:{{"category":"cat"}}',
                             system_prompt="Strict JSON format"
                         )
                         if resp and resp.completion_text:
                             r = json.loads(resp.completion_text.strip())
                             if r.get('category') in categories:
                                 category = r['category']
-                            if r.get('importance'):
-                                importance = max(1, min(10, int(r['importance'])))
             except Exception:
                 pass
         try:
@@ -199,14 +233,15 @@ class MemoryCapsulePlugin(Star):
             return f"Failed: {e}"
 
     @filter.llm_tool(name="search_memory")
-    async def search_memory(self, event, query, category_filter=None, limit=None):
+    async def search_memory(self, event, query, category_filter=None, limit=None, tags=None):
         """
-        Search memories
+        搜索记忆。支持关键词、分类、标签多种方式查询，可单独或组合使用。当需要回忆之前记录的信息时使用此工具。
 
         Args:
-            query(str): Keywords
-            category_filter(str): Category (optional)
-            limit(int): Count (optional)
+            query(str): 搜索关键词（必填，模糊匹配内容）
+            category_filter(str): 按分类筛选（可选，如：技术笔记、生活记录、dream等）
+            limit(int): 返回条数（可选，默认5）
+            tags(str): 按标签筛选（可选，逗号分隔多个标签）
         Returns:
             dict
         """
@@ -218,6 +253,15 @@ class MemoryCapsulePlugin(Star):
                 str(category_filter) if category_filter else None,
                 int(limit) if limit else None
             )
+            if tags:
+                tag_list = [t.strip() for t in str(tags).split(',') if t.strip()]
+                if tag_list:
+                    filtered = []
+                    for r in results:
+                        r_tags = set(t.strip() for t in r.get('tags', '').split(',') if t.strip())
+                        if any(t in r_tags for t in tag_list):
+                            filtered.append(r)
+                    results = filtered
             return json.dumps({"results": results}, ensure_ascii=False)
         except Exception:
             return '{"results":[]}'
@@ -225,10 +269,10 @@ class MemoryCapsulePlugin(Star):
     @filter.llm_tool(name="delete_memory")
     async def delete_memory(self, event, memory_id):
         """
-        Delete a memory
+        删除一条记忆
 
         Args:
-            memory_id(int): Memory ID
+            memory_id(int): 记忆ID
         Returns:
             str
         """
@@ -240,7 +284,7 @@ class MemoryCapsulePlugin(Star):
     @filter.llm_tool(name="get_all_relationships")
     async def get_all_relationships(self, event):
         """
-        Get all relationships (ID and nickname only). For details use search_relationship
+        获取所有关系列表（仅ID和昵称）。详细信息用search_relationship。
 
         Returns:
             dict
@@ -257,11 +301,11 @@ class MemoryCapsulePlugin(Star):
     @filter.llm_tool(name="search_relationship")
     async def search_relationship(self, event, query, limit=3):
         """
-        Search relationship info (ID/nickname/type)
+        搜索关系信息（ID、昵称、关系类型等）
 
         Args:
-            query(str): Keywords
-            limit(int): Count, default 3
+            query(str): 搜索关键词
+            limit(int): 返回条数，默认3
         Returns:
             dict
         """
@@ -274,10 +318,10 @@ class MemoryCapsulePlugin(Star):
     @filter.llm_tool(name="delete_relationship")
     async def delete_relationship(self, event, user_id):
         """
-        Delete a relationship
+        删除一条关系记录
 
         Args:
-            user_id(str): User ID
+            user_id(str): 用户ID
         Returns:
             str
         """
@@ -289,12 +333,12 @@ class MemoryCapsulePlugin(Star):
     @filter.llm_tool(name="add_knowledge")
     async def add_knowledge(self, event, subject, predicate, obj):
         """
-        Add a knowledge triple (subject-predicate-object) to the knowledge graph. Use to record factual relationships between entities
+        添加知识三元组（主体-谓词-客体）到知识图谱。用于记录实体之间的客观关系。
 
         Args:
-            subject(str): Subject entity
-            predicate(str): Relationship/predicate
-            obj(str): Object entity
+            subject(str): 主体实体
+            predicate(str): 关系/谓词
+            obj(str): 客体实体
         Returns:
             str
         """
@@ -309,11 +353,11 @@ class MemoryCapsulePlugin(Star):
     @filter.llm_tool(name="search_knowledge")
     async def search_knowledge(self, event, entity, depth=1):
         """
-        Search knowledge graph for triples related to an entity. Returns connected facts via graph traversal
+        搜索知识图谱中与某实体相关的三元组。通过图遍历获取关联知识。
 
         Args:
-            entity(str): Entity to search
-            depth(int): Traversal depth, default 1 (max 2)
+            entity(str): 要搜索的实体
+            depth(int): 遍历深度，默认1（最大2）
         Returns:
             dict
         """
@@ -328,46 +372,175 @@ class MemoryCapsulePlugin(Star):
         except Exception:
             return '{"triples":[]}'
 
+    @filter.llm_tool(name="daily_summary")
+    async def daily_summary(self, event):
+        """
+        自动生成今日对话的每日摘要。一键调用，系统自动对本群对话进行抽取式摘要+关键词提取，零LLM消耗。在一天结束时调用此工具来压缩今天的记忆。
+
+        Returns:
+            dict
+        """
+        try:
+            group_id = ""
+            try: group_id = event.get_group_id() or ""
+            except Exception: pass
+
+            whitelist = self.config.get('daily_summary_group_whitelist', [])
+            if whitelist and group_id and group_id not in whitelist:
+                return json.dumps({"status": "skipped", "hint": "此群不在每日总结白名单中"})
+
+            result = await asyncio.to_thread(
+                self.db_manager.generate_group_daily_summary, group_id, 24
+            )
+            if result:
+                return json.dumps({
+                    "status": "ok",
+                    "summary": result['summary'],
+                    "key_topics": result['key_topics'],
+                    "message_count": result['message_count'],
+                    "active_users": result['active_users']
+                }, ensure_ascii=False)
+            return json.dumps({"status": "no_data", "hint": "今天没有对话记录"})
+        except Exception as e:
+            return json.dumps({"status": "error", "message": str(e)[:100]})
+
+    @filter.llm_tool(name="get_daily_summary")
+    async def get_daily_summary(self, event, days=3):
+        """
+        获取最近N天的每日总结。用于快速回顾近期对话背景。
+
+        Args:
+            days(int): 获取最近几天的总结，默认3
+        Returns:
+            dict
+        """
+        try:
+            group_id = ""
+            try: group_id = event.get_group_id() or ""
+            except Exception: pass
+            results = await asyncio.to_thread(
+                self.db_manager.get_daily_summaries, int(days), group_id
+            )
+            return json.dumps({"summaries": results}, ensure_ascii=False)
+        except Exception:
+            return '{"summaries":[]}'
+
+    @filter.llm_tool(name="get_daily_digest")
+    async def get_daily_digest(self, event, days=3):
+        """
+        获取最近N天的全局日报（跨群汇总）。包含所有群的合并话题、总消息数、活跃用户。用于了解整体动态。
+
+        Args:
+            days(int): 获取最近几天的全局日报，默认3
+        Returns:
+            dict
+        """
+        try:
+            results = await asyncio.to_thread(
+                self.db_manager.get_global_daily_digest, int(days)
+            )
+            return json.dumps({"digests": results}, ensure_ascii=False)
+        except Exception:
+            return '{"digests":[]}'
+
     @filter.llm_tool(name="dream")
     async def dream(self, event):
         """
-        Enter dream mode: review today's memories and generate insights. Call at night to consolidate the day's experiences into deeper understanding
+        进入梦境模式：回顾今天的完整对话和记忆，然后巩固。模拟人类睡眠记忆巩固——重播、提取遗漏事实、发现模式、巩固重要记忆。在夜间或一天结束时调用。
 
         Returns:
             dict
         """
         if not self.config.get('dream_mode_enabled', True):
-            return '{"status":"disabled"}'
+            return json.dumps({"status": "disabled"})
         try:
-            candidates = await asyncio.to_thread(self.db_manager.get_dream_candidates, 24, 20)
-            if not candidates:
-                return '{"status":"no_candidates","memories":[]}'
+            materials = await asyncio.to_thread(self.db_manager.get_dream_materials, 24)
+            conv_count = materials.get('conversation_count', 0)
+            mem_count = len(materials.get('memories', []))
+            if conv_count == 0 and mem_count == 0:
+                return json.dumps({"status": "no_data"})
+
+            conv_summary = []
+            for c in materials.get('conversations', [])[:50]:
+                role = 'User' if c['role'] == 'user' else 'AI'
+                conv_summary.append(f"[{role}]: {c['content'][:60]}")
+
+            mem_summary = []
+            for m in materials.get('memories', []):
+                mem_summary.append(f"[{m.get('category','')}] {m['content'][:50]} (imp:{m.get('importance',5)})")
+
+            hot_topics = materials.get('hot_topics', [])
+            topic_str = ', '.join(f'{t}({c})' for t, c in hot_topics[:8])
+
+            all_facts = []
+            try:
+                all_facts = await asyncio.to_thread(self.db_manager.search_auto_facts, '', None, 30)
+            except Exception:
+                pass
+
             return json.dumps({
                 "status": "dreaming",
-                "memories": candidates,
-                "instruction": "Review these memories, find patterns and insights, then call save_dream to save your reflections"
+                "conversations_today": conv_summary,
+                "memories_today": mem_summary,
+                "hot_topics": topic_str,
+                "active_users": materials.get('active_users', []),
+                "auto_facts": all_facts[:20],
+                "steps": [
+                    "1. 每日压缩：调用daily_summary自动生成本群今日摘要（零LLM消耗，抽取式）",
+                    "2. 全局汇总：调用get_daily_digest获取跨群全局日报",
+                    "3. 重播：回顾上面的对话和记忆",
+                    "4. 提取：找出对话中重要但尚未记录的事实 → 对每条调用write_memory（自行判断importance）",
+                    "5. 关联：发现跨对话的隐藏模式和关联 → 记录洞察",
+                    "6. 巩固：确认最重要的主题 → 调用save_dream"
+                ]
             }, ensure_ascii=False)
         except Exception as e:
-            return f'{{"status":"error","message":"{e}"}}'
+            return json.dumps({"status": "error", "message": str(e)[:100]})
 
     @filter.llm_tool(name="save_dream")
-    async def save_dream(self, event, summary, insights):
+    async def save_dream(self, event, summary, insights, new_facts_count=0):
         """
-        Save dream insights after reviewing memories in dream mode
+        保存梦境洞察并触发记忆巩固。在dream模式回顾完成后调用此工具。
 
         Args:
-            summary(str): Brief summary of the dream review
-            insights(str): Key insights and patterns discovered
+            summary(str): 梦境回顾摘要（回顾了什么内容）
+            insights(str): 发现的关键模式和洞察
+            new_facts_count(int): 梦境中提取的新事实数量
         Returns:
             str
         """
         try:
             from datetime import date
             today = date.today().isoformat()
-            candidates = await asyncio.to_thread(self.db_manager.get_dream_candidates, 24, 20)
+            materials = await asyncio.to_thread(self.db_manager.get_dream_materials, 24)
+            mem_count = len(materials.get('memories', []))
+            conv_count = materials.get('conversation_count', 0)
+
+            consolidation = await asyncio.to_thread(self.db_manager.consolidate_memories, 24)
+
+            await asyncio.to_thread(self.db_manager.compress_conversation_logs, 24)
+            await asyncio.to_thread(self.db_manager.cleanup_old_conversation_logs)
+            await asyncio.to_thread(self.db_manager.cleanup_old_daily_summaries)
+
+            if self.config.get('daily_global_digest_enabled', True):
+                digest_result = await asyncio.to_thread(
+                    self.db_manager.generate_all_groups_daily_summaries, 24
+                )
+
+            decay_result = await asyncio.to_thread(self.db_manager.apply_memory_decay)
+
+            merge_result = await asyncio.to_thread(self.db_manager.merge_similar_memories)
+
+            if insights and len(insights) > 10:
+                await asyncio.to_thread(
+                    self.db_manager.write_memory,
+                    f"[Dream {today}] {insights[:200]}", 'dream', 7, 'dream', 'dream'
+                )
+
             return await asyncio.to_thread(
                 self.db_manager.save_dream_log,
-                today, str(summary), len(candidates), str(insights)
+                today, str(summary)[:300], mem_count, str(insights)[:500],
+                conv_count, int(new_facts_count), 1
             )
         except Exception as e:
             return f"Failed: {e}"
@@ -381,31 +554,43 @@ class MemoryCapsulePlugin(Star):
             user_message = event.message_str or ""
             current_time = time.time()
 
-            should_inject = False
-            if self.relation_injection_refresh_time == -1:
-                should_inject = True
-            elif user_id != self.last_relation_user_id:
-                should_inject = True
-            elif "injection_last" in self.relation_injection_cache:
-                if current_time - self.relation_injection_cache["injection_last"] >= self.relation_injection_refresh_time:
-                    should_inject = True
-            else:
-                should_inject = True
-
-            if not should_inject:
-                return req
+            if self.config.get('conversation_logging_enabled', True) and user_message.strip():
+                try:
+                    group_id = ""
+                    try: group_id = event.get_group_id() or ""
+                    except Exception: pass
+                    await asyncio.to_thread(
+                        self.db_manager.log_conversation, 'user', user_message, user_id, group_id
+                    )
+                except Exception:
+                    pass
 
             parts = []
 
-            user_relation = await asyncio.to_thread(self.db_manager.get_relationship_with_identity, user_id)
-            current_group = ""
-            try: current_group = event.get_group_id() or ""
-            except Exception: pass
-
-            if user_relation:
-                parts.append(self._build_relation_xml(user_relation, current_group))
+            should_inject_relation = False
+            if self.relation_injection_refresh_time == -1:
+                should_inject_relation = True
+            elif user_id != self.last_relation_user_id:
+                should_inject_relation = True
+            elif "injection_last" in self.relation_injection_cache:
+                if current_time - self.relation_injection_cache["injection_last"] >= self.relation_injection_refresh_time:
+                    should_inject_relation = True
             else:
-                parts.append(f"<relationship>Partner: ID={user_id}, first meeting</relationship>")
+                should_inject_relation = True
+
+            if should_inject_relation:
+                user_relation = await asyncio.to_thread(self.db_manager.get_relationship_with_identity, user_id)
+                current_group = ""
+                try: current_group = event.get_group_id() or ""
+                except Exception: pass
+
+                if user_relation:
+                    parts.append(self._build_relation_xml(user_relation, current_group))
+                else:
+                    parts.append(f"<relationship>Partner: ID={user_id}, first meeting</relationship>")
+
+                self.relation_injection_cache["injection_last"] = current_time
+                self.last_relation_user_id = user_id
 
             if self.config.get('memory_palace', True):
                 mem_limit = self.config.get('working_memory_limit', 6)
@@ -418,6 +603,53 @@ class MemoryCapsulePlugin(Star):
                     self._wm_cache_time = current_time
                 if self._wm_cache:
                     parts.append(f"<memory>{'; '.join(m['content'] for m in self._wm_cache)}</memory>")
+
+            if self.config.get('auto_fact_extraction_enabled', True):
+                try:
+                    user_facts = await asyncio.to_thread(
+                        self.db_manager.get_user_facts, user_id, 10
+                    )
+                    if user_facts:
+                        fact_strs = [f"{f['subject']}{f['predicate']}{f['object']}" for f in user_facts[:8]]
+                        parts.append(f"<facts>{'; '.join(fact_strs)}</facts>")
+
+                    if self.config.get('cross_group_association_enabled', True):
+                        try:
+                            current_group = ""
+                            try: current_group = event.get_group_id() or ""
+                            except Exception: pass
+                            if current_group:
+                                cross_facts = await asyncio.to_thread(
+                                    self.db_manager.get_cross_group_facts, user_id, current_group, 5
+                                )
+                                if cross_facts:
+                                    cross_strs = [f"[{f['group_id']}]{f['subject']}{f['predicate']}{f['object']}" for f in cross_facts[:5]]
+                                    parts.append(f"<cross_group_facts>{'; '.join(cross_strs)}</cross_group_facts>")
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+
+            if self.config.get('daily_summary_injection_enabled', True):
+                try:
+                    current_group = ""
+                    try: current_group = event.get_group_id() or ""
+                    except Exception: pass
+                    today_summary = await asyncio.to_thread(
+                        self.db_manager.get_today_daily_summary, current_group
+                    )
+                    if today_summary and today_summary.get('summary'):
+                        s = today_summary['summary'][:300]
+                        parts.append(f"<daily_summary>{s}</daily_summary>")
+                except Exception:
+                    pass
+
+            if current_time - self._last_decay_time >= self._decay_interval:
+                try:
+                    await asyncio.to_thread(self.db_manager.apply_memory_decay)
+                    self._last_decay_time = current_time
+                except Exception:
+                    pass
 
             if not parts:
                 return req
@@ -439,8 +671,6 @@ class MemoryCapsulePlugin(Star):
             else:
                 req.system_prompt = (req.system_prompt or "") + "\n" + injection_text
 
-            self.relation_injection_cache["injection_last"] = current_time
-            self.last_relation_user_id = user_id
             self._last_injection_text = injection_text
             self._last_injection_time = current_time
 

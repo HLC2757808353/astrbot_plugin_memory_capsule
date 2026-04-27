@@ -9,7 +9,4 @@ def set_global_manager(manager):
     _manager_instance = manager
 
 def get_memory_manager():
-    global _manager_instance
-    if _manager_instance is None:
-        _manager_instance = DatabaseManager()
     return _manager_instance

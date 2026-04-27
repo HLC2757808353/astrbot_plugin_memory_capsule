@@ -181,17 +181,46 @@ class WebUIServer:
             result = self.db_manager.delete_memory(memory_id)
             return jsonify({'result': result})
 
+        @self.app.route('/api/memories/<int:memory_id>/detail')
+        @self._require_auth
+        def api_get_memory_detail(memory_id):
+            conn = self.db_manager._get_connection()
+            try:
+                cursor = conn.cursor()
+                cursor.execute('SELECT id, content, category, importance, tags, access_count, created_at FROM memories WHERE id = ?', (memory_id,))
+                row = cursor.fetchone()
+                if row:
+                    return jsonify(dict(row))
+                return jsonify({'error': 'not found'}), 404
+            except Exception as e:
+                return jsonify({'error': str(e)}), 500
+
         @self.app.route('/api/memories/<int:memory_id>', methods=['PUT'])
         @self._require_auth
         def api_update_memory(memory_id):
             data = request.json
-            result = self.db_manager.update_memory(
-                memory_id=memory_id,
-                content=data.get('content'),
-                category=data.get('category'),
-                importance=data.get('importance'),
-                tags=data.get('tags')
-            )
+            importance = data.get('importance')
+            if importance == 'boost':
+                conn = self.db_manager._get_connection()
+                try:
+                    cursor = conn.cursor()
+                    cursor.execute('SELECT importance FROM memories WHERE id = ?', (memory_id,))
+                    row = cursor.fetchone()
+                    if row:
+                        new_imp = min(dict(row)['importance'] + 1, 10)
+                        result = self.db_manager.update_memory(memory_id=memory_id, importance=new_imp)
+                    else:
+                        result = "Memory not found"
+                except Exception as e:
+                    result = f"Error: {e}"
+            else:
+                result = self.db_manager.update_memory(
+                    memory_id=memory_id,
+                    content=data.get('content'),
+                    category=data.get('category'),
+                    importance=data.get('importance'),
+                    tags=data.get('tags')
+                )
             return jsonify({'result': result})
 
         @self.app.route('/api/memories/search')
@@ -199,7 +228,7 @@ class WebUIServer:
         def api_search_memories():
             query = request.args.get('q', '')
             category = request.args.get('category')
-            limit = request.args.get('limit', type=int)
+            limit = request.args.get('limit', default=None, type=int)
             memories = self.db_manager.search_memory(query, category_filter=category, limit=limit)
             return jsonify(memories)
 
@@ -212,8 +241,12 @@ class WebUIServer:
         @self.app.route('/api/categories')
         @self._require_auth
         def api_categories():
-            categories = self.db_manager.get_memory_categories()
-            return jsonify(categories)
+            db_categories = self.db_manager.get_memory_categories()
+            config_categories = self.db_manager.config.get('memory_categories', [])
+            all_categories = list(dict.fromkeys(config_categories + db_categories))
+            if not all_categories:
+                all_categories = ['技术笔记', '生活记录', '学习资料', '个人想法', '待办事项', 'dream', 'general']
+            return jsonify(all_categories)
 
         @self.app.route('/api/relationships', methods=['POST'])
         @self._require_auth
