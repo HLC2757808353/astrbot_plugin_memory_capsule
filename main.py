@@ -29,7 +29,15 @@ class MemoryCapsulePlugin(Star):
         self._injection_dedup_ttl = 30
         self._wm_cache = None
         self._wm_cache_time = 0
-        self._wm_cache_ttl = 60
+        self._wm_cache_ttl = self.config.get('working_memory_cache_ttl', 120)
+        self._relation_cache = None
+        self._relation_cache_user_id = None
+        self._relation_cache_time = 0
+        self._relation_cache_ttl = self.config.get('relation_cache_ttl', 300)
+        self._facts_cache = None
+        self._facts_cache_user_id = None
+        self._facts_cache_time = 0
+        self._facts_cache_ttl = self.config.get('facts_cache_ttl', 180)
         self._last_decay_time = 0
         self._decay_interval = 86400
         self._auto_summary_task = None
@@ -41,11 +49,24 @@ class MemoryCapsulePlugin(Star):
         from .databases.db_manager import DatabaseManager
         self.db_manager = DatabaseManager(self.config, self.context)
         self.db_manager.initialize(persistent_data_dir)
+        self._init_embedding_provider()
         from . import set_global_manager
         set_global_manager(self.db_manager)
         self._start_webui()
         if self.config.get('auto_summary_enabled', True):
             self._auto_summary_task = asyncio.create_task(self._auto_summary_loop())
+
+    def _init_embedding_provider(self):
+        try:
+            embedding_providers = self.context.get_all_embedding_providers()
+            if embedding_providers:
+                provider = embedding_providers[0]
+                self.db_manager.vector_search.set_embedding_provider(provider)
+                logger.info(f"RAG: using embedding provider: {type(provider).__name__}")
+            else:
+                logger.info("RAG: no embedding provider configured, vector search disabled")
+        except Exception as e:
+            logger.warning(f"RAG: embedding provider init failed: {e}")
 
     async def _auto_summary_loop(self):
         await asyncio.sleep(300)
@@ -598,9 +619,9 @@ class MemoryCapsulePlugin(Star):
                     group_id = ""
                     try: group_id = event.get_group_id() or ""
                     except Exception: pass
-                    await asyncio.to_thread(
+                    asyncio.ensure_future(asyncio.to_thread(
                         self.db_manager.log_conversation, 'user', user_message, user_id, group_id
-                    )
+                    ))
                 except Exception:
                     pass
 
@@ -618,7 +639,16 @@ class MemoryCapsulePlugin(Star):
                 should_inject_relation = True
 
             if should_inject_relation:
-                user_relation = await asyncio.to_thread(self.db_manager.get_relationship_with_identity, user_id)
+                if (self._relation_cache is not None and
+                    self._relation_cache_user_id == user_id and
+                    current_time - self._relation_cache_time < self._relation_cache_ttl):
+                    user_relation = self._relation_cache
+                else:
+                    user_relation = await asyncio.to_thread(self.db_manager.get_relationship_with_identity, user_id)
+                    self._relation_cache = user_relation
+                    self._relation_cache_user_id = user_id
+                    self._relation_cache_time = current_time
+
                 current_group = ""
                 try: current_group = event.get_group_id() or ""
                 except Exception: pass
@@ -645,9 +675,17 @@ class MemoryCapsulePlugin(Star):
 
             if self.config.get('auto_fact_extraction_enabled', True):
                 try:
-                    user_facts = await asyncio.to_thread(
-                        self.db_manager.get_user_facts, user_id, 10
-                    )
+                    if (self._facts_cache is not None and
+                        self._facts_cache_user_id == user_id and
+                        current_time - self._facts_cache_time < self._facts_cache_ttl):
+                        user_facts = self._facts_cache
+                    else:
+                        user_facts = await asyncio.to_thread(
+                            self.db_manager.get_user_facts, user_id, 10
+                        )
+                        self._facts_cache = user_facts
+                        self._facts_cache_user_id = user_id
+                        self._facts_cache_time = current_time
                     if user_facts:
                         fact_strs = [f"{f['subject']}{f['predicate']}{f['object']}" for f in user_facts[:8]]
                         parts.append(f"<facts>{'; '.join(fact_strs)}</facts>")
@@ -704,7 +742,7 @@ class MemoryCapsulePlugin(Star):
 
             if current_time - self._last_decay_time >= self._decay_interval:
                 try:
-                    await asyncio.to_thread(self.db_manager.apply_memory_decay)
+                    asyncio.ensure_future(asyncio.to_thread(self.db_manager.apply_memory_decay))
                     self._last_decay_time = current_time
                 except Exception:
                     pass

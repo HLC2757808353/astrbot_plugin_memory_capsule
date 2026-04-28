@@ -360,5 +360,53 @@
     "hint": "0-1之间，0.7=70%词汇重叠才合并。越大越严格，越小越容易合并",
     "editable": true,
     "display_name": "合并相似度阈值"
+  },
+  "passive_memory_enabled": {
+    "description": "启用被动记忆（零AI调用，自动从用户消息中识别并保存重要信息，如待办/身份/偏好/约定等）",
+    "type": "bool",
+    "default": true,
+    "hint": "开启后用户说'我喜欢编程'会自动保存[偏好]，说'记得明天开会'会自动保存[待办]，不需要AI调用write_memory",
+    "editable": true,
+    "display_name": "被动记忆"
+  },
+  "vector_search_enabled": {
+    "description": "启用RAG向量搜索（需要配置Embedding Provider，实现语义级记忆检索）",
+    "type": "bool",
+    "default": true,
+    "hint": "开启后搜索'喜欢编程'也能匹配到'热爱写代码'。需在AstrBot后台配置Embedding Provider（如OpenAI text-embedding）。未配置时自动降级为BM25/TF-IDF",
+    "editable": true,
+    "display_name": "RAG向量搜索"
+  },
+  "vector_search_threshold": {
+    "description": "向量搜索相似度阈值（0-1）",
+    "type": "float",
+    "default": 0.3,
+    "hint": "低于此阈值的结果被过滤。0.3=宽松（召回多），0.5=严格（精度高）",
+    "editable": true,
+    "display_name": "向量搜索阈值"
+  },
+  "working_memory_cache_ttl": {
+    "description": "工作记忆缓存时间（秒）",
+    "type": "int",
+    "default": 120,
+    "hint": "缓存期内不重复查询数据库。0=禁用缓存。建议60-300",
+    "editable": true,
+    "display_name": "工作记忆缓存"
+  },
+  "relation_cache_ttl": {
+    "description": "关系信息缓存时间（秒）",
+    "type": "int",
+    "default": 300,
+    "hint": "同一用户缓存期内不重复查询。0=禁用缓存",
+    "editable": true,
+    "display_name": "关系缓存"
+  },
+  "facts_cache_ttl": {
+    "description": "事实信息缓存时间（秒）",
+    "type": "int",
+    "default": 180,
+    "hint": "同一用户缓存期内不重复查询。0=禁用缓存",
+    "editable": true,
+    "display_name": "事实缓存"
   }
 }

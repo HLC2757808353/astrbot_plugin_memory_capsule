@@ -191,13 +191,10 @@ class WebUIServer:
         @self.app.route('/api/memories/<int:memory_id>/detail')
         @self._require_auth
         def api_get_memory_detail(memory_id):
-            conn = self.db_manager._get_connection()
             try:
-                cursor = conn.cursor()
-                cursor.execute('SELECT id, content, category, importance, tags, access_count, created_at FROM memories WHERE id = ?', (memory_id,))
-                row = cursor.fetchone()
+                row = self.db_manager.get_memory_by_id(memory_id)
                 if row:
-                    return jsonify(dict(row))
+                    return jsonify(row)
                 return jsonify({'error': 'not found'}), 404
             except Exception as e:
                 return jsonify({'error': str(e)}), 500
@@ -208,13 +205,10 @@ class WebUIServer:
             data = request.json
             importance = data.get('importance')
             if importance == 'boost':
-                conn = self.db_manager._get_connection()
                 try:
-                    cursor = conn.cursor()
-                    cursor.execute('SELECT importance FROM memories WHERE id = ?', (memory_id,))
-                    row = cursor.fetchone()
+                    row = self.db_manager.get_memory_by_id(memory_id)
                     if row:
-                        new_imp = min(dict(row)['importance'] + 1, 10)
+                        new_imp = min(row.get('importance', 5) + 1, 10)
                         result = self.db_manager.update_memory(memory_id=memory_id, importance=new_imp)
                     else:
                         result = "Memory not found"
@@ -420,22 +414,33 @@ class WebUIServer:
         def api_stats():
             try:
                 stats = self.db_manager.get_memory_stats()
+                vs = self.db_manager.vector_search
+                stats['rag_available'] = vs.available
+                stats['rag_vector_count'] = len(vs._id_map) if vs._index else 0
+                stats['rag_dim'] = vs._dim
                 return jsonify(stats)
             except Exception as e:
                 return jsonify({'error': str(e)}), 500
+
+        @self.app.route('/api/rag/rebuild', methods=['POST'])
+        @self._require_auth
+        def api_rag_rebuild():
+            try:
+                import asyncio
+                vs = self.db_manager.vector_search
+                if not vs.available:
+                    return jsonify({'result': 'RAG not available (no embedding provider or faiss)'}), 400
+                count = asyncio.get_event_loop().run_until_complete(vs.rebuild_index_from_db())
+                return jsonify({'result': f'Rebuilt index with {count} vectors'})
+            except Exception as e:
+                return jsonify({'result': f'Rebuild failed: {e}'}), 500
 
         @self.app.route('/api/dreams')
         @self._require_auth
         def api_dreams():
             try:
-                conn = self.db_manager._get_connection()
-                cursor = conn.cursor()
-                cursor.execute('SELECT id, dream_date, summary, memories_reviewed, conversations_reviewed, insights, new_memories_created, consolidation_done, created_at FROM dream_logs ORDER BY created_at DESC LIMIT 50')
-                rows = cursor.fetchall()
-                dreams = [dict(r) for r in rows]
-                cursor.execute('SELECT COUNT(*) FROM dream_logs')
-                total = cursor.fetchone()[0]
-                return jsonify({'dreams': dreams, 'total': total})
+                result = self.db_manager.get_dream_logs_for_web(50)
+                return jsonify(result)
             except Exception as e:
                 return jsonify({'dreams': [], 'total': 0, 'error': str(e)})
 
@@ -443,12 +448,9 @@ class WebUIServer:
         @self._require_auth
         def api_dream_detail(dream_id):
             try:
-                conn = self.db_manager._get_connection()
-                cursor = conn.cursor()
-                cursor.execute('SELECT * FROM dream_logs WHERE id = ?', (dream_id,))
-                row = cursor.fetchone()
+                row = self.db_manager.get_dream_detail(dream_id)
                 if row:
-                    return jsonify(dict(row))
+                    return jsonify(row)
                 return jsonify({'error': 'not found'}), 404
             except Exception as e:
                 return jsonify({'error': str(e)}), 500
