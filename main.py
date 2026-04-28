@@ -12,7 +12,7 @@ from .security import validate_content, sanitize_content, filter_relationship_co
 
 _IMPORTANT_KEYWORDS = frozenset(['约定','承诺','重要','记得','提醒','待办'])
 
-@register("memory_capsule", "引灯续昼", "记忆胶囊插件", "v0.21.0", "https://github.com/HLC2757808353/astrbot_plugin_memory_capsule")
+@register("memory_capsule", "引灯续昼", "记忆胶囊插件", "v0.22.0", "https://github.com/HLC2757808353/astrbot_plugin_memory_capsule")
 class MemoryCapsulePlugin(Star):
     def __init__(self, context: Context, config=None):
         super().__init__(context)
@@ -664,6 +664,25 @@ class MemoryCapsulePlugin(Star):
                                     parts.append(f"<cross_group_facts>{'; '.join(cross_strs)}</cross_group_facts>")
                         except Exception:
                             pass
+                except Exception:
+                    pass
+
+            if self.config.get('recent_utterances_enabled', True):
+                try:
+                    user_msg = req.prompt or ''
+                    current_group = ""
+                    try: current_group = event.get_group_id() or ""
+                    except Exception: pass
+                    recent = await asyncio.to_thread(
+                        self.db_manager.search_recent_utterances, user_id, user_msg, current_group, 5
+                    )
+                    if recent:
+                        utter_strs = []
+                        for r in recent:
+                            gid = r.get('group_id', '')
+                            time_str = r.get('created_at', '')[:16] if r.get('created_at') else ''
+                            utter_strs.append(f"[{gid}]{r['content'][:60]}({time_str})")
+                        parts.append(f"<recent_utterances>{'; '.join(utter_strs)}</recent_utterances>")
                 except Exception:
                     pass
 

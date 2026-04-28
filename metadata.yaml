@@ -1,6 +1,6 @@
 name: astrbot_plugin_memory_capsule
 display_name: 记忆胶囊
-desc: RAG混合记忆系统 - 毛玻璃WebUI·梦境记忆页·database locked修复·数据持久化
-version: v0.21.0
+desc: RAG混合记忆系统 - 短期共享记忆池·数据库自修复·毛玻璃WebUI·跨群联想
+version: v0.22.0
 author: 引灯续昼
 repo: https://github.com/HLC2757808353/astrbot_plugin_memory_capsule

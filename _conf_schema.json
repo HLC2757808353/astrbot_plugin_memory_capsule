@@ -297,6 +297,22 @@
     "editable": true,
     "display_name": "跨群联想"
   },
+  "recent_utterances_enabled": {
+    "description": "启用短期共享记忆池（记录用户最近发言，跨群检索同一人是否说过类似的话）",
+    "type": "bool",
+    "default": true,
+    "hint": "开启后AI能知道同一用户在其他群问过同样的问题。如'群A问认识我吗→群B再问时AI知道之前问过'",
+    "editable": true,
+    "display_name": "短期共享记忆"
+  },
+  "recent_utterances_pool_size": {
+    "description": "短期共享记忆池最大条数",
+    "type": "int",
+    "default": 100,
+    "hint": "超出后自动清理最旧的记录。100条约30KB，不影响内存",
+    "editable": true,
+    "display_name": "记忆池容量"
+  },
   "tfidf_search_enabled": {
     "description": "启用TF-IDF语义相似度搜索（无需向量数据库的轻量语义检索）",
     "type": "bool",

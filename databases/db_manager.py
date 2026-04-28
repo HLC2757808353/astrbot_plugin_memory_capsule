@@ -65,14 +65,60 @@ class DatabaseManager:
 
     def _get_connection(self):
         if not hasattr(self._local, 'conn') or self._local.conn is None:
-            conn = sqlite3.connect(self.db_path, check_same_thread=False, timeout=30)
-            conn.row_factory = sqlite3.Row
-            conn.execute('PRAGMA foreign_keys = ON')
-            conn.execute('PRAGMA journal_mode = WAL')
-            conn.execute('PRAGMA synchronous = NORMAL')
-            conn.execute('PRAGMA busy_timeout = 30000')
-            self._local.conn = conn
+            try:
+                conn = sqlite3.connect(self.db_path, check_same_thread=False, timeout=30)
+                conn.row_factory = sqlite3.Row
+                conn.execute('PRAGMA foreign_keys = ON')
+                conn.execute('PRAGMA journal_mode = WAL')
+                conn.execute('PRAGMA synchronous = NORMAL')
+                conn.execute('PRAGMA busy_timeout = 30000')
+                conn.execute('PRAGMA integrity_check')
+                self._local.conn = conn
+            except Exception as e:
+                logger.error(f"Database connection error: {e}, attempting repair...")
+                self._repair_database()
+                conn = sqlite3.connect(self.db_path, check_same_thread=False, timeout=30)
+                conn.row_factory = sqlite3.Row
+                conn.execute('PRAGMA foreign_keys = ON')
+                conn.execute('PRAGMA journal_mode = WAL')
+                conn.execute('PRAGMA synchronous = NORMAL')
+                conn.execute('PRAGMA busy_timeout = 30000')
+                self._local.conn = conn
         return self._local.conn
+
+    def _repair_database(self):
+        if not self.db_path or not os.path.exists(self.db_path):
+            return
+        logger.warning(f"Attempting database repair: {self.db_path}")
+        try:
+            if hasattr(self._local, 'conn') and self._local.conn:
+                try: self._local.conn.close()
+                except Exception: pass
+                self._local.conn = None
+            repair_path = self.db_path + '.repair'
+            if os.path.exists(repair_path):
+                os.remove(repair_path)
+            conn = sqlite3.connect(repair_path)
+            conn.execute(f"ATTACH DATABASE '{self.db_path}' AS old")
+            conn.execute("SELECT name FROM old.sqlite_master WHERE type='table'")
+            tables = [r[0] for r in conn.fetchall()]
+            for table in tables:
+                if table.startswith('sqlite_'):
+                    continue
+                try:
+                    conn.execute(f"CREATE TABLE {table} AS SELECT * FROM old.{table}")
+                except Exception:
+                    pass
+            conn.execute("DETACH DATABASE old")
+            conn.close()
+            import shutil
+            shutil.move(self.db_path, self.db_path + '.bak')
+            shutil.move(repair_path, self.db_path)
+            logger.info("Database repair completed successfully")
+        except Exception as e:
+            logger.error(f"Database repair failed: {e}")
+            if os.path.exists(self.db_path + '.bak') and not os.path.exists(self.db_path):
+                shutil.move(self.db_path + '.bak', self.db_path)
 
     def initialize(self, data_dir=None):
         if data_dir:
@@ -97,6 +143,7 @@ class DatabaseManager:
             logger.info(f"Migrated database from plugin dir to persistent dir")
 
         self._initialize_database_structure()
+        self._check_integrity()
         self._migrate_old_data()
         if not self.config.get('lightweight_mode', False):
             _get_jieba()
@@ -104,6 +151,24 @@ class DatabaseManager:
         self.backup_manager = BackupManager(self.db_path, self.config)
         self.backup_manager.start_auto_backup()
         logger.info(f"Database initialized: {self.db_path}")
+
+    def _check_integrity(self):
+        try:
+            conn = sqlite3.connect(self.db_path, timeout=10)
+            cursor = conn.cursor()
+            cursor.execute('PRAGMA integrity_check')
+            result = cursor.fetchone()
+            conn.close()
+            if result and result[0] != 'ok':
+                logger.warning(f"Database integrity check failed: {result[0]}, running repair...")
+                self._repair_database()
+                self._initialize_database_structure()
+            else:
+                logger.info("Database integrity check passed")
+        except Exception as e:
+            logger.warning(f"Database integrity check error: {e}, running repair...")
+            self._repair_database()
+            self._initialize_database_structure()
 
     def _migrate_old_data(self):
         conn = self._get_connection()
@@ -338,7 +403,17 @@ class DatabaseManager:
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_facts_subject ON auto_facts(subject)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_facts_predicate ON auto_facts(predicate)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_facts_user ON auto_facts(user_id)')
-            cursor.execute('CREATE INDEX IF NOT EXISTS idx_facts_type ON auto_facts(fact_type)')
+            cursor.execute('''CREATE INDEX IF NOT EXISTS idx_facts_type ON auto_facts(fact_type)''')
+
+            cursor.execute('''CREATE TABLE IF NOT EXISTS recent_utterances (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL,
+                content TEXT NOT NULL,
+                group_id TEXT DEFAULT '',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )''')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_utterances_user ON recent_utterances(user_id)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_utterances_time ON recent_utterances(created_at)')
 
             cursor.execute('''CREATE INDEX IF NOT EXISTS idx_memories_category ON memories(category)''')
             cursor.execute('''CREATE INDEX IF NOT EXISTS idx_memories_importance ON memories(importance)''')
@@ -977,6 +1052,22 @@ class DatabaseManager:
                 'INSERT INTO conversation_logs (role, content, user_id, group_id, topics) VALUES (?, ?, ?, ?, ?)',
                 (role, content[:500], str(user_id), str(group_id), topics)
             )
+            if role == 'user' and content.strip() and user_id:
+                try:
+                    cursor.execute(
+                        'INSERT INTO recent_utterances (user_id, content, group_id) VALUES (?, ?, ?)',
+                        (str(user_id), content[:300], str(group_id))
+                    )
+                    max_pool = self.config.get('recent_utterances_pool_size', 100)
+                    cursor.execute('SELECT COUNT(*) FROM recent_utterances')
+                    count = cursor.fetchone()[0]
+                    if count > max_pool * 1.5:
+                        cursor.execute(
+                            'DELETE FROM recent_utterances WHERE id NOT IN (SELECT id FROM recent_utterances ORDER BY created_at DESC LIMIT ?)',
+                            (max_pool,)
+                        )
+                except Exception:
+                    pass
             conn.commit()
             if role == 'user' and content.strip():
                 try:
@@ -2014,6 +2105,45 @@ class DatabaseManager:
                     seen.add(key)
                     unique.append(f)
             return unique[:limit]
+        except Exception:
+            return []
+
+    def search_recent_utterances(self, user_id, query, current_group='', limit=5):
+        conn = self._get_connection()
+        try:
+            cutoff = (datetime.now() - timedelta(hours=24)).isoformat()
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT user_id, content, group_id, created_at FROM recent_utterances "
+                "WHERE user_id = ? AND created_at > ? ORDER BY created_at DESC LIMIT ?",
+                (str(user_id), cutoff, limit * 3)
+            )
+            user_recent = [dict(r) for r in cursor.fetchall()]
+
+            query_words = set(re.findall(r'\w{2,}', query.lower()))
+            if not query_words:
+                return user_recent[:limit]
+
+            scored = []
+            for u in user_recent:
+                content_words = set(re.findall(r'\w{2,}', u['content'].lower()))
+                overlap = len(query_words & content_words)
+                if overlap > 0:
+                    scored.append((overlap, u))
+            scored.sort(key=lambda x: x[0], reverse=True)
+            results = [u for _, u in scored[:limit]]
+
+            if len(results) < limit and self.config.get('cross_group_association_enabled', True):
+                cursor.execute(
+                    "SELECT user_id, content, group_id, created_at FROM recent_utterances "
+                    "WHERE content LIKE ? AND created_at > ? AND user_id != ? "
+                    "ORDER BY created_at DESC LIMIT ?",
+                    (f'%{list(query_words)[0]}%', cutoff, str(user_id), limit)
+                )
+                other_recent = [dict(r) for r in cursor.fetchall()]
+                results.extend(other_recent[:limit - len(results)])
+
+            return results[:limit]
         except Exception:
             return []
 
