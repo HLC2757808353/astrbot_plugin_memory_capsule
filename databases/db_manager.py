@@ -41,95 +41,86 @@ class DatabaseManager:
             maxsize=self.config.get('max_cache_size', 50),
             ttl=self.config.get('cache_ttl', 120)
         )
-        self._conn = None
-        self._lock = threading.Lock()
+        self._write_lock = threading.Lock()
         self.backup_manager = None
         self.vector_search = VectorSearch(self, config)
 
     def _get_connection(self):
-        if self._conn is None:
-            conn = sqlite3.connect(self.db_path, check_same_thread=False, timeout=30)
-            conn.row_factory = sqlite3.Row
-            conn.execute('PRAGMA foreign_keys = ON')
-            conn.execute('PRAGMA journal_mode = WAL')
-            conn.execute('PRAGMA synchronous = NORMAL')
-            conn.execute('PRAGMA busy_timeout = 30000')
-            conn.execute('PRAGMA cache_size = -2000')
-            self._conn = conn
-        return self._conn
-
-    def _reset_connection(self):
-        if self._conn:
-            try: self._conn.close()
-            except Exception: pass
-        self._conn = None
+        conn = sqlite3.connect(self.db_path, check_same_thread=False, timeout=30)
+        conn.row_factory = sqlite3.Row
+        conn.execute('PRAGMA foreign_keys = ON')
+        conn.execute('PRAGMA journal_mode = WAL')
+        conn.execute('PRAGMA synchronous = NORMAL')
+        conn.execute('PRAGMA busy_timeout = 30000')
+        conn.execute('PRAGMA cache_size = -2000')
+        return conn
 
     def _execute_write(self, func, max_retries=3):
         import time
         for attempt in range(max_retries):
-            try:
-                with self._lock:
+            with self._write_lock:
+                conn = None
+                try:
                     conn = self._get_connection()
                     result = func(conn)
                     conn.commit()
                     return result
-            except sqlite3.IntegrityError:
-                return "already_exists"
-            except Exception as e:
-                err_msg = str(e).lower()
-                if 'malformed' in err_msg:
-                    logger.warning("Database malformed, attempting repair...")
-                    with self._lock:
-                        self._reset_connection()
-                    self._repair_database()
-                    try:
-                        with self._lock:
+                except sqlite3.IntegrityError:
+                    return "already_exists"
+                except Exception as e:
+                    err_msg = str(e).lower()
+                    if 'malformed' in err_msg:
+                        logger.warning("Database malformed, attempting repair...")
+                        if conn:
+                            try: conn.close()
+                            except Exception: pass
+                        self._repair_database()
+                        try:
                             conn = self._get_connection()
                             result = func(conn)
                             conn.commit()
                             return result
-                    except Exception as e2:
-                        logger.error(f"Retry after repair failed: {e2}")
-                        with self._lock:
-                            self._reset_connection()
-                        return None
-                if 'locked' in err_msg and attempt < max_retries - 1:
-                    logger.warning(f"Database locked attempt {attempt+1}/{max_retries}, retrying...")
-                    with self._lock:
-                        self._reset_connection()
-                    time.sleep(0.2 * (attempt + 1))
-                    continue
-                logger.error(f"Write error: {e}")
-                with self._lock:
-                    self._reset_connection()
-                return None
+                        except Exception as e2:
+                            logger.error(f"Retry after repair failed: {e2}")
+                            return None
+                    if 'locked' in err_msg and attempt < max_retries - 1:
+                        logger.warning(f"Database locked attempt {attempt+1}/{max_retries}, retrying...")
+                        time.sleep(0.3 * (attempt + 1))
+                        continue
+                    logger.error(f"Write error: {e}")
+                    return None
+                finally:
+                    if conn:
+                        try: conn.close()
+                        except Exception: pass
         logger.error(f"Write failed after {max_retries} attempts")
         return None
 
     def _execute_read(self, func, max_retries=2):
         import time
         for attempt in range(max_retries):
+            conn = None
             try:
-                with self._lock:
-                    conn = self._get_connection()
-                    return func(conn)
+                conn = self._get_connection()
+                return func(conn)
             except Exception as e:
                 err_msg = str(e).lower()
                 if ('locked' in err_msg or 'malformed' in err_msg) and attempt < max_retries - 1:
                     logger.debug(f"Read error attempt {attempt+1}: {e}")
-                    with self._lock:
-                        self._reset_connection()
                     time.sleep(0.1 * (attempt + 1))
                     continue
                 logger.debug(f"Read error: {e}")
                 return None
+            finally:
+                if conn:
+                    try: conn.close()
+                    except Exception: pass
         return None
 
     def _repair_database(self):
         if not self.db_path or not os.path.exists(self.db_path):
             return
         logger.warning(f"Attempting database repair: {self.db_path}")
-        self._reset_connection()
         for ext in ['-wal', '-shm']:
             p = self.db_path + ext
             if os.path.exists(p):
@@ -353,11 +344,6 @@ class DatabaseManager:
         if self.backup_manager: self.backup_manager.stop_auto_backup()
         if self.vector_search and self.db_path:
             self.vector_search.save_index(os.path.dirname(self.db_path))
-        with self._lock:
-            if self._conn:
-                try: self._conn.close()
-                except Exception: pass
-                self._conn = None
         self.cache.clear()
         logger.info("Database closed")
 
@@ -1038,9 +1024,8 @@ class DatabaseManager:
     def _extract_facts(self, content, user_id=''):
         nickname = None
         try:
-            def _get_nick():
-                if not self._conn: return None
-                cursor = self._conn.cursor()
+            def _get_nick(conn):
+                cursor = conn.cursor()
                 cursor.execute('SELECT nickname FROM relationships WHERE user_id = ?', (user_id,))
                 row = cursor.fetchone()
                 return row[0] if row else None
@@ -1330,17 +1315,37 @@ class DatabaseManager:
             'INSERT OR REPLACE INTO daily_summaries (summary_date, summary, key_topics, group_id, active_users, importance) VALUES (?, ?, ?, ?, ?, ?)',
             (summary_date, str(summary)[:2000], str(key_topics)[:200], str(group_id), str(active_users)[:300], int(importance or 5)))
 
+    def _stratified_sample(self, rows, max_count):
+        if len(rows) <= max_count:
+            return rows
+        n_bins = min(8, max_count // 10)
+        if n_bins < 2:
+            n_bins = 2
+        bin_size = len(rows) // n_bins
+        per_bin = max_count // n_bins
+        sampled = []
+        for i in range(n_bins):
+            start = i * bin_size
+            end = start + bin_size if i < n_bins - 1 else len(rows)
+            bin_rows = rows[start:end]
+            step = max(1, len(bin_rows) // per_bin)
+            sampled.extend(bin_rows[::step][:per_bin])
+        if len(sampled) > max_count:
+            sampled = sampled[:max_count]
+        return sampled
+
     def _generate_group_summary_internal(self, conn, group_id, hours):
         cutoff = (datetime.now() - timedelta(hours=hours)).isoformat()
         cursor = conn.cursor()
         max_messages = self.config.get('summary_max_messages', 500)
         max_chars = self.config.get('summary_max_chars', 100000)
         if group_id:
-            cursor.execute("SELECT content, user_id FROM conversation_logs WHERE created_at > ? AND group_id = ? AND role = 'user' ORDER BY created_at ASC LIMIT ?", (cutoff, str(group_id), max_messages))
+            cursor.execute("SELECT content, user_id, created_at FROM conversation_logs WHERE created_at > ? AND group_id = ? AND role = 'user' ORDER BY created_at ASC", (cutoff, str(group_id)))
         else:
-            cursor.execute("SELECT content, user_id FROM conversation_logs WHERE created_at > ? AND role = 'user' ORDER BY created_at ASC LIMIT ?", (cutoff, max_messages))
-        rows = cursor.fetchall()
-        if not rows: return None
+            cursor.execute("SELECT content, user_id, created_at FROM conversation_logs WHERE created_at > ? AND role = 'user' ORDER BY created_at ASC", (cutoff,))
+        all_rows = cursor.fetchall()
+        if not all_rows: return None
+        rows = self._stratified_sample(all_rows, max_messages)
         contents = []
         total_chars = 0
         for r in rows:
