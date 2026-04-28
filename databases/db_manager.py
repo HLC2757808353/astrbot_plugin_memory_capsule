@@ -65,60 +65,96 @@ class DatabaseManager:
 
     def _get_connection(self):
         if not hasattr(self._local, 'conn') or self._local.conn is None:
-            try:
-                conn = sqlite3.connect(self.db_path, check_same_thread=False, timeout=30)
-                conn.row_factory = sqlite3.Row
-                conn.execute('PRAGMA foreign_keys = ON')
-                conn.execute('PRAGMA journal_mode = WAL')
-                conn.execute('PRAGMA synchronous = NORMAL')
-                conn.execute('PRAGMA busy_timeout = 30000')
-                conn.execute('PRAGMA integrity_check')
-                self._local.conn = conn
-            except Exception as e:
-                logger.error(f"Database connection error: {e}, attempting repair...")
-                self._repair_database()
-                conn = sqlite3.connect(self.db_path, check_same_thread=False, timeout=30)
-                conn.row_factory = sqlite3.Row
-                conn.execute('PRAGMA foreign_keys = ON')
-                conn.execute('PRAGMA journal_mode = WAL')
-                conn.execute('PRAGMA synchronous = NORMAL')
-                conn.execute('PRAGMA busy_timeout = 30000')
-                self._local.conn = conn
+            conn = sqlite3.connect(self.db_path, check_same_thread=False, timeout=30)
+            conn.row_factory = sqlite3.Row
+            conn.execute('PRAGMA foreign_keys = ON')
+            conn.execute('PRAGMA journal_mode = WAL')
+            conn.execute('PRAGMA synchronous = NORMAL')
+            conn.execute('PRAGMA busy_timeout = 30000')
+            self._local.conn = conn
         return self._local.conn
+
+    def _reset_connection(self):
+        if hasattr(self._local, 'conn') and self._local.conn:
+            try: self._local.conn.close()
+            except Exception: pass
+        self._local.conn = None
+
+    def _safe_execute(self, func, *args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            err_msg = str(e).lower()
+            if 'malformed' in err_msg or 'locked' in err_msg or 'disk' in err_msg:
+                logger.warning(f"Database error detected: {e}, resetting connection and retrying...")
+                self._reset_connection()
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e2:
+                    logger.error(f"Retry also failed: {e2}")
+                    return None
+            logger.error(f"Database operation error: {e}")
+            return None
 
     def _repair_database(self):
         if not self.db_path or not os.path.exists(self.db_path):
             return
         logger.warning(f"Attempting database repair: {self.db_path}")
-        try:
-            if hasattr(self._local, 'conn') and self._local.conn:
-                try: self._local.conn.close()
-                except Exception: pass
-                self._local.conn = None
-            repair_path = self.db_path + '.repair'
-            if os.path.exists(repair_path):
-                os.remove(repair_path)
-            conn = sqlite3.connect(repair_path)
-            conn.execute(f"ATTACH DATABASE '{self.db_path}' AS old")
-            conn.execute("SELECT name FROM old.sqlite_master WHERE type='table'")
-            tables = [r[0] for r in conn.fetchall()]
-            for table in tables:
-                if table.startswith('sqlite_'):
-                    continue
+        self._reset_connection()
+        for ext in ['-wal', '-shm']:
+            p = self.db_path + ext
+            if os.path.exists(p):
                 try:
-                    conn.execute(f"CREATE TABLE {table} AS SELECT * FROM old.{table}")
+                    os.remove(p)
+                    logger.info(f"Removed {p}")
                 except Exception:
                     pass
-            conn.execute("DETACH DATABASE old")
-            conn.close()
+        try:
+            test_conn = sqlite3.connect(self.db_path, timeout=10)
+            test_cur = test_conn.cursor()
+            test_cur.execute('PRAGMA integrity_check')
+            result = test_cur.fetchone()
+            test_conn.close()
+            if result and result[0] == 'ok':
+                logger.info("Database OK after WAL cleanup")
+                return
+        except Exception:
+            pass
+        logger.warning("WAL cleanup not enough, attempting dump recovery...")
+        try:
             import shutil
-            shutil.move(self.db_path, self.db_path + '.bak')
-            shutil.move(repair_path, self.db_path)
-            logger.info("Database repair completed successfully")
+            bak_path = self.db_path + '.bak'
+            if os.path.exists(bak_path):
+                os.remove(bak_path)
+            shutil.copy2(self.db_path, bak_path)
+            for ext in ['-wal', '-shm']:
+                p = self.db_path + ext
+                if os.path.exists(p):
+                    try: os.remove(p)
+                    except Exception: pass
+            dump_lines = []
+            try:
+                old_conn = sqlite3.connect(bak_path)
+                old_conn.text_factory = lambda b: b.decode('utf-8', errors='replace')
+                for line in old_conn.iterdump():
+                    dump_lines.append(line)
+                old_conn.close()
+            except Exception as e:
+                logger.warning(f"Dump from backup failed: {e}")
+            if os.path.exists(self.db_path):
+                os.remove(self.db_path)
+            new_conn = sqlite3.connect(self.db_path)
+            if dump_lines:
+                new_conn.executescript('\n'.join(dump_lines))
+            new_conn.close()
+            logger.info("Database dump recovery completed")
         except Exception as e:
-            logger.error(f"Database repair failed: {e}")
-            if os.path.exists(self.db_path + '.bak') and not os.path.exists(self.db_path):
-                shutil.move(self.db_path + '.bak', self.db_path)
+            logger.error(f"Database dump recovery failed: {e}")
+            if os.path.exists(self.db_path):
+                try: os.remove(self.db_path)
+                except Exception: pass
+            if os.path.exists(bak_path):
+                shutil.copy2(bak_path, self.db_path)
 
     def initialize(self, data_dir=None):
         if data_dir:
@@ -492,19 +528,17 @@ class DatabaseManager:
     # ==================== Memory Operations ====================
 
     def write_memory(self, content, category=None, importance=5, tags=None, source='user'):
-        conn = self._get_connection()
-        try:
+        def _do_write():
+            conn = self._get_connection()
             content_hash = hashlib.md5(content.encode('utf-8')).hexdigest()
             cursor = conn.cursor()
             cursor.execute('SELECT id FROM memories WHERE hash = ?', (content_hash,))
             if cursor.fetchone():
                 return "Memory already exists"
-
             if tags is None:
                 tags = self._extract_tags(content)
             if category is None:
                 category = self._guess_category(content)
-
             cursor.execute(
                 'INSERT INTO memories (content, category, importance, tags, source, hash) VALUES (?, ?, ?, ?, ?, ?)',
                 (content, category, importance, ','.join(tags) if isinstance(tags, list) else tags, source, content_hash)
@@ -512,17 +546,17 @@ class DatabaseManager:
             memory_id = cursor.lastrowid
             self._record_activity(memory_id, 'create', content[:50])
             conn.commit()
-
             cache_key = f"search_{content[:20]}"
             if cache_key in self.cache:
                 del self.cache[cache_key]
-
             return f"Memory saved (ID:{memory_id})"
+        try:
+            result = self._safe_execute(_do_write)
+            if result is not None:
+                return result
+            return "Error: database operation failed"
         except sqlite3.IntegrityError:
             return "Memory already exists"
-        except Exception as e:
-            logger.error(f"Write memory error: {e}")
-            return f"Error: {e}"
 
     def search_memory(self, query, category_filter=None, limit=None):
         conn = self._get_connection()
@@ -580,8 +614,8 @@ class DatabaseManager:
             return []
 
     def delete_memory(self, memory_id):
-        conn = self._get_connection()
-        try:
+        def _do_delete():
+            conn = self._get_connection()
             cursor = conn.cursor()
             cursor.execute('SELECT content FROM memories WHERE id = ?', (memory_id,))
             row = cursor.fetchone()
@@ -594,18 +628,16 @@ class DatabaseManager:
             conn.commit()
             self.cache.clear()
             return f"Memory deleted (ID:{memory_id})"
-        except Exception as e:
-            logger.error(f"Delete memory error: {e}")
-            return f"Error: {e}"
+        result = self._safe_execute(_do_delete)
+        return result if result is not None else "Error: database operation failed"
 
     def update_memory(self, memory_id, content=None, category=None, importance=None, tags=None):
-        conn = self._get_connection()
-        try:
+        def _do_update():
+            conn = self._get_connection()
             cursor = conn.cursor()
             cursor.execute('SELECT * FROM memories WHERE id = ?', (memory_id,))
             if not cursor.fetchone():
                 return "Memory not found"
-
             updates = []
             params = []
             if content is not None:
@@ -625,19 +657,16 @@ class DatabaseManager:
             if tags is not None and tags != '':
                 updates.append("tags = ?")
                 params.append(','.join(tags) if isinstance(tags, list) else tags)
-
             updates.append("updated_at = ?")
             params.append(datetime.now().isoformat())
             params.append(memory_id)
-
             cursor.execute(f'UPDATE memories SET {", ".join(updates)} WHERE id = ?', params)
             conn.commit()
             self.cache.clear()
             self._record_activity(memory_id, 'update', f'importance={importance}' if importance else 'content updated')
             return f"Memory updated (ID:{memory_id})"
-        except Exception as e:
-            logger.error(f"Update memory error: {e}")
-            return f"Error: {e}"
+        result = self._safe_execute(_do_update)
+        return result if result is not None else "Error: database operation failed"
 
     def get_all_memories(self, limit=100, offset=0, category=None):
         conn = self._get_connection()

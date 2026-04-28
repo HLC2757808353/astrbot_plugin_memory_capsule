@@ -12,7 +12,7 @@ from .security import validate_content, sanitize_content, filter_relationship_co
 
 _IMPORTANT_KEYWORDS = frozenset(['约定','承诺','重要','记得','提醒','待办'])
 
-@register("memory_capsule", "引灯续昼", "记忆胶囊插件", "v0.22.0", "https://github.com/HLC2757808353/astrbot_plugin_memory_capsule")
+@register("memory_capsule", "引灯续昼", "记忆胶囊插件", "v0.22.1", "https://github.com/HLC2757808353/astrbot_plugin_memory_capsule")
 class MemoryCapsulePlugin(Star):
     def __init__(self, context: Context, config=None):
         super().__init__(context)
