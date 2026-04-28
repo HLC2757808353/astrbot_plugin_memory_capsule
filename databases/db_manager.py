@@ -3,7 +3,6 @@ import os
 import re
 import math
 import hashlib
-import threading
 from datetime import datetime, timedelta
 from cachetools import TTLCache
 from .vector_search import VectorSearch
@@ -45,76 +44,74 @@ class DatabaseManager:
         self.vector_search = VectorSearch(self, config)
 
     def _get_connection(self):
-        conn = sqlite3.connect(self.db_path, check_same_thread=False, timeout=30)
+        conn = sqlite3.connect(self.db_path, check_same_thread=False, timeout=60)
         conn.row_factory = sqlite3.Row
         conn.execute('PRAGMA foreign_keys = ON')
         conn.execute('PRAGMA journal_mode = WAL')
         conn.execute('PRAGMA synchronous = NORMAL')
-        conn.execute('PRAGMA busy_timeout = 30000')
+        conn.execute('PRAGMA busy_timeout = 60000')
         conn.execute('PRAGMA cache_size = -2000')
         return conn
 
-    def _execute_write(self, func, max_retries=3):
-        import time
-        for attempt in range(max_retries):
-            conn = None
-            try:
-                conn = self._get_connection()
-                result = func(conn)
-                conn.commit()
-                return result
-            except sqlite3.IntegrityError:
-                return "already_exists"
-            except Exception as e:
-                err_msg = str(e).lower()
-                if 'malformed' in err_msg:
-                    logger.warning("Database malformed, attempting repair...")
-                    if conn:
-                        try: conn.close()
-                        except Exception: pass
-                    conn = None
-                    self._repair_database()
-                    try:
-                        conn = self._get_connection()
-                        result = func(conn)
-                        conn.commit()
-                        return result
-                    except Exception as e2:
-                        logger.error(f"Retry after repair failed: {e2}")
-                        return None
-                if 'locked' in err_msg and attempt < max_retries - 1:
-                    logger.warning(f"Database locked attempt {attempt+1}/{max_retries}, retrying...")
-                    time.sleep(0.5 * (attempt + 1))
-                    continue
-                logger.error(f"Write error: {e}")
-                return None
-            finally:
+    def _execute_write(self, func):
+        conn = None
+        try:
+            conn = self._get_connection()
+            result = func(conn)
+            conn.commit()
+            return result
+        except sqlite3.IntegrityError:
+            return "already_exists"
+        except Exception as e:
+            err_msg = str(e).lower()
+            if 'malformed' in err_msg:
+                logger.warning("Database malformed, attempting repair...")
                 if conn:
                     try: conn.close()
                     except Exception: pass
-        logger.error(f"Write failed after {max_retries} attempts")
-        return None
+                conn = None
+                self._repair_database()
+                try:
+                    conn = self._get_connection()
+                    result = func(conn)
+                    conn.commit()
+                    return result
+                except Exception as e2:
+                    logger.error(f"Retry after repair failed: {e2}")
+                    return None
+            logger.error(f"Write error: {e}")
+            return None
+        finally:
+            if conn:
+                try: conn.close()
+                except Exception: pass
 
-    def _execute_read(self, func, max_retries=2):
-        import time
-        for attempt in range(max_retries):
-            conn = None
-            try:
-                conn = self._get_connection()
-                return func(conn)
-            except Exception as e:
-                err_msg = str(e).lower()
-                if ('locked' in err_msg or 'malformed' in err_msg) and attempt < max_retries - 1:
-                    logger.debug(f"Read error attempt {attempt+1}: {e}")
-                    time.sleep(0.2 * (attempt + 1))
-                    continue
-                logger.debug(f"Read error: {e}")
-                return None
-            finally:
+    def _execute_read(self, func):
+        conn = None
+        try:
+            conn = self._get_connection()
+            return func(conn)
+        except Exception as e:
+            err_msg = str(e).lower()
+            if 'malformed' in err_msg:
+                logger.warning("Database malformed on read, attempting repair...")
                 if conn:
                     try: conn.close()
                     except Exception: pass
-        return None
+                conn = None
+                self._repair_database()
+                try:
+                    conn = self._get_connection()
+                    return func(conn)
+                except Exception as e2:
+                    logger.error(f"Read retry after repair failed: {e2}")
+                    return None
+            logger.debug(f"Read error: {e}")
+            return None
+        finally:
+            if conn:
+                try: conn.close()
+                except Exception: pass
 
     def _repair_database(self):
         if not self.db_path or not os.path.exists(self.db_path):
@@ -246,10 +243,10 @@ class DatabaseManager:
     def _initialize_database_structure(self):
         conn = None
         try:
-            conn = sqlite3.connect(self.db_path, timeout=30)
+            conn = sqlite3.connect(self.db_path, timeout=60)
             conn.execute('PRAGMA journal_mode = WAL')
             conn.execute('PRAGMA foreign_keys = ON')
-            conn.execute('PRAGMA busy_timeout = 30000')
+            conn.execute('PRAGMA busy_timeout = 60000')
             cursor = conn.cursor()
             cursor.execute('''CREATE TABLE IF NOT EXISTS memories (
                 id INTEGER PRIMARY KEY AUTOINCREMENT, content TEXT NOT NULL,

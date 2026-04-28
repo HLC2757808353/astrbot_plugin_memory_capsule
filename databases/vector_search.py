@@ -1,6 +1,5 @@
 import os
 import json
-import threading
 import numpy as np
 
 try:
@@ -24,10 +23,7 @@ class VectorSearch:
         self._index = None
         self._id_map = []
         self._dim = 0
-        self._lock = threading.Lock()
         self._embedding_provider = None
-        self._add_queue = []
-        self._flush_interval = 5
 
     @property
     def available(self):
@@ -66,10 +62,9 @@ class VectorSearch:
             norm = np.linalg.norm(vec)
             if norm > 0:
                 vec = vec / norm
-            with self._lock:
-                self._ensure_index(vec.shape[1])
-                self._index.add(vec)
-                self._id_map.append(memory_id)
+            self._ensure_index(vec.shape[1])
+            self._index.add(vec)
+            self._id_map.append(memory_id)
             return True
         except Exception as e:
             logger.debug(f"RAG add error: {e}")
@@ -87,11 +82,10 @@ class VectorSearch:
             if norm > 0:
                 vec = vec / norm
             threshold = self.config.get('vector_search_threshold', 0.3)
-            with self._lock:
-                k = min(limit, len(self._id_map))
-                if k == 0:
-                    return []
-                scores, indices = self._index.search(vec, k)
+            k = min(limit, len(self._id_map))
+            if k == 0:
+                return []
+            scores, indices = self._index.search(vec, k)
             results = []
             for i in range(len(indices[0])):
                 idx = int(indices[0][i])
@@ -118,19 +112,15 @@ class VectorSearch:
         if not self.available:
             return 0
         try:
-            def _fetch_memories():
-                return self.db_manager.get_all_memories(limit=50000)
-
-            memories = await _fetch_memories()
+            memories = self.db_manager.get_all_memories(limit=50000)
             if not memories:
                 return 0
 
-            with self._lock:
-                if self._dim > 0:
-                    self._index = faiss.IndexFlatIP(self._dim)
-                else:
-                    self._index = None
-                self._id_map = []
+            if self._dim > 0:
+                self._index = faiss.IndexFlatIP(self._dim)
+            else:
+                self._index = None
+            self._id_map = []
 
             count = 0
             batch_size = 20
@@ -145,10 +135,9 @@ class VectorSearch:
                         norm = np.linalg.norm(vec)
                         if norm > 0:
                             vec = vec / norm
-                        with self._lock:
-                            self._ensure_index(vec.shape[1])
-                            self._index.add(vec)
-                            self._id_map.append(m['id'])
+                        self._ensure_index(vec.shape[1])
+                        self._index.add(vec)
+                        self._id_map.append(m['id'])
                         count += 1
                     except Exception:
                         continue
@@ -165,13 +154,12 @@ class VectorSearch:
         if not _faiss_available or self._index is None:
             return
         try:
-            with self._lock:
-                index_path = os.path.join(path, "memory_vectors.index")
-                map_path = os.path.join(path, "memory_vectors_map.json")
-                faiss.write_index(self._index, index_path)
-                with open(map_path, 'w') as f:
-                    json.dump(self._id_map, f)
-                logger.info(f"RAG: index saved ({len(self._id_map)} vectors)")
+            index_path = os.path.join(path, "memory_vectors.index")
+            map_path = os.path.join(path, "memory_vectors_map.json")
+            faiss.write_index(self._index, index_path)
+            with open(map_path, 'w') as f:
+                json.dump(self._id_map, f)
+            logger.info(f"RAG: index saved ({len(self._id_map)} vectors)")
         except Exception as e:
             logger.debug(f"RAG save error: {e}")
 
@@ -183,11 +171,10 @@ class VectorSearch:
             map_path = os.path.join(path, "memory_vectors_map.json")
             if not os.path.exists(index_path) or not os.path.exists(map_path):
                 return False
-            with self._lock:
-                self._index = faiss.read_index(index_path)
-                self._dim = self._index.d
-                with open(map_path, 'r') as f:
-                    self._id_map = json.load(f)
+            self._index = faiss.read_index(index_path)
+            self._dim = self._index.d
+            with open(map_path, 'r') as f:
+                self._id_map = json.load(f)
             logger.info(f"RAG: index loaded ({len(self._id_map)} vectors, dim={self._dim})")
             return True
         except Exception as e:
@@ -195,13 +182,12 @@ class VectorSearch:
             return False
 
     def remove_by_memory_id(self, memory_id):
-        with self._lock:
-            if memory_id in self._id_map:
-                idx = self._id_map.index(memory_id)
-                self._id_map.pop(idx)
-                if self._index is not None and self._index.ntotal > 0:
-                    try:
-                        self._index.remove_ids(np.array([idx]))
-                    except Exception:
-                        self._index = None
-                        logger.debug("RAG: index cleared after removal, needs rebuild")
+        if memory_id in self._id_map:
+            idx = self._id_map.index(memory_id)
+            self._id_map.pop(idx)
+            if self._index is not None and self._index.ntotal > 0:
+                try:
+                    self._index.remove_ids(np.array([idx]))
+                except Exception:
+                    self._index = None
+                    logger.debug("RAG: index cleared after removal, needs rebuild")
