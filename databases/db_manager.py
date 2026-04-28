@@ -41,7 +41,6 @@ class DatabaseManager:
             maxsize=self.config.get('max_cache_size', 50),
             ttl=self.config.get('cache_ttl', 120)
         )
-        self._write_lock = threading.Lock()
         self.backup_manager = None
         self.vector_search = VectorSearch(self, config)
 
@@ -58,41 +57,41 @@ class DatabaseManager:
     def _execute_write(self, func, max_retries=3):
         import time
         for attempt in range(max_retries):
-            with self._write_lock:
-                conn = None
-                try:
-                    conn = self._get_connection()
-                    result = func(conn)
-                    conn.commit()
-                    return result
-                except sqlite3.IntegrityError:
-                    return "already_exists"
-                except Exception as e:
-                    err_msg = str(e).lower()
-                    if 'malformed' in err_msg:
-                        logger.warning("Database malformed, attempting repair...")
-                        if conn:
-                            try: conn.close()
-                            except Exception: pass
-                        self._repair_database()
-                        try:
-                            conn = self._get_connection()
-                            result = func(conn)
-                            conn.commit()
-                            return result
-                        except Exception as e2:
-                            logger.error(f"Retry after repair failed: {e2}")
-                            return None
-                    if 'locked' in err_msg and attempt < max_retries - 1:
-                        logger.warning(f"Database locked attempt {attempt+1}/{max_retries}, retrying...")
-                        time.sleep(0.3 * (attempt + 1))
-                        continue
-                    logger.error(f"Write error: {e}")
-                    return None
-                finally:
+            conn = None
+            try:
+                conn = self._get_connection()
+                result = func(conn)
+                conn.commit()
+                return result
+            except sqlite3.IntegrityError:
+                return "already_exists"
+            except Exception as e:
+                err_msg = str(e).lower()
+                if 'malformed' in err_msg:
+                    logger.warning("Database malformed, attempting repair...")
                     if conn:
                         try: conn.close()
                         except Exception: pass
+                    conn = None
+                    self._repair_database()
+                    try:
+                        conn = self._get_connection()
+                        result = func(conn)
+                        conn.commit()
+                        return result
+                    except Exception as e2:
+                        logger.error(f"Retry after repair failed: {e2}")
+                        return None
+                if 'locked' in err_msg and attempt < max_retries - 1:
+                    logger.warning(f"Database locked attempt {attempt+1}/{max_retries}, retrying...")
+                    time.sleep(0.5 * (attempt + 1))
+                    continue
+                logger.error(f"Write error: {e}")
+                return None
+            finally:
+                if conn:
+                    try: conn.close()
+                    except Exception: pass
         logger.error(f"Write failed after {max_retries} attempts")
         return None
 
@@ -107,7 +106,7 @@ class DatabaseManager:
                 err_msg = str(e).lower()
                 if ('locked' in err_msg or 'malformed' in err_msg) and attempt < max_retries - 1:
                     logger.debug(f"Read error attempt {attempt+1}: {e}")
-                    time.sleep(0.1 * (attempt + 1))
+                    time.sleep(0.2 * (attempt + 1))
                     continue
                 logger.debug(f"Read error: {e}")
                 return None

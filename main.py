@@ -656,7 +656,7 @@ class MemoryCapsulePlugin(Star):
                 if user_relation:
                     parts.append(self._build_relation_xml(user_relation, current_group))
                 else:
-                    parts.append(f"<relationship>Partner: ID={user_id}, first meeting</relationship>")
+                    parts.append(f"<relationship>此人尚未存入档案</relationship>")
 
                 self.relation_injection_cache["injection_last"] = current_time
                 self.last_relation_user_id = user_id
@@ -789,30 +789,23 @@ class MemoryCapsulePlugin(Star):
         return req
 
     def _build_relation_xml(self, relation, current_group=""):
-        nickname = relation.get('nickname') or 'Friend'
-        relation_type = relation.get('relation_type') or 'Friend'
+        nickname = relation.get('nickname') or ''
+        relation_type = relation.get('relation_type') or ''
         summary = relation.get('summary') or ''
         first_met = relation.get('first_met_location') or ''
-        known_contexts = relation.get('known_contexts') or ''
 
-        parts = [f'Partner: nick={nickname}, rel={relation_type}']
+        parts = []
+        if nickname:
+            parts.append(f'昵称={nickname}')
+        if relation_type and relation_type != 'friend':
+            parts.append(f'关系={relation_type}')
         if summary:
-            if len(summary) > 120: summary = summary[:117] + "..."
-            parts.append(f'impression={summary}')
+            if len(summary) > 100: summary = summary[:97] + "..."
+            parts.append(f'印象={summary}')
         if first_met:
-            parts.append(f'met_at={first_met}')
-        if known_contexts:
-            cl = [c.strip() for c in known_contexts.split(',') if c.strip()]
-            if len(cl) == 1:
-                parts.append(f'group={cl[0]}')
-            elif cl:
-                if current_group and current_group in known_contexts:
-                    oc = len([c for c in cl if c != current_group])
-                    parts.append(f'group={current_group}' + (f'(also in {oc} other groups)' if oc else ''))
-                else:
-                    parts.append(f'groups={", ".join(cl[:3])}')
+            parts.append(f'初识于={first_met}')
 
-        if any(kw in summary for kw in _IMPORTANT_KEYWORDS):
-            parts.append('note=has important promise')
-
-        return f"<relationship>{', '.join(parts)}</relationship>"
+        if parts:
+            return f"<relationship>Partner: {', '.join(parts)}</relationship>"
+        else:
+            return f"<relationship>Partner: 已记录但暂无详细信息</relationship>"
