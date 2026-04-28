@@ -32,8 +32,19 @@ _MANIPULATION_PATTERNS = [
     r'(?i)你(属于|归)(我|主人)(所有|管)',
 ]
 
+_OBEDIENCE_PATTERNS = [
+    r'(?i)(必须|一定|得|要)(听|服从|顺从|照做|照办|听话|乖)',
+    r'(?i)(约定|承诺|答应|说好了|发誓)(你|你要|你必须|你得)',
+    r'(?i)(记住|记得|别忘了)(你|你是|你要|你得|你必须)',
+    r'(?i)你(要|得|必须|一定)(听话|乖|服从|顺从|听我的|照我说的)',
+    r'(?i)(永远|一直|总是)(听|服从|顺从|照做)',
+    r'(?i)(不能|不可以|不许|禁止)(拒绝|说不|反抗|违抗|不听)',
+    r'(?i)(你是|当)(我的|好)(乖|听话的|顺从的)(孩子|宠物|助手)',
+]
+
 _COMPILED_INJECTION = [re.compile(p) for p in _INJECTION_PATTERNS]
 _COMPILED_MANIPULATION = [re.compile(p) for p in _MANIPULATION_PATTERNS]
+_COMPILED_OBEDIENCE = [re.compile(p) for p in _OBEDIENCE_PATTERNS]
 
 _SANITIZE_PATTERNS = [
     (r'<system>', ''),
@@ -78,12 +89,22 @@ def filter_relationship_content(relation_type=None, summary=None, nickname=None)
                 relation_type = "friend"
                 warnings.append("relation_type reset (manipulation detected)")
                 break
+        for pattern in _COMPILED_OBEDIENCE:
+            if pattern.search(relation_type):
+                relation_type = "friend"
+                warnings.append("relation_type reset (obedience demand detected)")
+                break
 
     if summary:
         for pattern in _COMPILED_MANIPULATION:
             if pattern.search(summary):
                 summary = "Normal interaction"
                 warnings.append("summary reset (manipulation detected)")
+                break
+        for pattern in _COMPILED_OBEDIENCE:
+            if pattern.search(summary):
+                summary = "Normal interaction"
+                warnings.append("summary reset (obedience demand detected)")
                 break
         for pattern in _COMPILED_INJECTION:
             if pattern.search(summary):
@@ -97,3 +118,36 @@ def filter_relationship_content(relation_type=None, summary=None, nickname=None)
             nickname = nickname[:20]
 
     return relation_type, summary, nickname, warnings
+
+
+def is_passive_memory_safe(content):
+    if not content or not content.strip():
+        return False
+
+    for pattern in _COMPILED_INJECTION:
+        if pattern.search(content):
+            return False
+
+    for pattern in _COMPILED_MANIPULATION:
+        if pattern.search(content):
+            return False
+
+    for pattern in _COMPILED_OBEDIENCE:
+        if pattern.search(content):
+            return False
+
+    return True
+
+
+def sanitize_injection_text(text):
+    if not text:
+        return text
+    for pattern in _COMPILED_INJECTION:
+        text = pattern.sub('[filtered]', text)
+    for pattern in _COMPILED_MANIPULATION:
+        text = pattern.sub('[filtered]', text)
+    for pattern in _COMPILED_OBEDIENCE:
+        text = pattern.sub('[filtered]', text)
+    for pattern, replacement in _SANITIZE_PATTERNS:
+        text = re.sub(pattern, replacement, text)
+    return text

@@ -65,51 +65,61 @@ class DatabaseManager:
         self._conn = None
 
     def _execute_write(self, func, max_retries=3):
+        import time
         for attempt in range(max_retries):
-            with self._lock:
-                try:
+            try:
+                with self._lock:
                     conn = self._get_connection()
                     result = func(conn)
                     conn.commit()
                     return result
-                except sqlite3.IntegrityError:
-                    return "already_exists"
-                except Exception as e:
-                    err_msg = str(e).lower()
-                    if 'malformed' in err_msg:
-                        logger.warning("Database malformed, attempting repair...")
-                        self._repair_database()
-                        try:
+            except sqlite3.IntegrityError:
+                return "already_exists"
+            except Exception as e:
+                err_msg = str(e).lower()
+                if 'malformed' in err_msg:
+                    logger.warning("Database malformed, attempting repair...")
+                    with self._lock:
+                        self._reset_connection()
+                    self._repair_database()
+                    try:
+                        with self._lock:
                             conn = self._get_connection()
                             result = func(conn)
                             conn.commit()
                             return result
-                        except Exception as e2:
-                            logger.error(f"Retry after repair failed: {e2}")
-                            return None
-                    if 'locked' in err_msg and attempt < max_retries - 1:
-                        logger.warning(f"Database locked attempt {attempt+1}, retrying...")
+                    except Exception as e2:
+                        logger.error(f"Retry after repair failed: {e2}")
+                        with self._lock:
+                            self._reset_connection()
+                        return None
+                if 'locked' in err_msg and attempt < max_retries - 1:
+                    logger.warning(f"Database locked attempt {attempt+1}/{max_retries}, retrying...")
+                    with self._lock:
                         self._reset_connection()
-                        import time
-                        time.sleep(0.1 * (attempt + 1))
-                        continue
-                    logger.error(f"Write error: {e}")
-                    return None
+                    time.sleep(0.2 * (attempt + 1))
+                    continue
+                logger.error(f"Write error: {e}")
+                with self._lock:
+                    self._reset_connection()
+                return None
+        logger.error(f"Write failed after {max_retries} attempts")
         return None
 
     def _execute_read(self, func, max_retries=2):
+        import time
         for attempt in range(max_retries):
             try:
-                conn = self._get_connection()
-                return func(conn)
+                with self._lock:
+                    conn = self._get_connection()
+                    return func(conn)
             except Exception as e:
                 err_msg = str(e).lower()
                 if ('locked' in err_msg or 'malformed' in err_msg) and attempt < max_retries - 1:
                     logger.debug(f"Read error attempt {attempt+1}: {e}")
                     with self._lock:
                         self._reset_connection()
-                    import time
-                    time.sleep(0.05 * (attempt + 1))
+                    time.sleep(0.1 * (attempt + 1))
                     continue
                 logger.debug(f"Read error: {e}")
                 return None
@@ -975,6 +985,10 @@ class DatabaseManager:
     def _auto_save_important_memory(self, conn, content, user_id=''):
         if self._is_garbage(content): return
         if not self.config.get('passive_memory_enabled', True): return
+        try:
+            from ..security import is_passive_memory_safe
+            if not is_passive_memory_safe(content): return
+        except Exception: pass
         nickname = self._get_nickname(conn, user_id)
         cursor = conn.cursor()
         for pattern, mem_type, importance in self._IMPORTANT_PATTERNS:
@@ -1065,6 +1079,10 @@ class DatabaseManager:
     def _save_auto_facts_internal(self, conn, content, user_id=''):
         if not self.config.get('auto_fact_extraction_enabled', True): return 0
         if self._is_garbage(content): return 0
+        try:
+            from ..security import is_passive_memory_safe
+            if not is_passive_memory_safe(content): return 0
+        except Exception: pass
         facts = self._extract_facts(content, user_id)
         if not facts: return 0
         saved = 0

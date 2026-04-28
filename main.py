@@ -8,7 +8,7 @@ import asyncio
 import json
 import time
 
-from .security import validate_content, sanitize_content, filter_relationship_content
+from .security import validate_content, sanitize_content, filter_relationship_content, sanitize_injection_text
 
 _IMPORTANT_KEYWORDS = frozenset(['约定','承诺','重要','记得','提醒','待办'])
 
@@ -750,7 +750,11 @@ class MemoryCapsulePlugin(Star):
             if not parts:
                 return req
 
-            injection_text = " ".join(parts)
+            injection_text = sanitize_injection_text(" ".join(parts))
+
+            max_inject_chars = self.config.get('max_injection_chars', 1500)
+            if len(injection_text) > max_inject_chars:
+                injection_text = injection_text[:max_inject_chars] + "..."
 
             if (injection_text == self._last_injection_text and
                 current_time - self._last_injection_time < self._injection_dedup_ttl):
