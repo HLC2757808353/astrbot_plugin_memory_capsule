@@ -12,7 +12,7 @@ from .security import validate_content, sanitize_content, filter_relationship_co
 
 _IMPORTANT_KEYWORDS = frozenset(['约定','承诺','重要','记得','提醒','待办'])
 
-@register("memory_capsule", "引灯续昼", "记忆胶囊插件", "v0.22.1", "https://github.com/HLC2757808353/astrbot_plugin_memory_capsule")
+@register("memory_capsule", "引灯续昼", "记忆胶囊插件", "v0.23.0", "https://github.com/HLC2757808353/astrbot_plugin_memory_capsule")
 class MemoryCapsulePlugin(Star):
     def __init__(self, context: Context, config=None):
         super().__init__(context)
@@ -235,10 +235,12 @@ class MemoryCapsulePlugin(Star):
     @filter.llm_tool(name="search_memory")
     async def search_memory(self, event, query, category_filter=None, limit=None, tags=None):
         """
-        搜索记忆。支持关键词、分类、标签多种方式查询，可单独或组合使用。当需要回忆之前记录的信息时使用此工具。
+        搜索记忆。支持关键词、分类、标签多种方式查询。当需要回忆之前记录的信息时使用此工具。
+        重要：query参数请尽量丰富！用多个同义词/相关词一起搜索效果更好。
+        例如：用户说"我喜欢编程"→搜索query填"编程 写代码 开发 程序"而不是只填"编程"。
 
         Args:
-            query(str): 搜索关键词（必填，模糊匹配内容）
+            query(str): 搜索关键词（必填，支持多个词空格分隔，越多越准。请包含同义词和相关词）
             category_filter(str): 按分类筛选（可选，如：技术笔记、生活记录、dream等）
             limit(int): 返回条数（可选，默认5）
             tags(str): 按标签筛选（可选，逗号分隔多个标签）

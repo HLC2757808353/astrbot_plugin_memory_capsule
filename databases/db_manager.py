@@ -528,20 +528,23 @@ class DatabaseManager:
     # ==================== Memory Operations ====================
 
     def write_memory(self, content, category=None, importance=5, tags=None, source='user'):
+        _tags = tags
+        _category = category
         def _do_write():
+            nonlocal _tags, _category
             conn = self._get_connection()
             content_hash = hashlib.md5(content.encode('utf-8')).hexdigest()
             cursor = conn.cursor()
             cursor.execute('SELECT id FROM memories WHERE hash = ?', (content_hash,))
             if cursor.fetchone():
                 return "Memory already exists"
-            if tags is None:
-                tags = self._extract_tags(content)
-            if category is None:
-                category = self._guess_category(content)
+            if _tags is None:
+                _tags = self._extract_tags(content)
+            if _category is None:
+                _category = self._guess_category(content)
             cursor.execute(
                 'INSERT INTO memories (content, category, importance, tags, source, hash) VALUES (?, ?, ?, ?, ?, ?)',
-                (content, category, importance, ','.join(tags) if isinstance(tags, list) else tags, source, content_hash)
+                (content, _category, importance, ','.join(_tags) if isinstance(_tags, list) else _tags, source, content_hash)
             )
             memory_id = cursor.lastrowid
             self._record_activity(memory_id, 'create', content[:50])
@@ -632,7 +635,9 @@ class DatabaseManager:
         return result if result is not None else "Error: database operation failed"
 
     def update_memory(self, memory_id, content=None, category=None, importance=None, tags=None):
+        _tags = tags
         def _do_update():
+            nonlocal _tags
             conn = self._get_connection()
             cursor = conn.cursor()
             cursor.execute('SELECT * FROM memories WHERE id = ?', (memory_id,))
@@ -646,17 +651,17 @@ class DatabaseManager:
                 new_hash = hashlib.md5(content.encode('utf-8')).hexdigest()
                 updates.append("hash = ?")
                 params.append(new_hash)
-                if tags is None:
-                    tags = self._extract_tags(content)
+                if _tags is None:
+                    _tags = self._extract_tags(content)
             if category is not None:
                 updates.append("category = ?")
                 params.append(category)
             if importance is not None:
                 updates.append("importance = ?")
                 params.append(importance)
-            if tags is not None and tags != '':
+            if _tags is not None and _tags != '':
                 updates.append("tags = ?")
-                params.append(','.join(tags) if isinstance(tags, list) else tags)
+                params.append(','.join(_tags) if isinstance(_tags, list) else _tags)
             updates.append("updated_at = ?")
             params.append(datetime.now().isoformat())
             params.append(memory_id)
@@ -2215,6 +2220,17 @@ class DatabaseManager:
             idf = {t: math.log(N / (1 + df)) for t, df in doc_freq.items()}
 
             query_tf = Counter(query_tokens)
+            expanded_tokens = set(query_tokens)
+            for m in all_memories:
+                m_tags = set(self._tokenize(m.get('tags', '').lower()))
+                if m_tags & expanded_tokens:
+                    content_tokens = self._tokenize(m['content'].lower())
+                    for ct in content_tokens[:8]:
+                        expanded_tokens.add(ct)
+
+            for t in expanded_tokens - set(query_tokens):
+                query_tf[t] = 0.5
+
             query_vec = {}
             for t, tf in query_tf.items():
                 if t in idf:
@@ -2240,7 +2256,7 @@ class DatabaseManager:
                 if doc_norm == 0:
                     continue
                 cosine = dot / (query_norm * doc_norm)
-                if cosine > 0.05:
+                if cosine > 0.03:
                     m['tfidf_score'] = cosine
                     scored.append(m)
 
