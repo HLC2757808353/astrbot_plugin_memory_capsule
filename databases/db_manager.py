@@ -3,6 +3,7 @@ import os
 import re
 import math
 import hashlib
+import threading
 from datetime import datetime, timedelta
 
 try:
@@ -35,6 +36,21 @@ class DatabaseManager:
         self.context = context
         self.db_path = None
         self.backup_manager = None
+        self._write_conn = None
+        self._write_lock = threading.Lock()
+
+    def _ensure_write_conn(self):
+        if self._write_conn is not None:
+            return self._write_conn
+        conn = sqlite3.connect(self.db_path, check_same_thread=False, timeout=60)
+        conn.row_factory = sqlite3.Row
+        conn.execute('PRAGMA foreign_keys = ON')
+        conn.execute('PRAGMA journal_mode = WAL')
+        conn.execute('PRAGMA synchronous = NORMAL')
+        conn.execute('PRAGMA busy_timeout = 60000')
+        conn.execute('PRAGMA cache_size = -2000')
+        self._write_conn = conn
+        return conn
 
     def _get_connection(self):
         conn = sqlite3.connect(self.db_path, check_same_thread=False, timeout=60)
@@ -46,38 +62,46 @@ class DatabaseManager:
         conn.execute('PRAGMA cache_size = -2000')
         return conn
 
-    def _execute_write(self, func):
-        conn = None
-        try:
-            conn = self._get_connection()
-            result = func(conn)
-            conn.commit()
-            return result
-        except sqlite3.IntegrityError:
-            return "already_exists"
-        except Exception as e:
-            err_msg = str(e).lower()
-            if 'malformed' in err_msg:
-                logger.warning("Database malformed, attempting repair...")
-                if conn:
-                    try: conn.close()
-                    except Exception: pass
-                conn = None
-                self._repair_database()
+    def _close_write_conn(self):
+        if self._write_conn:
+            try:
+                self._write_conn.close()
+            except Exception:
+                pass
+            self._write_conn = None
+
+    def _execute_write(self, func, max_retries=2):
+        with self._write_lock:
+            for attempt in range(max_retries + 1):
                 try:
-                    conn = self._get_connection()
+                    conn = self._ensure_write_conn()
                     result = func(conn)
                     conn.commit()
                     return result
-                except Exception as e2:
-                    logger.error(f"Retry after repair failed: {e2}")
+                except sqlite3.IntegrityError:
+                    return "already_exists"
+                except Exception as e:
+                    err_msg = str(e).lower()
+                    if 'malformed' in err_msg:
+                        logger.warning("Database malformed, attempting repair...")
+                        self._close_write_conn()
+                        self._repair_database()
+                        try:
+                            conn = self._ensure_write_conn()
+                            result = func(conn)
+                            conn.commit()
+                            return result
+                        except Exception as e2:
+                            logger.error(f"Retry after repair failed: {e2}")
+                            self._close_write_conn()
+                            return None
+                    if 'locked' in err_msg and attempt < max_retries:
+                        import time
+                        time.sleep(0.3)
+                        self._close_write_conn()
+                        continue
+                    logger.error(f"Write error: {e}")
                     return None
-            logger.error(f"Write error: {e}")
-            return None
-        finally:
-            if conn:
-                try: conn.close()
-                except Exception: pass
 
     def _execute_read(self, func):
         conn = None
@@ -87,18 +111,11 @@ class DatabaseManager:
         except Exception as e:
             err_msg = str(e).lower()
             if 'malformed' in err_msg:
-                logger.warning("Database malformed on read, attempting repair...")
+                logger.warning("Read error (malformed), will repair on next write")
                 if conn:
                     try: conn.close()
                     except Exception: pass
-                conn = None
-                self._repair_database()
-                try:
-                    conn = self._get_connection()
-                    return func(conn)
-                except Exception as e2:
-                    logger.error(f"Read retry after repair failed: {e2}")
-                    return None
+                return None
             logger.debug(f"Read error: {e}")
             return None
         finally:
@@ -293,6 +310,7 @@ class DatabaseManager:
 
     def close(self):
         if self.backup_manager: self.backup_manager.stop_auto_backup()
+        self._close_write_conn()
         logger.info("Database closed")
 
     def backup(self):
