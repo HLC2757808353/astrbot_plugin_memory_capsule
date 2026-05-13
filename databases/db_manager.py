@@ -180,6 +180,7 @@ class DatabaseManager:
         self._initialize_database_structure()
         self._check_integrity()
         self._migrate_old_data()
+        self._migrate_relationship_fields()
         if not self.config.get('lightweight_mode', False):
             _get_jieba()
         from .backup import BackupManager
@@ -227,6 +228,23 @@ class DatabaseManager:
                             pass
         self._execute_write(_do_migrate)
 
+    def _migrate_relationship_fields(self):
+        def _do_migrate(conn):
+            cursor = conn.cursor()
+            cursor.execute("PRAGMA table_info(relationships)")
+            columns = {row[1] for row in cursor.fetchall()}
+            try:
+                if 'notes' not in columns:
+                    cursor.execute('ALTER TABLE relationships ADD COLUMN notes TEXT DEFAULT ""')
+                    logger.info("Migrated: added relationships.notes")
+            except Exception: pass
+            try:
+                if 'last_interaction' not in columns:
+                    cursor.execute('ALTER TABLE relationships ADD COLUMN last_interaction TIMESTAMP')
+                    logger.info("Migrated: added relationships.last_interaction")
+            except Exception: pass
+        self._execute_write(_do_migrate)
+
     def _initialize_database_structure(self):
         conn = None
         try:
@@ -243,9 +261,10 @@ class DatabaseManager:
                 last_accessed TIMESTAMP, source TEXT DEFAULT 'user', hash TEXT UNIQUE)''')
             cursor.execute('''CREATE TABLE IF NOT EXISTS relationships (
                 user_id TEXT PRIMARY KEY, nickname TEXT, relation_type TEXT DEFAULT 'friend',
-                summary TEXT DEFAULT '', first_met_location TEXT,
+                summary TEXT DEFAULT '', notes TEXT DEFAULT '', first_met_location TEXT,
                 identity_aliases TEXT DEFAULT '', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, interaction_count INTEGER DEFAULT 0)''')
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, interaction_count INTEGER DEFAULT 0,
+                last_interaction TIMESTAMP)''')
             cursor.execute('''CREATE TABLE IF NOT EXISTS activities (
                 id INTEGER PRIMARY KEY AUTOINCREMENT, memory_id INTEGER,
                 activity_type TEXT NOT NULL, description TEXT,
@@ -638,7 +657,7 @@ class DatabaseManager:
 
     # ==================== Relationships ====================
 
-    def update_relationship_enhanced(self, user_id, relation_type=None, summary=None, nickname=None, first_met_location=None):
+    def update_relationship_enhanced(self, user_id, relation_type=None, summary=None, nickname=None, first_met_location=None, notes=None):
         def _do_op(conn):
             cursor = conn.cursor()
             cursor.execute('SELECT * FROM relationships WHERE user_id = ?', (user_id,))
@@ -647,11 +666,13 @@ class DatabaseManager:
                 existing = dict(existing)
                 updates = []
                 params = []
-                if relation_type: updates.append("relation_type = ?"); params.append(relation_type)
-                if summary: updates.append("summary = ?"); params.append(summary)
-                if nickname: updates.append("nickname = ?"); params.append(nickname)
-                if first_met_location: updates.append("first_met_location = ?"); params.append(first_met_location)
+                if relation_type is not None: updates.append("relation_type = ?"); params.append(relation_type)
+                if summary is not None: updates.append("summary = ?"); params.append(summary)
+                if nickname is not None: updates.append("nickname = ?"); params.append(nickname)
+                if first_met_location is not None: updates.append("first_met_location = ?"); params.append(first_met_location)
+                if notes is not None: updates.append("notes = ?"); params.append(notes)
                 updates.append("interaction_count = interaction_count + 1")
+                updates.append("last_interaction = ?"); params.append(datetime.now().isoformat())
                 updates.append("updated_at = ?"); params.append(datetime.now().isoformat())
                 params.append(user_id)
                 cursor.execute(f'UPDATE relationships SET {", ".join(updates)} WHERE user_id = ?', params)
@@ -660,8 +681,8 @@ class DatabaseManager:
                 return f"Relationship updated: {nickname or user_id}"
             else:
                 cursor.execute(
-                    'INSERT INTO relationships (user_id, nickname, relation_type, summary, first_met_location) VALUES (?, ?, ?, ?, ?)',
-                    (user_id, nickname or '', relation_type or 'friend', summary or '', first_met_location or ''))
+                    'INSERT INTO relationships (user_id, nickname, relation_type, summary, notes, first_met_location, last_interaction) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                    (user_id, nickname or '', relation_type or 'friend', summary or '', notes or '', first_met_location or '', datetime.now().isoformat()))
                 cursor.execute('INSERT INTO activities (memory_id, activity_type, description) VALUES (?, ?, ?)',
                              (0, 'create_relation', f'{nickname or user_id}'))
                 return f"Relationship created: {nickname or user_id}"
@@ -721,6 +742,20 @@ class DatabaseManager:
             return f"Relationship deleted: {user_id}"
         result = self._execute_write(_do_op)
         return result if result is not None else "Error: delete relationship failed"
+
+    def auto_update_last_interaction(self, user_id):
+        def _do_op(conn):
+            cursor = conn.cursor()
+            cursor.execute('SELECT user_id FROM relationships WHERE user_id = ?', (user_id,))
+            if not cursor.fetchone():
+                cursor.execute(
+                    'INSERT INTO relationships (user_id, nickname, relation_type, last_interaction) VALUES (?, "", "friend", ?)',
+                    (user_id, datetime.now().isoformat()))
+                return
+            cursor.execute(
+                'UPDATE relationships SET last_interaction = ?, interaction_count = interaction_count + 1 WHERE user_id = ?',
+                (datetime.now().isoformat(), user_id))
+        self._execute_write(_do_op)
 
     def add_identity_alias(self, user_id, alias):
         def _do_op(conn):

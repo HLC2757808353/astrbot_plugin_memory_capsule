@@ -206,7 +206,7 @@
                     <a class="nav-link" href="/memories"><span class="nav-icon">&#9830;</span> 记忆宫殿</a>
                 </li>
                 <li class="nav-item">
-                    <a class="nav-link" href="/dreams"><span class="nav-icon">&#9788;</span> 梦境记忆</a>
+                    <a class="nav-link" href="/dreams"><span class="nav-icon">&#9788;</span> 梦境记忆<span style="font-size:10px;opacity:0.6;"> (待开发)</span></a>
                 </li>
                 <li class="nav-item">
                     <a class="nav-link" href="/relationships"><span class="nav-icon">&#10070;</span> 关系图谱</a>
@@ -236,11 +236,7 @@
                 </div>
                 <div class="stat-card">
                     <div class="stat-value" id="total-triples">0</div>
-                    <div class="stat-label">知识三元组</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value" id="total-dreams">0</div>
-                    <div class="stat-label">梦境记录</div>
+                    <div class="stat-label">知识图谱</div>
                 </div>
             </div>
             <div class="card">
@@ -276,7 +272,7 @@
                 document.getElementById('total-memories').textContent = stats.memories || memoriesData.total;
                 document.getElementById('total-relationships').textContent = stats.relationships || relationshipsData.total;
                 document.getElementById('total-triples').textContent = stats.triples || 0;
-                document.getElementById('total-dreams').textContent = stats.dream_logs || 0;
+
 
                 const activitiesResponse = await fetch('/api/activities?limit=30');
                 const activities = await activitiesResponse.json();

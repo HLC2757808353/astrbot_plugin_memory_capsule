@@ -122,6 +122,13 @@ class WebUIServer:
             response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
             return response
 
+        @self.app.route('/dreams')
+        @self._require_auth
+        def dreams():
+            response = make_response(render_template('dreams.html'))
+            response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+            return response
+
         @self.app.route('/relationships')
         @self._require_auth
         def relationships():
@@ -251,7 +258,8 @@ class WebUIServer:
                 relation_type=data.get('relation_type'),
                 summary=data.get('summary'),
                 nickname=data.get('nickname'),
-                first_met_location=data.get('first_met_location')
+                first_met_location=data.get('first_met_location'),
+                notes=data.get('notes')
             )
             return jsonify({'result': result})
 

@@ -412,7 +412,7 @@
                     <a class="nav-link" href="/memories"><span class="nav-icon">&#9830;</span> 记忆宫殿</a>
                 </li>
                 <li class="nav-item">
-                    <a class="nav-link" href="/dreams"><span class="nav-icon">&#9788;</span> 梦境记忆</a>
+                    <a class="nav-link" href="/dreams"><span class="nav-icon">&#9788;</span> 梦境记忆<span style="font-size:10px;opacity:0.6;"> (待开发)</span></a>
                 </li>
                 <li class="nav-item">
                     <a class="nav-link active" href="/relationships"><span class="nav-icon">&#10070;</span> 关系图谱</a>
@@ -440,12 +440,12 @@
                     <table class="relationship-list" id="relationship-list">
                         <thead>
                             <tr>
-                                <th>ID</th>
+                                <th>用户ID</th>
                                 <th>昵称</th>
-                                <th>初次见面</th>
-                                <th>群组</th>
                                 <th>关系类型</th>
-                                <th>核心印象</th>
+                                <th>印象</th>
+                                <th>备注/约定</th>
+                                <th>上次互动</th>
                                 <th>操作</th>
                             </tr>
                         </thead>
@@ -473,20 +473,20 @@
                     <input type="text" class="form-control" id="edit-nickname" placeholder="请输入用户昵称">
                 </div>
                 <div class="form-group">
-                    <label class="form-label" for="edit-first-met-location">初次见面地点 (仅ID)</label>
-                    <input type="text" class="form-control" id="edit-first-met-location" placeholder="例如: 123456">
-                </div>
-                <div class="form-group">
-                    <label class="form-label" for="edit-known-groups">多次相遇群组 (ID数组，逗号分隔)</label>
-                    <input type="text" class="form-control" id="edit-known-groups" placeholder="例如: 123456,789012">
-                </div>
-                <div class="form-group">
                     <label class="form-label" for="edit-relation-type">关系类型</label>
-                    <input type="text" class="form-control" id="edit-relation-type">
+                    <input type="text" class="form-control" id="edit-relation-type" placeholder="如：朋友、同事、家人、老师">
                 </div>
                 <div class="form-group">
-                    <label class="form-label" for="edit-summary">核心印象</label>
-                    <textarea class="form-control" id="edit-summary"></textarea>
+                    <label class="form-label" for="edit-summary">印象总结</label>
+                    <textarea class="form-control" id="edit-summary" placeholder="对此人的印象、性格特征等"></textarea>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="edit-notes">备注/约定</label>
+                    <textarea class="form-control" id="edit-notes" placeholder="如：每周五一起吃饭、答应了帮他修电脑"></textarea>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="edit-first-met-location">初次见面地点</label>
+                    <input type="text" class="form-control" id="edit-first-met-location" placeholder="可选">
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-outline" onclick="closeModal()">取消</button>
@@ -515,25 +515,22 @@
 
                 relationships.forEach(relationship => {
                     const tr = document.createElement('tr');
-                    let knownGroupsHtml = '';
-                    if (relationship.known_contexts) {
-                        const groups = relationship.known_contexts.split(',');
-                        groups.forEach(group => {
-                            group = group.trim();
-                            if (group) knownGroupsHtml += `<span class="tag">${group}</span>`;
-                        });
-                    }
-                    let firstMetLocation = relationship.first_met_location || '未知';
-                    if (firstMetLocation !== '未知') {
-                        firstMetLocation = firstMetLocation.split('+')[0].trim() || firstMetLocation;
+                    let lastInteraction = relationship.last_interaction || '未互动';
+                    if (lastInteraction !== '未互动') {
+                        try {
+                            const d = new Date(lastInteraction);
+                            if (!isNaN(d.getTime())) {
+                                lastInteraction = d.toLocaleString('zh-CN', {month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});
+                            }
+                        } catch(e) {}
                     }
                     tr.innerHTML = `
-                        <td>${relationship.user_id}</td>
+                        <td title="${relationship.user_id}">${relationship.user_id.length > 16 ? relationship.user_id.substring(0,14)+'...' : relationship.user_id}</td>
                         <td>${relationship.nickname || '无'}</td>
-                        <td>${firstMetLocation}</td>
-                        <td>${knownGroupsHtml || '无'}</td>
-                        <td><span class="relation-type">${relationship.relation_type || '未知'}</span></td>
+                        <td><span class="relation-type">${relationship.relation_type || 'friend'}</span></td>
                         <td>${relationship.summary || '无'}</td>
+                        <td>${relationship.notes || '无'}</td>
+                        <td>${lastInteraction}</td>
                         <td>
                             <div style="display:flex;gap:6px;">
                                 <button class="btn btn-outline btn-sm" onclick="editRelationship('${relationship.user_id}')">编辑</button>
@@ -629,10 +626,10 @@
                     document.getElementById('edit-user-id').value = relationship.user_id;
                     document.getElementById('edit-user-id-input').value = relationship.user_id;
                     document.getElementById('edit-nickname').value = relationship.nickname || '';
-                    document.getElementById('edit-first-met-location').value = relationship.first_met_location || '';
-                    document.getElementById('edit-known-groups').value = relationship.known_contexts || '';
                     document.getElementById('edit-relation-type').value = relationship.relation_type || '';
                     document.getElementById('edit-summary').value = relationship.summary || '';
+                    document.getElementById('edit-notes').value = relationship.notes || '';
+                    document.getElementById('edit-first-met-location').value = relationship.first_met_location || '';
                     document.getElementById('edit-modal-title').textContent = '编辑关系';
                     document.getElementById('edit-modal').classList.add('show');
                 }
@@ -663,10 +660,10 @@
             document.getElementById('edit-user-id').value = '';
             document.getElementById('edit-user-id-input').value = '';
             document.getElementById('edit-nickname').value = '';
-            document.getElementById('edit-first-met-location').value = '';
-            document.getElementById('edit-known-groups').value = '';
             document.getElementById('edit-relation-type').value = '';
             document.getElementById('edit-summary').value = '';
+            document.getElementById('edit-notes').value = '';
+            document.getElementById('edit-first-met-location').value = '';
             document.getElementById('edit-modal-title').textContent = '添加关系';
             document.getElementById('edit-modal').classList.add('show');
         }
@@ -675,10 +672,10 @@
             e.preventDefault();
             const userId = document.getElementById('edit-user-id').value || document.getElementById('edit-user-id-input').value;
             const nickname = document.getElementById('edit-nickname').value;
-            const firstMetLocation = document.getElementById('edit-first-met-location').value;
-            const knownGroups = document.getElementById('edit-known-groups').value;
             const relationType = document.getElementById('edit-relation-type').value;
             const summary = document.getElementById('edit-summary').value;
+            const notes = document.getElementById('edit-notes').value;
+            const firstMetLocation = document.getElementById('edit-first-met-location').value;
 
             if (!userId) { alert('请输入用户ID'); return; }
 
@@ -691,8 +688,8 @@
                         nickname: nickname,
                         relation_type: relationType,
                         summary: summary,
-                        first_met_location: firstMetLocation,
-                        known_contexts: knownGroups
+                        notes: notes,
+                        first_met_location: firstMetLocation
                     })
                 });
                 const result = await response.json();
@@ -721,25 +718,22 @@
 
                 relationships.forEach(relationship => {
                     const tr = document.createElement('tr');
-                    let knownGroupsHtml = '';
-                    if (relationship.known_contexts) {
-                        const groups = relationship.known_contexts.split(',');
-                        groups.forEach(group => {
-                            group = group.trim();
-                            if (group) knownGroupsHtml += `<span class="tag">${group}</span>`;
-                        });
-                    }
-                    let firstMetLocation = relationship.first_met_location || '未知';
-                    if (firstMetLocation !== '未知') {
-                        firstMetLocation = firstMetLocation.split('+')[0].trim() || firstMetLocation;
+                    let lastInteraction = relationship.last_interaction || '未互动';
+                    if (lastInteraction !== '未互动') {
+                        try {
+                            const d = new Date(lastInteraction);
+                            if (!isNaN(d.getTime())) {
+                                lastInteraction = d.toLocaleString('zh-CN', {month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});
+                            }
+                        } catch(e) {}
                     }
                     tr.innerHTML = `
-                        <td>${relationship.user_id}</td>
+                        <td title="${relationship.user_id}">${relationship.user_id.length > 16 ? relationship.user_id.substring(0,14)+'...' : relationship.user_id}</td>
                         <td>${relationship.nickname || '无'}</td>
-                        <td>${firstMetLocation}</td>
-                        <td>${knownGroupsHtml || '无'}</td>
-                        <td><span class="relation-type">${relationship.relation_type || '未知'}</span></td>
+                        <td><span class="relation-type">${relationship.relation_type || 'friend'}</span></td>
                         <td>${relationship.summary || '无'}</td>
+                        <td>${relationship.notes || '无'}</td>
+                        <td>${lastInteraction}</td>
                         <td>
                             <div style="display:flex;gap:6px;">
                                 <button class="btn btn-outline btn-sm" onclick="editRelationship('${relationship.user_id}')">编辑</button>

@@ -7,6 +7,7 @@ import threading
 import asyncio
 import json
 import time
+from datetime import datetime
 
 from .security import validate_content, sanitize_content, filter_relationship_content, sanitize_injection_text
 
@@ -92,7 +93,7 @@ class MemoryCapsulePlugin(Star):
     # ==================== Active Memory Tools (AI calls) ====================
 
     @filter.llm_tool(name="update_relationship")
-    async def update_relationship(self, event, user_id, relation_type=None, summary=None, nickname=None, first_met_location=None):
+    async def update_relationship(self, event, user_id, relation_type=None, summary=None, nickname=None, first_met_location=None, notes=None):
         """
         记录或更新与某人的关系信息（印象、约定、习惯等）。当用户提到关于人的信息时使用此工具。
 
@@ -102,6 +103,7 @@ class MemoryCapsulePlugin(Star):
             summary(str): 对此人的印象总结
             nickname(str): 昵称
             first_met_location(str): 初次见面地点
+            notes(str): 备注（如：每周五一起吃饭、答应了帮他修电脑等约定事项）
         Returns:
             str
         """
@@ -133,7 +135,8 @@ class MemoryCapsulePlugin(Star):
                 relation_type,
                 summary,
                 nickname,
-                str(first_met_location) if first_met_location else None
+                str(first_met_location) if first_met_location else None,
+                str(notes) if notes else None
             )
         except Exception as e:
             return f"Failed: {e}"
@@ -302,6 +305,8 @@ class MemoryCapsulePlugin(Star):
             user_id = event.get_sender_id()
             current_time = time.time()
 
+            await asyncio.to_thread(self.db_manager.auto_update_last_interaction, user_id)
+
             should_inject = False
             if self.relation_injection_refresh_time == -1:
                 should_inject = True
@@ -362,23 +367,37 @@ class MemoryCapsulePlugin(Star):
         return req
 
     def _build_relation_xml(self, relation, current_group=""):
+        user_id = relation.get('user_id') or ''
         nickname = relation.get('nickname') or ''
         relation_type = relation.get('relation_type') or ''
         summary = relation.get('summary') or ''
-        first_met = relation.get('first_met_location') or ''
+        notes = relation.get('notes') or ''
+        last_interaction = relation.get('last_interaction') or ''
 
         parts = []
+        if user_id:
+            parts.append(f'ID={user_id}')
         if nickname:
             parts.append(f'昵称={nickname}')
-        if relation_type and relation_type != 'friend':
+        if relation_type:
             parts.append(f'关系={relation_type}')
         if summary:
-            if len(summary) > 100: summary = summary[:97] + "..."
+            if len(summary) > 120: summary = summary[:117] + "..."
             parts.append(f'印象={summary}')
-        if first_met:
-            parts.append(f'初识于={first_met}')
+        if notes:
+            if len(notes) > 120: notes = notes[:117] + "..."
+            parts.append(f'备注={notes}')
+        if last_interaction:
+            try:
+                dt = datetime.fromisoformat(last_interaction)
+                parts.append(f'上次互动={dt.strftime("%Y-%m-%d %H:%M")}')
+            except Exception:
+                parts.append(f'上次互动={last_interaction}')
+        interaction_count = relation.get('interaction_count', 0)
+        if interaction_count > 0:
+            parts.append(f'互动次数={interaction_count}')
 
         if parts:
             return f"<relationship>Partner: {', '.join(parts)}</relationship>"
         else:
-            return f"<relationship>Partner: 已记录但暂无详细信息</relationship>"
+            return f"<relationship>Partner: ID={user_id}, 已记录但暂无详细信息</relationship>"
