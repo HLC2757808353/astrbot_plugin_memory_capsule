@@ -122,13 +122,6 @@ class WebUIServer:
             response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
             return response
 
-        @self.app.route('/dreams')
-        @self._require_auth
-        def dreams():
-            response = make_response(render_template('dreams.html'))
-            response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
-            return response
-
         @self.app.route('/relationships')
         @self._require_auth
         def relationships():
@@ -246,7 +239,7 @@ class WebUIServer:
             config_categories = self.db_manager.config.get('memory_categories', [])
             all_categories = list(dict.fromkeys(config_categories + db_categories))
             if not all_categories:
-                all_categories = ['技术笔记', '生活记录', '学习资料', '个人想法', '待办事项', 'dream', 'general']
+                all_categories = ['技术笔记', '生活记录', '学习资料', '个人想法', '待办事项', 'general']
             return jsonify(all_categories)
 
         @self.app.route('/api/relationships', methods=['POST'])
@@ -258,8 +251,7 @@ class WebUIServer:
                 relation_type=data.get('relation_type'),
                 summary=data.get('summary'),
                 nickname=data.get('nickname'),
-                first_met_location=data.get('first_met_location'),
-                known_contexts=data.get('known_contexts')
+                first_met_location=data.get('first_met_location')
             )
             return jsonify({'result': result})
 
@@ -414,44 +406,7 @@ class WebUIServer:
         def api_stats():
             try:
                 stats = self.db_manager.get_memory_stats()
-                vs = self.db_manager.vector_search
-                stats['rag_available'] = vs.available
-                stats['rag_vector_count'] = len(vs._id_map) if vs._index else 0
-                stats['rag_dim'] = vs._dim
                 return jsonify(stats)
-            except Exception as e:
-                return jsonify({'error': str(e)}), 500
-
-        @self.app.route('/api/rag/rebuild', methods=['POST'])
-        @self._require_auth
-        def api_rag_rebuild():
-            try:
-                import asyncio
-                vs = self.db_manager.vector_search
-                if not vs.available:
-                    return jsonify({'result': 'RAG not available (no embedding provider or faiss)'}), 400
-                count = asyncio.get_event_loop().run_until_complete(vs.rebuild_index_from_db())
-                return jsonify({'result': f'Rebuilt index with {count} vectors'})
-            except Exception as e:
-                return jsonify({'result': f'Rebuild failed: {e}'}), 500
-
-        @self.app.route('/api/dreams')
-        @self._require_auth
-        def api_dreams():
-            try:
-                result = self.db_manager.get_dream_logs_for_web(50)
-                return jsonify(result)
-            except Exception as e:
-                return jsonify({'dreams': [], 'total': 0, 'error': str(e)})
-
-        @self.app.route('/api/dreams/<int:dream_id>')
-        @self._require_auth
-        def api_dream_detail(dream_id):
-            try:
-                row = self.db_manager.get_dream_detail(dream_id)
-                if row:
-                    return jsonify(row)
-                return jsonify({'error': 'not found'}), 404
             except Exception as e:
                 return jsonify({'error': str(e)}), 500
 
