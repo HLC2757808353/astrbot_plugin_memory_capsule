@@ -95,15 +95,16 @@ class MemoryCapsulePlugin(Star):
     @filter.llm_tool(name="update_relationship")
     async def update_relationship(self, event, user_id, relation_type=None, summary=None, nickname=None, first_met_location=None, notes=None):
         """
-        记录或更新与某人的关系信息（印象、约定、习惯等）。当用户提到关于人的信息时使用此工具。
+        记录或更新与某人的关系档案。只要有关于人的新信息（昵称、关系、约定、印象），立即调用此工具。
+        重要：至少要传入user_id和nickname，越多信息越好。
 
         Args:
-            user_id(str): 用户ID
-            relation_type(str): 关系类型（如朋友、老师、同事等）
-            summary(str): 对此人的印象总结
-            nickname(str): 昵称
-            first_met_location(str): 初次见面地点
-            notes(str): 备注（如：每周五一起吃饭、答应了帮他修电脑等约定事项）
+            user_id(str): 用户ID（必填）
+            nickname(str): 昵称/称呼（强烈建议填写，方便后续识别）
+            relation_type(str): 关系类型，如：朋友、同事、家人、同学、老师、网友等
+            summary(str): 对此人的印象总结，如：性格开朗、喜欢吃辣、程序员
+            notes(str): 备注/约定事项，如：每周五一起打球、答应帮忙修改简历、欠我一顿饭
+            first_met_location(str): 初次见面的群聊或地点
         Returns:
             str
         """
@@ -374,6 +375,8 @@ class MemoryCapsulePlugin(Star):
         notes = relation.get('notes') or ''
         last_interaction = relation.get('last_interaction') or ''
 
+        time_offset = self.config.get('time_offset', 8)
+
         parts = []
         if user_id:
             parts.append(f'ID={user_id}')
@@ -389,7 +392,15 @@ class MemoryCapsulePlugin(Star):
             parts.append(f'备注={notes}')
         if last_interaction:
             try:
-                dt = datetime.fromisoformat(last_interaction)
+                from datetime import timedelta
+                iso_time = last_interaction
+                if isinstance(last_interaction, str):
+                    if len(last_interaction) == 19:
+                        iso_time = last_interaction
+                    else:
+                        iso_time = last_interaction[:19]
+                dt = datetime.fromisoformat(str(iso_time))
+                dt = dt + timedelta(hours=time_offset)
                 parts.append(f'上次互动={dt.strftime("%Y-%m-%d %H:%M")}')
             except Exception:
                 parts.append(f'上次互动={last_interaction}')

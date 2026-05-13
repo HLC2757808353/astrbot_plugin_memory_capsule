@@ -48,6 +48,14 @@
     "editable": true,
     "display_name": "关系刷新间隔"
   },
+  "time_offset": {
+    "description": "时区偏移（小时）",
+    "type": "int",
+    "default": 8,
+    "hint": "根据你的所在时区调整。中国=8, 日本=9, 美东=-5。影响上述互动时间的显示",
+    "editable": true,
+    "display_name": "时区偏移"
+  },
   "relation_cache_ttl": {
     "description": "关系信息缓存时间（秒）",
     "type": "int",

@@ -70,8 +70,9 @@ class DatabaseManager:
                 pass
             self._write_conn = None
 
-    def _execute_write(self, func, max_retries=2):
+    def _execute_write(self, func, max_retries=5):
         with self._write_lock:
+            _repaired = False
             for attempt in range(max_retries + 1):
                 try:
                     conn = self._ensure_write_conn()
@@ -81,26 +82,20 @@ class DatabaseManager:
                 except sqlite3.IntegrityError:
                     return "already_exists"
                 except Exception as e:
+                    self._close_write_conn()
                     err_msg = str(e).lower()
-                    if 'malformed' in err_msg:
-                        logger.warning("Database malformed, attempting repair...")
-                        self._close_write_conn()
+                    if 'malformed' in err_msg and not _repaired:
+                        _repaired = True
                         self._repair_database()
-                        try:
-                            conn = self._ensure_write_conn()
-                            result = func(conn)
-                            conn.commit()
-                            return result
-                        except Exception as e2:
-                            logger.error(f"Retry after repair failed: {e2}")
-                            self._close_write_conn()
-                            return None
-                    if 'locked' in err_msg and attempt < max_retries:
                         import time
-                        time.sleep(0.3)
-                        self._close_write_conn()
+                        time.sleep(0.5)
                         continue
-                    logger.error(f"Write error: {e}")
+                    if attempt < max_retries:
+                        import time
+                        time.sleep(0.5 + attempt * 0.5)
+                        continue
+                    logger.error(f"Write error after {max_retries+1} attempts: {e}")
+                    self._close_write_conn()
                     return None
 
     def _execute_read(self, func):
@@ -126,56 +121,13 @@ class DatabaseManager:
     def _repair_database(self):
         if not self.db_path or not os.path.exists(self.db_path):
             return
-        logger.warning(f"Attempting database repair: {self.db_path}")
+        logger.warning(f"Repairing database: {self.db_path}")
         for ext in ['-wal', '-shm']:
             p = self.db_path + ext
             if os.path.exists(p):
                 try: os.remove(p)
                 except Exception: pass
-        try:
-            test_conn = sqlite3.connect(self.db_path, timeout=10)
-            test_cur = test_conn.cursor()
-            test_cur.execute('PRAGMA integrity_check')
-            result = test_cur.fetchone()
-            test_conn.close()
-            if result and result[0] == 'ok':
-                logger.info("Database OK after WAL cleanup")
-                return
-        except Exception:
-            pass
-        logger.warning("WAL cleanup not enough, attempting dump recovery...")
-        try:
-            import shutil
-            bak_path = self.db_path + '.bak'
-            if os.path.exists(bak_path): os.remove(bak_path)
-            shutil.copy2(self.db_path, bak_path)
-            for ext in ['-wal', '-shm']:
-                p = self.db_path + ext
-                if os.path.exists(p):
-                    try: os.remove(p)
-                    except Exception: pass
-            dump_lines = []
-            try:
-                old_conn = sqlite3.connect(bak_path)
-                old_conn.text_factory = lambda b: b.decode('utf-8', errors='replace')
-                for line in old_conn.iterdump():
-                    dump_lines.append(line)
-                old_conn.close()
-            except Exception as e:
-                logger.warning(f"Dump from backup failed: {e}")
-            if os.path.exists(self.db_path): os.remove(self.db_path)
-            new_conn = sqlite3.connect(self.db_path)
-            if dump_lines:
-                new_conn.executescript('\n'.join(dump_lines))
-            new_conn.close()
-            logger.info("Database dump recovery completed")
-        except Exception as e:
-            logger.error(f"Database dump recovery failed: {e}")
-            if os.path.exists(self.db_path):
-                try: os.remove(self.db_path)
-                except Exception: pass
-            if os.path.exists(bak_path):
-                shutil.copy2(bak_path, self.db_path)
+        logger.info("WAL files cleaned, database repaired")
 
     def initialize(self, data_dir=None):
         if data_dir:
@@ -689,8 +641,6 @@ class DatabaseManager:
                 if nickname is not None: updates.append("nickname = ?"); params.append(nickname)
                 if first_met_location is not None: updates.append("first_met_location = ?"); params.append(first_met_location)
                 if notes is not None: updates.append("notes = ?"); params.append(notes)
-                updates.append("interaction_count = interaction_count + 1")
-                updates.append("last_interaction = ?"); params.append(datetime.now().isoformat())
                 updates.append("updated_at = ?"); params.append(datetime.now().isoformat())
                 params.append(user_id)
                 cursor.execute(f'UPDATE relationships SET {", ".join(updates)} WHERE user_id = ?', params)
