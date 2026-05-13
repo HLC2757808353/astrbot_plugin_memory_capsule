@@ -3,6 +3,7 @@ import shutil
 import datetime
 import time
 import threading
+import sqlite3
 
 try:
     from astrbot.api import logger
@@ -29,7 +30,12 @@ class BackupManager:
             timestamp = now.strftime("%Y%m%d_%H%M%S")
             backup_filename = f"memory_{timestamp}.db"
             backup_path = os.path.join(self.backup_dir, backup_filename)
-            shutil.copy2(self.db_path, backup_path)
+            src = sqlite3.connect(self.db_path, timeout=30)
+            dst = sqlite3.connect(backup_path, timeout=30)
+            src.execute('PRAGMA journal_mode = WAL')
+            src.backup(dst)
+            src.close()
+            dst.close()
             self._cleanup_old_backups()
             logger.info(f"备份成功: {backup_path}")
             return f"备份成功: {backup_filename}"
@@ -102,7 +108,12 @@ class BackupManager:
             backup_path = os.path.join(self.backup_dir, backup_filename)
             if not os.path.exists(backup_path):
                 return "备份文件不存在"
-            shutil.copy2(backup_path, self.db_path)
+            src = sqlite3.connect(backup_path, timeout=30)
+            dst = sqlite3.connect(self.db_path, timeout=30)
+            dst.execute('PRAGMA journal_mode = WAL')
+            src.backup(dst)
+            src.close()
+            dst.close()
             logger.info(f"从备份恢复成功: {backup_filename}")
             return f"从备份恢复成功: {backup_filename}"
         except Exception as e:
