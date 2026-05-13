@@ -267,10 +267,10 @@ class MemoryCapsulePlugin(Star):
     @filter.llm_tool(name="search_relationship")
     async def search_relationship(self, event, query, limit=3):
         """
-        搜索关系信息（ID、昵称、关系类型等）
+        搜索关系档案，支持昵称或用户ID查询。用昵称搜索时尽量用完整的昵称。
 
         Args:
-            query(str): 搜索关键词
+            query(str): 搜索关键词（用户ID或昵称）
             limit(int): 返回条数，默认3
         Returns:
             dict

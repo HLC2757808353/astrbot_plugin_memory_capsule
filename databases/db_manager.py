@@ -3,7 +3,6 @@ import os
 import re
 import math
 import hashlib
-import threading
 from datetime import datetime, timedelta
 
 try:
@@ -36,67 +35,67 @@ class DatabaseManager:
         self.context = context
         self.db_path = None
         self.backup_manager = None
-        self._write_conn = None
-        self._write_lock = threading.Lock()
-
-    def _ensure_write_conn(self):
-        if self._write_conn is not None:
-            return self._write_conn
-        conn = sqlite3.connect(self.db_path, check_same_thread=False, timeout=60)
-        conn.row_factory = sqlite3.Row
-        conn.execute('PRAGMA foreign_keys = ON')
-        conn.execute('PRAGMA journal_mode = WAL')
-        conn.execute('PRAGMA synchronous = NORMAL')
-        conn.execute('PRAGMA busy_timeout = 60000')
-        conn.execute('PRAGMA cache_size = -2000')
-        self._write_conn = conn
-        return conn
 
     def _get_connection(self):
-        conn = sqlite3.connect(self.db_path, check_same_thread=False, timeout=60)
+        conn = sqlite3.connect(self.db_path, check_same_thread=False, timeout=30)
         conn.row_factory = sqlite3.Row
-        conn.execute('PRAGMA foreign_keys = ON')
         conn.execute('PRAGMA journal_mode = WAL')
         conn.execute('PRAGMA synchronous = NORMAL')
-        conn.execute('PRAGMA busy_timeout = 60000')
+        conn.execute('PRAGMA busy_timeout = 15000')
         conn.execute('PRAGMA cache_size = -2000')
+        conn.execute('PRAGMA foreign_keys = ON')
         return conn
 
-    def _close_write_conn(self):
-        if self._write_conn:
-            try:
-                self._write_conn.close()
-            except Exception:
-                pass
-            self._write_conn = None
-
-    def _execute_write(self, func, max_retries=5):
-        with self._write_lock:
-            _repaired = False
-            for attempt in range(max_retries + 1):
+    def _execute_write(self, func):
+        conn = None
+        try:
+            conn = self._get_connection()
+            result = func(conn)
+            conn.commit()
+            return result
+        except sqlite3.IntegrityError as e:
+            err_msg = str(e).lower()
+            if 'unique' in err_msg or 'hash' in err_msg or 'memories' in err_msg:
+                return "already_exists"
+            logger.error(f"Integrity error: {e}")
+            return f"Error: integrity violation - {e}"
+        except Exception as e:
+            err_msg = str(e).lower()
+            if 'malformed' in err_msg:
+                logger.error(f"Database malformed, rebuilding...")
+                if conn:
+                    try: conn.close()
+                    except Exception: pass
+                conn = None
+                self._rebuild_database()
                 try:
-                    conn = self._ensure_write_conn()
+                    conn = self._get_connection()
                     result = func(conn)
                     conn.commit()
                     return result
-                except sqlite3.IntegrityError:
-                    return "already_exists"
-                except Exception as e:
-                    self._close_write_conn()
-                    err_msg = str(e).lower()
-                    if 'malformed' in err_msg and not _repaired:
-                        _repaired = True
-                        self._repair_database()
-                        import time
-                        time.sleep(0.5)
-                        continue
-                    if attempt < max_retries:
-                        import time
-                        time.sleep(0.5 + attempt * 0.5)
-                        continue
-                    logger.error(f"Write error after {max_retries+1} attempts: {e}")
-                    self._close_write_conn()
+                except Exception as e2:
+                    logger.error(f"Still failed after rebuild: {e2}")
                     return None
+            if 'locked' in err_msg:
+                import time
+                time.sleep(0.3)
+                try:
+                    if conn:
+                        try: conn.close()
+                        except Exception: pass
+                    conn = self._get_connection()
+                    result = func(conn)
+                    conn.commit()
+                    return result
+                except Exception as e2:
+                    logger.error(f"Write failed after lock retry: {e2}")
+                    return None
+            logger.error(f"Write error: {e}")
+            return None
+        finally:
+            if conn:
+                try: conn.close()
+                except Exception: pass
 
     def _execute_read(self, func):
         conn = None
@@ -104,13 +103,6 @@ class DatabaseManager:
             conn = self._get_connection()
             return func(conn)
         except Exception as e:
-            err_msg = str(e).lower()
-            if 'malformed' in err_msg:
-                logger.warning("Read error (malformed), will repair on next write")
-                if conn:
-                    try: conn.close()
-                    except Exception: pass
-                return None
             logger.debug(f"Read error: {e}")
             return None
         finally:
@@ -118,16 +110,28 @@ class DatabaseManager:
                 try: conn.close()
                 except Exception: pass
 
-    def _repair_database(self):
-        if not self.db_path or not os.path.exists(self.db_path):
-            return
-        logger.warning(f"Repairing database: {self.db_path}")
-        for ext in ['-wal', '-shm']:
-            p = self.db_path + ext
-            if os.path.exists(p):
-                try: os.remove(p)
-                except Exception: pass
-        logger.info("WAL files cleaned, database repaired")
+    def _rebuild_database(self):
+        logger.warning(f"Rebuilding database from scratch: {self.db_path}")
+        try:
+            if os.path.exists(self.db_path):
+                os.remove(self.db_path)
+            for ext in ['-wal', '-shm', '-journal']:
+                p = self.db_path + ext
+                if os.path.exists(p):
+                    os.remove(p)
+        except Exception as e:
+            logger.error(f"Failed to delete corrupted database: {e}")
+        self._initialize_database_structure()
+        self._migrate_relationship_fields()
+        self._migrate_activities_fk()
+        self._clean_dirty_categories()
+        logger.info("Database rebuilt successfully")
+        backup_dir = os.path.join(os.path.dirname(self.db_path), "backups")
+        if os.path.exists(backup_dir):
+            backups = sorted([f for f in os.listdir(backup_dir) if f.endswith('.db')], reverse=True)
+            if backups:
+                latest = os.path.join(backup_dir, backups[0])
+                logger.warning(f"Data lost, restore manually from: {latest}")
 
     def initialize(self, data_dir=None):
         if data_dir:
@@ -150,6 +154,8 @@ class DatabaseManager:
         self._check_integrity()
         self._migrate_old_data()
         self._migrate_relationship_fields()
+        self._migrate_activities_fk()
+        self._clean_dirty_categories()
         if not self.config.get('lightweight_mode', False):
             _get_jieba()
         from .backup import BackupManager
@@ -166,14 +172,12 @@ class DatabaseManager:
             conn.close()
             if result and result[0] != 'ok':
                 logger.warning(f"Database integrity check failed: {result[0]}")
-                self._repair_database()
-                self._initialize_database_structure()
+                self._rebuild_database()
             else:
                 logger.info("Database integrity check passed")
         except Exception as e:
             logger.warning(f"Database integrity check error: {e}")
-            self._repair_database()
-            self._initialize_database_structure()
+            self._rebuild_database()
 
     def _migrate_old_data(self):
         def _do_migrate(conn):
@@ -214,13 +218,30 @@ class DatabaseManager:
             except Exception: pass
         self._execute_write(_do_migrate)
 
+    def _migrate_activities_fk(self):
+        def _do_migrate(conn):
+            cursor = conn.cursor()
+            cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='activities'")
+            row = cursor.fetchone()
+            if row and row[0] and 'FOREIGN KEY' in row[0]:
+                logger.info("Migrating: dropping FK from activities table")
+                cursor.execute('ALTER TABLE activities RENAME TO activities_old')
+                cursor.execute('''CREATE TABLE activities (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, memory_id INTEGER,
+                    activity_type TEXT NOT NULL, description TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
+                cursor.execute('INSERT INTO activities SELECT * FROM activities_old')
+                cursor.execute('DROP TABLE activities_old')
+                logger.info("Activities FK migration completed")
+        self._execute_write(_do_migrate)
+
     def _initialize_database_structure(self):
         conn = None
         try:
-            conn = sqlite3.connect(self.db_path, timeout=60)
+            conn = sqlite3.connect(self.db_path, timeout=30)
             conn.execute('PRAGMA journal_mode = WAL')
             conn.execute('PRAGMA foreign_keys = ON')
-            conn.execute('PRAGMA busy_timeout = 60000')
+            conn.execute('PRAGMA busy_timeout = 15000')
             cursor = conn.cursor()
             cursor.execute('''CREATE TABLE IF NOT EXISTS memories (
                 id INTEGER PRIMARY KEY AUTOINCREMENT, content TEXT NOT NULL,
@@ -237,13 +258,11 @@ class DatabaseManager:
             cursor.execute('''CREATE TABLE IF NOT EXISTS activities (
                 id INTEGER PRIMARY KEY AUTOINCREMENT, memory_id INTEGER,
                 activity_type TEXT NOT NULL, description TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (memory_id) REFERENCES memories(id) ON DELETE CASCADE)''')
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_memories_category ON memories(category)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_memories_importance ON memories(importance)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_memories_created ON memories(created_at)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_relationships_nickname ON relationships(nickname)')
-            cursor.execute('CREATE INDEX IF NOT EXISTS idx_activities_memory ON activities(memory_id)')
             try:
                 cursor.execute('''CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
                     content, tags, category, content='memories', content_rowid='id')''')
@@ -262,7 +281,6 @@ class DatabaseManager:
 
     def close(self):
         if self.backup_manager: self.backup_manager.stop_auto_backup()
-        self._close_write_conn()
         logger.info("Database closed")
 
     def backup(self):
@@ -340,6 +358,20 @@ class DatabaseManager:
         if best_score == 0 and configured:
             return configured[0]
         return best_cat
+
+    _VALID_CATEGORIES = set(_CATEGORY_KEYWORDS.keys()) | {'general'}
+
+    def _clean_dirty_categories(self):
+        def _do_op(conn):
+            cursor = conn.cursor()
+            cursor.execute('SELECT DISTINCT category FROM memories')
+            for row in cursor.fetchall():
+                cat = row[0]
+                if cat not in self._VALID_CATEGORIES and self.config.get('memory_categories'):
+                    if cat not in self.config.get('memory_categories', []):
+                        cursor.execute("UPDATE memories SET category = 'general' WHERE category = ?", (cat,))
+                        logger.info(f"Cleaned dirty category: {cat}")
+        self._execute_write(_do_op)
 
     # ==================== Memory CRUD ====================
 
@@ -694,8 +726,14 @@ class DatabaseManager:
         def _do_op(conn):
             cursor = conn.cursor()
             cursor.execute(
-                'SELECT * FROM relationships WHERE user_id LIKE ? OR nickname LIKE ? OR relation_type LIKE ? OR summary LIKE ? LIMIT ?',
-                (f'%{query}%', f'%{query}%', f'%{query}%', f'%{query}%', limit))
+                'SELECT * FROM relationships WHERE user_id = ? OR nickname = ?',
+                (query, query))
+            exact = [dict(row) for row in cursor.fetchall()]
+            if exact:
+                return exact[:limit]
+            cursor.execute(
+                'SELECT * FROM relationships WHERE user_id LIKE ? OR nickname LIKE ? OR relation_type LIKE ? OR summary LIKE ? OR notes LIKE ? LIMIT ?',
+                (f'%{query}%', f'%{query}%', f'%{query}%', f'%{query}%', f'%{query}%', limit))
             return [dict(row) for row in cursor.fetchall()]
         result = self._execute_read(_do_op)
         return result if result is not None else []
