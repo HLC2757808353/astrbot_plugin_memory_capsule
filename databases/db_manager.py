@@ -125,6 +125,7 @@ class DatabaseManager:
         self._migrate_relationship_fields()
         self._migrate_activities_fk()
         self._clean_dirty_categories()
+        self._cleanup_blank_relationships()
         logger.info("Database rebuilt successfully")
         backup_dir = os.path.join(os.path.dirname(self.db_path), "backups")
         if os.path.exists(backup_dir):
@@ -156,6 +157,7 @@ class DatabaseManager:
         self._migrate_relationship_fields()
         self._migrate_activities_fk()
         self._clean_dirty_categories()
+        self._cleanup_blank_relationships()
         if not self.config.get('lightweight_mode', False):
             _get_jieba()
         from .backup import BackupManager
@@ -371,6 +373,17 @@ class DatabaseManager:
                     if cat not in self.config.get('memory_categories', []):
                         cursor.execute("UPDATE memories SET category = 'general' WHERE category = ?", (cat,))
                         logger.info(f"Cleaned dirty category: {cat}")
+        self._execute_write(_do_op)
+
+    def _cleanup_blank_relationships(self):
+        def _do_op(conn):
+            cursor = conn.cursor()
+            cursor.execute(
+                "DELETE FROM relationships WHERE (nickname IS NULL OR nickname = '') "
+                "AND (summary IS NULL OR summary = '') AND (notes IS NULL OR notes = '')")
+            deleted = cursor.rowcount
+            if deleted > 0:
+                logger.info(f"Cleaned {deleted} blank relationship records")
         self._execute_write(_do_op)
 
     # ==================== Memory CRUD ====================
@@ -754,9 +767,6 @@ class DatabaseManager:
             cursor = conn.cursor()
             cursor.execute('SELECT user_id FROM relationships WHERE user_id = ?', (user_id,))
             if not cursor.fetchone():
-                cursor.execute(
-                    'INSERT INTO relationships (user_id, nickname, relation_type, last_interaction) VALUES (?, "", "friend", ?)',
-                    (user_id, datetime.now().isoformat()))
                 return
             cursor.execute(
                 'UPDATE relationships SET last_interaction = ?, interaction_count = interaction_count + 1 WHERE user_id = ?',
