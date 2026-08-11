@@ -168,6 +168,14 @@
     "editable": true,
     "display_name": "监听地址"
   },
+  "webui_enabled": {
+    "description": "是否启用独立 WebUI 服务（默认关闭，推荐使用 AstrBot Dashboard 嵌入式页面）",
+    "type": "bool",
+    "default": false,
+    "hint": "关闭时页面通过 AstrBot Dashboard 插件卡片访问，无需开放端口；开启后使用下方端口访问独立界面",
+    "editable": true,
+    "display_name": "启用独立WebUI"
+  },
   "webui_port": {
     "description": "WebUI服务端口",
     "type": "int",

@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>记忆宫殿</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #2d3748;
+            background: transparent;
+            min-height: 100vh;
+            padding: 24px;
+        }
+        [data-theme="dark"] body { color: #e2e8f0; }
+        .page-header { margin-bottom: 22px; }
+        .page-title { font-size: 1.6rem; font-weight: 700; color: #2d3748; margin-bottom: 6px; }
+        [data-theme="dark"] .page-title { color: #e2e8f0; }
+        .page-subtitle { font-size: 0.9rem; color: #94a3b8; }
+
+        .toolbar { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
+        .search-box {
+            flex: 1; min-width: 220px;
+            padding: 10px 16px;
+            background: rgba(139,92,246,0.05);
+            border: 1px solid rgba(139,92,246,0.15);
+            border-radius: 10px;
+            color: #2d3748; font-size: 0.92rem;
+            transition: all 0.3s ease;
+        }
+        [data-theme="dark"] .search-box { color: #e2e8f0; background: rgba(255,255,255,0.05); }
+        .search-box:focus { outline: none; border-color: #8b5cf6; box-shadow: 0 0 0 3px rgba(139,92,246,0.1); }
+        .search-box::placeholder { color: #a0aec0; }
+        .btn {
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 10px 16px; border: none; border-radius: 10px;
+            cursor: pointer; font-size: 0.88rem; font-weight: 500;
+            transition: all 0.3s ease; color: #fff;
+        }
+        .btn:hover { transform: scale(1.02); }
+        .btn-primary { background: linear-gradient(135deg, #8b5cf6, #a78bfa); box-shadow: 0 4px 12px rgba(139,92,246,0.3); }
+        .btn-outline { background: rgba(255,255,255,0.6); color: #8b5cf6; border: 1px solid rgba(139,92,246,0.3); }
+        .btn-outline:hover { background: rgba(139,92,246,0.08); }
+        [data-theme="dark"] .btn-outline { background: rgba(255,255,255,0.06); color: #a78bfa; }
+        .btn-danger { background: linear-gradient(135deg, #ef4444, #f87171); box-shadow: 0 4px 12px rgba(239,68,68,0.3); }
+        .btn-sm { padding: 7px 12px; font-size: 0.8rem; }
+        select.filter-control, select {
+            padding: 10px 14px;
+            background: rgba(139,92,246,0.05);
+            border: 1px solid rgba(139,92,246,0.15);
+            border-radius: 10px;
+            color: #2d3748; font-size: 0.9rem;
+        }
+        [data-theme="dark"] select { color: #e2e8f0; background: rgba(255,255,255,0.05); }
+        select option { background: #fff; color: #2d3748; }
+
+        .memories-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 14px;
+            margin-bottom: 18px;
+        }
+        .memory-card {
+            background: rgba(139,92,246,0.04);
+            border: 1px solid rgba(139,92,246,0.12);
+            border-radius: 12px;
+            padding: 16px;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+        .memory-card::before {
+            content: '';
+            position: absolute; top: 0; left: 0; width: 3px; height: 100%;
+            background: linear-gradient(to bottom, #8b5cf6, #ec4899);
+            opacity: 0; transition: opacity 0.3s ease;
+        }
+        .memory-card:hover { transform: translateY(-3px); box-shadow: 0 10px 30px rgba(139,92,246,0.12); }
+        .memory-card:hover::before { opacity: 1; }
+        .memory-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; gap: 6px; flex-wrap: wrap; }
+        .memory-importance {
+            font-size: 0.75rem; color: #8b5cf6; font-weight: 600;
+            background: rgba(139,92,246,0.1); padding: 3px 9px; border-radius: 8px;
+        }
+        .memory-category {
+            font-size: 0.75rem; color: #ec4899; font-weight: 600;
+            background: rgba(236,72,153,0.08); padding: 3px 9px; border-radius: 8px;
+        }
+        .memory-date { font-size: 0.75rem; color: #a0aec0; }
+        .memory-content { margin-bottom: 10px; line-height: 1.6; color: #475569; font-size: 0.9rem; }
+        [data-theme="dark"] .memory-content { color: #cbd5e1; }
+        .memory-tags { margin-bottom: 12px; }
+        .tag {
+            display: inline-block; padding: 2px 9px; margin-right: 5px; margin-bottom: 5px;
+            background: rgba(139,92,246,0.08); border: 1px solid rgba(139,92,246,0.15);
+            border-radius: 9px; font-size: 0.72rem; color: #8b5cf6;
+        }
+        .memory-actions { display: flex; gap: 8px; justify-content: flex-end; align-items: center; }
+
+        .related-section {
+            margin-bottom: 18px;
+            background: rgba(59,130,246,0.04);
+            border: 1px dashed rgba(59,130,246,0.25);
+            border-radius: 12px;
+            padding: 12px 16px;
+        }
+        .related-title { font-size: 0.82rem; color: #3b82f6; font-weight: 600; margin-bottom: 8px; }
+        .related-item { font-size: 0.85rem; color: #64748b; padding: 4px 0; border-bottom: 1px dashed rgba(59,130,246,0.1); }
+        [data-theme="dark"] .related-item { color: #94a3b8; }
+        .related-item:last-child { border-bottom: none; }
+        .related-cat { color: #ec4899; font-size: 0.72rem; margin-left: 6px; }
+
+        .empty-state { text-align: center; padding: 48px 20px; color: #94a3b8; font-size: 0.95rem; }
+
+        .pagination { display: flex; justify-content: center; align-items: center; gap: 8px; margin-top: 20px; flex-wrap: wrap; }
+        .pagination button {
+            padding: 7px 12px; background: rgba(255,255,255,0.6);
+            border: 1px solid rgba(139,92,246,0.15); border-radius: 9px;
+            color: #64748b; cursor: pointer; transition: all 0.3s ease; font-size: 0.82rem;
+        }
+        [data-theme="dark"] .pagination button { background: rgba(255,255,255,0.05); color: #94a3b8; }
+        .pagination button:hover { background: rgba(139,92,246,0.08); border-color: #8b5cf6; color: #8b5cf6; }
+        .pagination button.active { background: linear-gradient(135deg, #8b5cf6, #a78bfa); color: #fff; border-color: transparent; }
+        .pagination button:disabled { opacity: 0.4; cursor: not-allowed; }
+        .pagination .page-info { font-size: 0.82rem; color: #94a3b8; margin-left: 8px; }
+
+        .modal {
+            display: none; position: fixed; z-index: 1000; left: 0; top: 0;
+            width: 100%; height: 100%; background: rgba(0,0,0,0.3); backdrop-filter: blur(10px);
+        }
+        .modal.show { display: flex; align-items: center; justify-content: center; animation: fadeIn 0.3s ease; }
+        .modal-content {
+            background: #fff; border: 1px solid rgba(139,92,246,0.12); border-radius: 14px;
+            padding: 26px; width: 90%; max-width: 560px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.15); animation: slideUp 0.3s ease;
+            max-height: 88vh; overflow-y: auto;
+        }
+        [data-theme="dark"] .modal-content { background: #1e293b; }
+        .modal-header { padding-bottom: 14px; border-bottom: 1px solid rgba(139,92,246,0.1); margin-bottom: 18px; display: flex; justify-content: space-between; align-items: center; }
+        .modal-title { font-size: 1.1rem; font-weight: 600; color: #2d3748; }
+        [data-theme="dark"] .modal-title { color: #e2e8f0; }
+        .modal-close { background: rgba(139,92,246,0.08); border: none; width: 30px; height: 30px; border-radius: 8px; font-size: 1.1rem; cursor: pointer; color: #8b5cf6; }
+        .modal-close:hover { background: rgba(139,92,246,0.15); }
+        .form-group { margin-bottom: 14px; }
+        .form-label { display: block; font-size: 0.82rem; color: #64748b; font-weight: 500; margin-bottom: 5px; }
+        [data-theme="dark"] .form-label { color: #94a3b8; }
+        .form-control {
+            width: 100%; padding: 9px 12px;
+            background: rgba(139,92,246,0.04); border: 1px solid rgba(139,92,246,0.15);
+            border-radius: 9px; color: #2d3748; font-size: 0.88rem; transition: all 0.3s ease;
+        }
+        [data-theme="dark"] .form-control { color: #e2e8f0; background: rgba(255,255,255,0.05); }
+        .form-control:focus { outline: none; border-color: #8b5cf6; box-shadow: 0 0 0 3px rgba(139,92,246,0.1); }
+        textarea.form-control { min-height: 80px; resize: vertical; font-family: inherit; }
+        .modal-footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; padding-top: 14px; border-top: 1px solid rgba(139,92,246,0.1); }
+        .importance-slider { width: 100%; accent-color: #8b5cf6; margin-top: 4px; }
+        .importance-hint { font-size: 0.75rem; color: #94a3b8; margin-top: 4px; }
+        .hint { font-size: 0.76rem; color: #94a3b8; margin-top: 5px; }
+        .result-msg { margin-top: 8px; font-size: 0.86rem; }
+
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes slideUp { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: translateY(0); } }
+        @media (max-width: 768px) { .memories-grid { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+    <div class="page-header">
+        <h1 class="page-title">记忆宫殿</h1>
+        <p class="page-subtitle">管理和浏览所有记忆（精确记忆 / 小本本）</p>
+    </div>
+
+    <div class="toolbar">
+        <input type="text" class="search-box" id="search-box" placeholder="搜索记忆（多个词效果更好）...">
+        <select id="sort-by" onchange="changeSortOrder()">
+            <option value="created_at_desc">记录时间 (新→旧)</option>
+            <option value="created_at_old">记录时间 (旧→新)</option>
+            <option value="importance_desc">重要程度 (高→低)</option>
+            <option value="access_count_desc">调用次数 (多→少)</option>
+        </select>
+        <button class="btn btn-primary btn-sm" onclick="addMemory()">+ 添加记忆</button>
+        <button class="btn btn-outline btn-sm" onclick="showImportModal()">批量导入</button>
+        <button class="btn btn-outline btn-sm" onclick="loadMemories(currentPage)">刷新</button>
+    </div>
+
+    <div class="related-section" id="related-section" style="display:none;">
+        <div class="related-title">&#129504; 联想记忆（不完全相关但可能有用）</div>
+        <div id="related-list"></div>
+    </div>
+
+    <div class="memories-grid" id="memories-grid"></div>
+    <div class="pagination" id="pagination"></div>
+
+    <!-- 编辑 Modal -->
+    <div id="edit-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title" id="edit-modal-title">添加记忆</h3>
+                <button class="modal-close" onclick="closeModal()">&times;</button>
+            </div>
+            <input type="hidden" id="edit-memory-id">
+            <div class="form-group">
+                <label class="form-label">内容 *</label>
+                <textarea class="form-control" id="edit-content" placeholder="记录一条信息..."></textarea>
+            </div>
+            <div class="form-group">
+                <label class="form-label">分类</label>
+                <select class="form-control" id="edit-category"></select>
+            </div>
+            <div class="form-group">
+                <label class="form-label">标签 (逗号分隔)</label>
+                <input type="text" class="form-control" id="edit-tags" placeholder="如：工作,技术">
+            </div>
+            <div class="form-group">
+                <label class="form-label">重要性 <span id="importance-display">5</span>/10</label>
+                <input type="range" class="importance-slider" id="edit-importance" min="1" max="10" value="5" oninput="document.getElementById('importance-display').textContent=this.value">
+                <div class="importance-hint">1-3=闲聊 | 4-6=普通笔记 | 7-9=重要信息 | 10=核心身份/约定</div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline btn-sm" onclick="closeModal()">取消</button>
+                <button class="btn btn-primary btn-sm" onclick="saveMemory()">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 导入 Modal -->
+    <div id="import-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title">批量导入记忆</h3>
+                <button class="modal-close" onclick="closeImportModal()">&times;</button>
+            </div>
+            <div class="form-group">
+                <label class="form-label">JSON 格式（数组）</label>
+                <textarea class="form-control" id="import-json" style="min-height:160px;font-family:monospace;font-size:12px;" placeholder='[
+  {"content": "Python是解释型语言", "category": "技术笔记", "importance": 5},
+  {"content": "用户喜欢猫", "importance": 3}
+]'></textarea>
+                <div class="hint">支持字段: content(必填), category, importance(1-10), tags, source。单次最多500条，自动去重。</div>
+            </div>
+            <div class="form-group">
+                <label class="form-label">或上传 JSON 文件</label>
+                <input type="file" id="import-file" accept=".json" class="form-control" style="padding:6px;">
+            </div>
+            <div id="import-result" class="result-msg"></div>
+            <div class="modal-footer">
+                <button class="btn btn-outline btn-sm" onclick="closeImportModal()">取消</button>
+                <button class="btn btn-primary btn-sm" onclick="doImport()">导入</button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        const bridge = window.AstrBotPluginPage;
+        await bridge.ready();
+
+        let currentPage = 1;
+        const PAGE_SIZE = 12;
+        let currentMemories = [];
+        let relatedMemories = [];
+        let categories = [];
+
+        async function apiGet(endpoint, params) { return bridge.apiGet(endpoint, params); }
+        async function apiPost(endpoint, body) { return bridge.apiPost(endpoint, body); }
+
+        function escapeHtml(s) {
+            return (s || '').replace(/[&<>"']/g, c => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+            }[c]));
+        }
+
+        function formatDate(dateStr) {
+            if (!dateStr) return '未知';
+            try {
+                const d = new Date(dateStr);
+                return `${d.getFullYear()}年${String(d.getMonth()+1).padStart(2,'0')}月${String(d.getDate()).padStart(2,'0')}日`;
+            } catch (e) { return '未知'; }
+        }
+
+        async function loadMemories(page = 1, keepRelated = true) {
+            currentPage = page;
+            const q = document.getElementById('search-box').value.trim();
+            try {
+                if (q) {
+                    const data = await apiGet('api/memories/search', {
+                        q, page, limit: PAGE_SIZE
+                    });
+                    currentMemories = (data.results || []).map(r => ({...r, _matched: true}));
+                    relatedMemories = data.related || [];
+                    renderMemories(currentMemories);
+                    renderRelated(relatedMemories);
+                    renderPagination(currentMemories.length, 1);
+                } else {
+                    const data = await apiGet('api/memories', { page, limit: PAGE_SIZE });
+                    currentMemories = data.memories || [];
+                    relatedMemories = [];
+                    renderMemories(currentMemories);
+                    document.getElementById('related-section').style.display = 'none';
+                    renderPagination(data.total, data.total_pages);
+                }
+            } catch (e) {
+                console.error('加载记忆失败:', e);
+                document.getElementById('memories-grid').innerHTML = '<div class="empty-state">加载失败</div>';
+            }
+        }
+
+        function renderMemories(memories) {
+            const grid = document.getElementById('memories-grid');
+            if (!memories.length) {
+                grid.innerHTML = '<div class="empty-state">暂无记忆，点击"添加记忆"开始记录吧</div>';
+                return;
+            }
+            grid.innerHTML = memories.map(m => `
+                <div class="memory-card">
+                    <div class="memory-header">
+                        <span class="memory-importance">重要性: ${m.importance || 1}</span>
+                        <span class="memory-category">${escapeHtml(m.category || 'general')}</span>
+                    </div>
+                    <div class="memory-content">${escapeHtml(m.content)}</div>
+                    ${m.tags ? `<div class="memory-tags">${m.tags.split(',').filter(Boolean).map(t => `<span class="tag">${escapeHtml(t.trim())}</span>`).join('')}</div>` : ''}
+                    <div class="memory-actions">
+                        <span class="memory-date">${formatDate(m.created_at)}</span>
+                        <button class="btn btn-outline btn-sm" onclick="editMemory(${m.id})">编辑</button>
+                        <button class="btn btn-danger btn-sm" onclick="deleteMemory(${m.id})">删除</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function renderRelated(related) {
+            const section = document.getElementById('related-section');
+            if (!related || !related.length) { section.style.display = 'none'; return; }
+            section.style.display = 'block';
+            document.getElementById('related-list').innerHTML = related.map(r => `
+                <div class="related-item">${escapeHtml(r.content)}<span class="related-cat">${escapeHtml(r.category || '')}</span></div>
+            `).join('');
+        }
+
+        function renderPagination(total, totalPages) {
+            const el = document.getElementById('pagination');
+            if (totalPages <= 1) { el.innerHTML = `<span class="page-info">共 ${total} 条</span>`; return; }
+            let html = `<button ${currentPage === 1 ? 'disabled' : ''} onclick="loadMemories(${currentPage - 1})">上一页</button>`;
+            for (let i = 1; i <= totalPages; i++) {
+                if (i === 1 || i === totalPages || Math.abs(i - currentPage) <= 2) {
+                    html += `<button class="${i === currentPage ? 'active' : ''}" onclick="loadMemories(${i})">${i}</button>`;
+                } else if (Math.abs(i - currentPage) === 3) {
+                    html += `<button disabled>...</button>`;
+                }
+            }
+            html += `<button ${currentPage === totalPages ? 'disabled' : ''} onclick="loadMemories(${currentPage + 1})">下一页</button>`;
+            html += `<span class="page-info">共 ${total} 条</span>`;
+            el.innerHTML = html;
+        }
+
+        async function loadCategories() {
+            try {
+                const data = await apiGet('api/categories');
+                categories = data.categories || [];
+                const sel = document.getElementById('edit-category');
+                sel.innerHTML = categories.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+            } catch (e) { console.error('加载分类失败:', e); }
+        }
+
+        function addMemory() {
+            document.getElementById('edit-memory-id').value = '';
+            document.getElementById('edit-content').value = '';
+            document.getElementById('edit-tags').value = '';
+            document.getElementById('edit-importance').value = 5;
+            document.getElementById('importance-display').textContent = 5;
+            document.getElementById('edit-modal-title').textContent = '添加记忆';
+            document.getElementById('edit-modal').classList.add('show');
+        }
+
+        async function editMemory(id) {
+            document.getElementById('edit-memory-id').value = id;
+            const m = currentMemories.find(x => x.id === id);
+            if (!m) return;
+            document.getElementById('edit-content').value = m.content || '';
+            document.getElementById('edit-category').value = m.category || 'general';
+            document.getElementById('edit-tags').value = m.tags || '';
+            document.getElementById('edit-importance').value = m.importance || 5;
+            document.getElementById('importance-display').textContent = m.importance || 5;
+            document.getElementById('edit-modal-title').textContent = '编辑记忆';
+            document.getElementById('edit-modal').classList.add('show');
+        }
+
+        function closeModal() {
+            document.getElementById('edit-modal').classList.remove('show');
+        }
+
+        async function saveMemory() {
+            const id = document.getElementById('edit-memory-id').value;
+            const content = document.getElementById('edit-content').value.trim();
+            if (!content) { alert('内容不能为空'); return; }
+            const payload = {
+                content,
+                category: document.getElementById('edit-category').value,
+                tags: document.getElementById('edit-tags').value,
+                importance: parseInt(document.getElementById('edit-importance').value)
+            };
+            try {
+                if (id) {
+                    await apiPost(`api/memories/${id}/update`, payload);
+                } else {
+                    await apiPost('api/memories', payload);
+                }
+                closeModal();
+                loadMemories(currentPage);
+            } catch (e) { alert('保存失败: ' + e.message); }
+        }
+
+        async function deleteMemory(id) {
+            if (!confirm('确定删除该记忆？')) return;
+            try {
+                await apiPost(`api/memories/${id}/delete`, {});
+                loadMemories(currentPage);
+            } catch (e) { alert('删除失败: ' + e.message); }
+        }
+
+        function changeSortOrder() {
+            const sort = document.getElementById('sort-by').value;
+            const list = [...currentMemories];
+            switch (sort) {
+                case 'importance_desc': list.sort((a, b) => (b.importance || 1) - (a.importance || 1)); break;
+                case 'created_at_old': list.sort((a, b) => new Date(a.created_at) - new Date(b.created_at)); break;
+                case 'access_count_desc': list.sort((a, b) => (b.access_count || 0) - (a.access_count || 0)); break;
+                default: list.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+            }
+            renderMemories(list);
+        }
+
+        function showImportModal() {
+            document.getElementById('import-json').value = '';
+            document.getElementById('import-file').value = '';
+            document.getElementById('import-result').textContent = '';
+            document.getElementById('import-modal').classList.add('show');
+        }
+
+        function closeImportModal() {
+            document.getElementById('import-modal').classList.remove('show');
+        }
+
+        async function doImport() {
+            let items = null;
+            const fileInput = document.getElementById('import-file');
+            const jsonText = document.getElementById('import-json').value.trim();
+            try {
+                if (fileInput.files.length > 0) {
+                    items = JSON.parse(await fileInput.files[0].text());
+                } else if (jsonText) {
+                    items = JSON.parse(jsonText);
+                } else {
+                    document.getElementById('import-result').innerHTML = '<span style="color:#ef4444;">请输入JSON或上传文件</span>';
+                    return;
+                }
+            } catch (e) {
+                document.getElementById('import-result').innerHTML = '<span style="color:#ef4444;">JSON解析失败: ' + e.message + '</span>';
+                return;
+            }
+            if (!Array.isArray(items)) {
+                document.getElementById('import-result').innerHTML = '<span style="color:#ef4444;">数据必须是数组格式</span>';
+                return;
+            }
+            try {
+                const resp = await apiPost('api/memories/import', { memories: items });
+                document.getElementById('import-result').innerHTML = '<span style="color:#10b981;">' + (resp.result || '导入完成') + '</span>';
+                loadMemories(1);
+            } catch (e) {
+                document.getElementById('import-result').innerHTML = '<span style="color:#ef4444;">导入失败: ' + e.message + '</span>';
+            }
+        }
+
+        // 搜索防抖
+        let searchTimer = null;
+        document.getElementById('search-box').addEventListener('input', function() {
+            clearTimeout(searchTimer);
+            searchTimer = setTimeout(() => loadMemories(1), 400);
+        });
+
+        document.getElementById('edit-modal').addEventListener('click', function(e) { if (e.target === this) closeModal(); });
+        document.getElementById('import-modal').addEventListener('click', function(e) { if (e.target === this) closeImportModal(); });
+
+        // 暴露到 window
+        window.loadMemories = loadMemories;
+        window.addMemory = addMemory;
+        window.editMemory = editMemory;
+        window.closeModal = closeModal;
+        window.saveMemory = saveMemory;
+        window.deleteMemory = deleteMemory;
+        window.changeSortOrder = changeSortOrder;
+        window.showImportModal = showImportModal;
+        window.closeImportModal = closeImportModal;
+        window.doImport = doImport;
+
+        await loadCategories();
+        await loadMemories(1);
+    </script>
+</body>
+</html>

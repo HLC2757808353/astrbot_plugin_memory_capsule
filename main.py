@@ -41,10 +41,15 @@ class MemoryCapsulePlugin(Star):
         self.db_manager.initialize(persistent_data_dir)
         from . import set_global_manager
         set_global_manager(self.db_manager)
-        self._start_webui()
+        from .embedded_api import register_embedded_apis
+        register_embedded_apis(self.context, self.db_manager, self.config)
+        if self.config.get('webui_enabled', False):
+            self._start_webui()
+        else:
+            logger.info("独立 WebUI 已关闭（嵌入式 Pages 已启用，可在 AstrBot Dashboard 插件页访问）")
 
     def _create_directories(self):
-        for d in ["databases", "webui/templates", "webui/static"]:
+        for d in ["databases", "webui/templates", "webui/static", "pages"]:
             os.makedirs(os.path.join(os.path.dirname(__file__), d.replace('/', os.sep)), exist_ok=True)
 
     def _get_persistent_data_dir(self):

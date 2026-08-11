@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>梗百科</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #2d3748;
+            background: transparent;
+            min-height: 100vh;
+            padding: 24px;
+        }
+        [data-theme="dark"] body { color: #e2e8f0; }
+
+        .page-header { margin-bottom: 24px; }
+        .page-title { font-size: 1.6rem; font-weight: 700; color: #2d3748; margin-bottom: 6px; }
+        [data-theme="dark"] .page-title { color: #e2e8f0; }
+        .page-subtitle { font-size: 0.9rem; color: #94a3b8; }
+
+        .stats-row {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 14px;
+            margin-bottom: 20px;
+        }
+        .stat-card {
+            background: rgba(139,92,246,0.06);
+            border: 1px solid rgba(139,92,246,0.15);
+            border-radius: 14px;
+            padding: 16px;
+            text-align: center;
+        }
+        .stat-value {
+            font-size: 1.6rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #8b5cf6, #ec4899);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 2px;
+        }
+        .stat-label { font-size: 0.8rem; color: #94a3b8; font-weight: 500; }
+
+        .toolbar {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        .search-box {
+            flex: 1;
+            min-width: 220px;
+            padding: 10px 16px;
+            background: rgba(139,92,246,0.05);
+            border: 1px solid rgba(139,92,246,0.15);
+            border-radius: 10px;
+            color: #2d3748;
+            font-size: 0.92rem;
+            transition: all 0.3s ease;
+        }
+        [data-theme="dark"] .search-box { color: #e2e8f0; }
+        .search-box:focus { outline: none; border-color: #8b5cf6; box-shadow: 0 0 0 3px rgba(139,92,246,0.1); }
+        .search-box::placeholder { color: #a0aec0; }
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 10px 18px;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 0.88rem;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            color: #fff;
+        }
+        .btn:hover { transform: scale(1.02); }
+        .btn-primary { background: linear-gradient(135deg, #8b5cf6, #a78bfa); box-shadow: 0 4px 12px rgba(139,92,246,0.3); }
+        .btn-outline { background: rgba(255,255,255,0.6); color: #8b5cf6; border: 1px solid rgba(139,92,246,0.3); }
+        .btn-outline:hover { background: rgba(139,92,246,0.08); }
+        [data-theme="dark"] .btn-outline { background: rgba(255,255,255,0.06); }
+
+        .content-row { display: flex; gap: 16px; align-items: flex-start; }
+        .category-side {
+            width: 150px;
+            flex-shrink: 0;
+            background: rgba(139,92,246,0.04);
+            border: 1px solid rgba(139,92,246,0.12);
+            border-radius: 14px;
+            padding: 12px 8px;
+            position: sticky;
+            top: 24px;
+        }
+        .category-item {
+            padding: 9px 12px;
+            border-radius: 9px;
+            cursor: pointer;
+            color: #64748b;
+            font-size: 0.86rem;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        [data-theme="dark"] .category-item { color: #94a3b8; }
+        .category-item:hover { background: rgba(139,92,246,0.08); color: #8b5cf6; }
+        .category-item.active { background: linear-gradient(135deg, #8b5cf6, #a78bfa); color: #fff; }
+        .category-count { font-size: 0.72rem; opacity: 0.7; }
+
+        .glossary-grid {
+            flex: 1;
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 10px;
+        }
+        .glossary-card {
+            background: rgba(139,92,246,0.05);
+            border: 1px solid rgba(139,92,246,0.12);
+            border-radius: 10px;
+            padding: 12px 10px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+            min-height: 74px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            gap: 5px;
+        }
+        .glossary-card::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 3px;
+            background: linear-gradient(90deg, #8b5cf6, #ec4899);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        .glossary-card:hover { transform: translateY(-3px); box-shadow: 0 8px 24px rgba(139,92,246,0.15); }
+        .glossary-card:hover::before { opacity: 1; }
+        .glossary-term { font-size: 1rem; font-weight: 700; color: #2d3748; word-break: break-all; }
+        [data-theme="dark"] .glossary-term { color: #e2e8f0; }
+        .glossary-cat { font-size: 0.68rem; color: #8b5cf6; background: rgba(139,92,246,0.1); padding: 2px 8px; border-radius: 8px; }
+
+        .empty-state {
+            grid-column: 1 / -1;
+            text-align: center;
+            padding: 48px 20px;
+            color: #94a3b8;
+            font-size: 0.95rem;
+            background: rgba(139,92,246,0.03);
+            border-radius: 14px;
+        }
+
+        .pagination {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 8px;
+            margin-top: 20px;
+            flex-wrap: wrap;
+        }
+        .pagination button {
+            padding: 7px 12px;
+            background: rgba(255,255,255,0.6);
+            border: 1px solid rgba(139,92,246,0.15);
+            border-radius: 9px;
+            color: #64748b;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 0.82rem;
+        }
+        [data-theme="dark"] .pagination button { background: rgba(255,255,255,0.05); color: #94a3b8; }
+        .pagination button:hover { background: rgba(139,92,246,0.08); border-color: #8b5cf6; color: #8b5cf6; }
+        .pagination button.active { background: linear-gradient(135deg, #8b5cf6, #a78bfa); color: #fff; border-color: transparent; }
+        .pagination button:disabled { opacity: 0.4; cursor: not-allowed; }
+        .pagination .page-info { font-size: 0.82rem; color: #94a3b8; margin-left: 8px; }
+
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0; top: 0;
+            width: 100%; height: 100%;
+            background: rgba(0,0,0,0.3);
+            backdrop-filter: blur(10px);
+        }
+        .modal.show { display: flex; align-items: center; justify-content: center; animation: fadeIn 0.3s ease; }
+        .modal-content {
+            background: #fff;
+            border: 1px solid rgba(139,92,246,0.12);
+            border-radius: 14px;
+            padding: 26px;
+            width: 90%;
+            max-width: 520px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.15);
+            animation: slideUp 0.3s ease;
+            max-height: 88vh;
+            overflow-y: auto;
+        }
+        [data-theme="dark"] .modal-content { background: #1e293b; }
+        .modal-header {
+            padding-bottom: 14px;
+            border-bottom: 1px solid rgba(139,92,246,0.1);
+            margin-bottom: 18px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .modal-title { font-size: 1.1rem; font-weight: 600; color: #2d3748; }
+        [data-theme="dark"] .modal-title { color: #e2e8f0; }
+        .modal-close {
+            background: rgba(139,92,246,0.08);
+            border: none;
+            width: 30px; height: 30px;
+            border-radius: 8px;
+            font-size: 1.1rem;
+            cursor: pointer;
+            color: #8b5cf6;
+            transition: all 0.3s ease;
+        }
+        .modal-close:hover { background: rgba(139,92,246,0.15); }
+        .detail-row { margin-bottom: 12px; }
+        .detail-label { font-size: 0.78rem; color: #94a3b8; font-weight: 500; margin-bottom: 3px; }
+        .detail-value { font-size: 0.92rem; color: #475569; word-break: break-all; }
+        [data-theme="dark"] .detail-value { color: #cbd5e1; }
+        .form-group { margin-bottom: 14px; }
+        .form-label { display: block; font-size: 0.82rem; color: #64748b; font-weight: 500; margin-bottom: 5px; }
+        [data-theme="dark"] .form-label { color: #94a3b8; }
+        .form-control {
+            width: 100%;
+            padding: 9px 12px;
+            background: rgba(139,92,246,0.04);
+            border: 1px solid rgba(139,92,246,0.15);
+            border-radius: 9px;
+            color: #2d3748;
+            font-size: 0.88rem;
+            transition: all 0.3s ease;
+        }
+        [data-theme="dark"] .form-control { color: #e2e8f0; background: rgba(255,255,255,0.05); }
+        .form-control:focus { outline: none; border-color: #8b5cf6; box-shadow: 0 0 0 3px rgba(139,92,246,0.1); }
+        select.form-control option { background: #fff; color: #2d3748; }
+        textarea.form-control { min-height: 70px; resize: vertical; font-family: inherit; }
+        .modal-footer {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            margin-top: 18px;
+            padding-top: 14px;
+            border-top: 1px solid rgba(139,92,246,0.1);
+        }
+        .btn-danger { background: linear-gradient(135deg, #ef4444, #f87171); box-shadow: 0 4px 12px rgba(239,68,68,0.3); }
+        .btn-gray { background: rgba(148,163,184,0.3); color: #475569; }
+        .btn-sm { padding: 6px 12px; font-size: 0.8rem; }
+        .hint { font-size: 0.76rem; color: #94a3b8; margin-top: 5px; }
+        .result-msg { margin-top: 8px; font-size: 0.86rem; }
+
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes slideUp { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: translateY(0); } }
+
+        @media (max-width: 1400px) { .glossary-grid { grid-template-columns: repeat(5, 1fr); } }
+        @media (max-width: 1100px) { .glossary-grid { grid-template-columns: repeat(4, 1fr); } }
+        @media (max-width: 860px) {
+            .glossary-grid { grid-template-columns: repeat(3, 1fr); }
+            .content-row { flex-direction: column; }
+            .category-side { width: 100%; position: static; display: flex; flex-wrap: wrap; gap: 5px; }
+            .category-item { flex: 1; justify-content: center; }
+            .stats-row { grid-template-columns: repeat(2, 1fr); }
+        }
+    </style>
+</head>
+<body>
+    <div class="page-header">
+        <h1 class="page-title">梗百科</h1>
+        <p class="page-subtitle">黑话 / 谐音梗 / 行为梗 / 抽象梗 小词典，对话中命中会自动注入给 AI</p>
+    </div>
+
+    <div class="stats-row">
+        <div class="stat-card">
+            <div class="stat-value" id="stat-total">0</div>
+            <div class="stat-label">梗总数</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" id="stat-cats">0</div>
+            <div class="stat-label">分类数</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" id="stat-today">0</div>
+            <div class="stat-label">今日新增</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" id="stat-used">0</div>
+            <div class="stat-label">已被使用</div>
+        </div>
+    </div>
+
+    <div class="toolbar">
+        <input type="text" class="search-box" id="search-input" placeholder="搜索梗词 / 解释 / 标签 / 来源...">
+        <button class="btn btn-primary" onclick="addGlossary()">+ 添加梗</button>
+        <button class="btn btn-outline" onclick="showImportModal()">&#8681; 批量导入</button>
+        <button class="btn btn-outline" onclick="exportGlossary()">&#8682; 导出</button>
+    </div>
+
+    <div class="content-row">
+        <div class="category-side" id="category-side"></div>
+        <div style="flex:1;">
+            <div class="glossary-grid" id="glossary-grid"></div>
+            <div class="pagination" id="pagination"></div>
+        </div>
+    </div>
+
+    <!-- 详情/编辑 Modal -->
+    <div id="detail-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title" id="detail-title">梗详情</h3>
+                <button class="modal-close" onclick="closeDetailModal()">&times;</button>
+            </div>
+            <div id="detail-body"></div>
+        </div>
+    </div>
+
+    <!-- 添加/编辑 Modal -->
+    <div id="edit-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title" id="edit-modal-title">添加梗</h3>
+                <button class="modal-close" onclick="closeEditModal()">&times;</button>
+            </div>
+            <div class="form-group">
+                <label class="form-label">梗词 *</label>
+                <input type="text" class="form-control" id="edit-term" placeholder="如：yys">
+            </div>
+            <div class="form-group">
+                <label class="form-label">分类</label>
+                <select class="form-control" id="edit-category">
+                    <option value="谐音梗">谐音梗</option>
+                    <option value="行为梗">行为梗</option>
+                    <option value="抽象梗">抽象梗 / 黑话</option>
+                    <option value="表情包梗">表情包 / 图片梗</option>
+                    <option value="其他梗">其他梗</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="form-label">解释</label>
+                <textarea class="form-control" id="edit-meaning" placeholder="如：阴阳师的谐音缩写"></textarea>
+            </div>
+            <div class="form-group">
+                <label class="form-label">来源（简略）</label>
+                <input type="text" class="form-control" id="edit-source" placeholder="如：游戏圈 / 群友常用">
+            </div>
+            <div class="form-group">
+                <label class="form-label">标签（逗号分隔，可多个）</label>
+                <input type="text" class="form-control" id="edit-tags" placeholder="如：游戏,缩写">
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-danger btn-sm" id="edit-delete-btn" style="display:none; margin-right:auto;" onclick="deleteCurrent()">删除</button>
+                <button class="btn btn-gray btn-sm" onclick="closeEditModal()">取消</button>
+                <button class="btn btn-primary btn-sm" onclick="saveGlossary()">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 批量导入 Modal -->
+    <div id="import-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title">批量导入梗（JSONL）</h3>
+                <button class="modal-close" onclick="closeImportModal()">&times;</button>
+            </div>
+            <div class="form-group">
+                <label class="form-label">选择 JSONL 文件（每行一个 JSON 对象）</label>
+                <input type="file" id="import-file" accept=".jsonl,.ndjson,.json,.txt" class="form-control" style="padding:6px;">
+            </div>
+            <div class="form-group">
+                <label class="form-label">或直接粘贴 JSONL 文本</label>
+                <textarea class="form-control" id="import-jsonl" style="min-height:140px;font-family:monospace;font-size:12px;" placeholder='{"term":"yys","category":"谐音梗","meaning":"阴阳师缩写","source":"游戏圈","tags":"游戏,缩写"}
+{"term":"栓Q","category":"谐音梗","meaning":"thank you 谐音，表无奈感谢","source":"网络流行"}'></textarea>
+                <div class="hint">支持字段: term(必填), category, meaning, source, tags(逗号分隔或数组)。term 重复自动跳过。</div>
+            </div>
+            <div id="import-result" class="result-msg"></div>
+            <div class="modal-footer">
+                <button class="btn btn-gray btn-sm" onclick="closeImportModal()">取消</button>
+                <button class="btn btn-primary btn-sm" onclick="doImport()">开始导入</button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        const bridge = window.AstrBotPluginPage;
+        await bridge.ready();
+
+        const PAGE_SIZE = 28; // 4行 x 7列
+        let currentPage = 1;
+        let currentCategory = '';
+        let currentQuery = '';
+        let currentEditingId = null;
+        let categories = [];
+        let allItems = [];
+
+        window.bridge = bridge;
+
+        // ---- API 封装 ----
+        async function apiGet(endpoint, params) { return bridge.apiGet(endpoint, params); }
+        async function apiPost(endpoint, body) { return bridge.apiPost(endpoint, body); }
+
+        // ---- 数据加载 ----
+        async function loadStats() {
+            try {
+                const stats = await apiGet('api/glossary/stats');
+                document.getElementById('stat-total').textContent = stats.total || 0;
+                document.getElementById('stat-cats').textContent = stats.categories || 0;
+                document.getElementById('stat-today').textContent = stats.today_new || 0;
+                document.getElementById('stat-used').textContent = stats.used || 0;
+            } catch (e) { console.error('加载统计失败:', e); }
+        }
+
+        async function loadAllItems() {
+            try {
+                const data = await apiGet('api/glossary', { limit: 1000 });
+                allItems = data.items || [];
+            } catch (e) { allItems = []; }
+        }
+
+        async function loadCategories() {
+            try {
+                const resp = await apiGet('api/glossary/categories');
+                categories = resp.categories || [];
+                await loadAllItems();
+                renderCategories();
+            } catch (e) { console.error('加载分类失败:', e); }
+        }
+
+        function renderCategories() {
+            const side = document.getElementById('category-side');
+            let html = `
+                <div class="category-item ${currentCategory === '' ? 'active' : ''}" onclick="selectCategory('')">
+                    <span>全部</span><span class="category-count">${allItems.length}</span>
+                </div>`;
+            for (const cat of categories) {
+                const cnt = allItems.filter(i => i.category === cat).length;
+                html += `
+                    <div class="category-item ${currentCategory === cat ? 'active' : ''}" onclick="selectCategory('${cat}')">
+                        <span>${cat}</span><span class="category-count">${cnt}</span>
+                    </div>`;
+            }
+            side.innerHTML = html;
+        }
+
+        function selectCategory(cat) {
+            currentCategory = cat;
+            currentPage = 1;
+            loadGlossaries(1);
+            renderCategories();
+        }
+
+        function escapeHtml(s) {
+            return (s || '').replace(/[&<>"']/g, c => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+            }[c]));
+        }
+
+        async function loadGlossaries(page = 1) {
+            currentPage = page;
+            try {
+                const data = await apiGet('api/glossary', {
+                    page, limit: PAGE_SIZE,
+                    category: currentCategory || undefined,
+                    q: currentQuery || undefined
+                });
+                renderGrid(data.items || []);
+                renderPagination(data.total, data.total_pages);
+            } catch (e) {
+                console.error('加载梗库失败:', e);
+                document.getElementById('glossary-grid').innerHTML = '<div class="empty-state">加载失败</div>';
+            }
+        }
+
+        function renderGrid(items) {
+            const grid = document.getElementById('glossary-grid');
+            if (!items.length) {
+                grid.innerHTML = '<div class="empty-state">暂无梗，点击"添加梗"或"批量导入"开始收集吧</div>';
+                return;
+            }
+            grid.innerHTML = items.map(item => `
+                <div class="glossary-card" onclick="showDetail(${item.id})">
+                    <div class="glossary-term">${escapeHtml(item.term)}</div>
+                    <div class="glossary-cat">${escapeHtml(item.category)}</div>
+                </div>
+            `).join('');
+        }
+
+        function renderPagination(total, totalPages) {
+            const el = document.getElementById('pagination');
+            if (totalPages <= 1) { el.innerHTML = ''; return; }
+            let html = `<button ${currentPage === 1 ? 'disabled' : ''} onclick="loadGlossaries(${currentPage - 1})">上一页</button>`;
+            for (let i = 1; i <= totalPages; i++) {
+                if (i === 1 || i === totalPages || Math.abs(i - currentPage) <= 2) {
+                    html += `<button class="${i === currentPage ? 'active' : ''}" onclick="loadGlossaries(${i})">${i}</button>`;
+                } else if (Math.abs(i - currentPage) === 3) {
+                    html += `<button disabled>...</button>`;
+                }
+            }
+            html += `<button ${currentPage === totalPages ? 'disabled' : ''} onclick="loadGlossaries(${currentPage + 1})">下一页</button>`;
+            html += `<span class="page-info">共 ${total} 条</span>`;
+            el.innerHTML = html;
+        }
+
+        async function showDetail(id) {
+            currentEditingId = id;
+            await loadAllItems();
+            const item = allItems.find(i => i.id === id);
+            if (!item) return;
+            document.getElementById('detail-title').textContent = escapeHtml(item.term);
+            document.getElementById('detail-body').innerHTML = `
+                <div class="detail-row"><div class="detail-label">分类</div><div class="detail-value">${escapeHtml(item.category)}</div></div>
+                <div class="detail-row"><div class="detail-label">解释</div><div class="detail-value">${escapeHtml(item.meaning) || '（无）'}</div></div>
+                <div class="detail-row"><div class="detail-label">来源</div><div class="detail-value">${escapeHtml(item.source) || '（无）'}</div></div>
+                <div class="detail-row"><div class="detail-label">标签</div><div class="detail-value">${escapeHtml(item.tags) || '（无）'}</div></div>
+                <div class="detail-row"><div class="detail-label">收集时间</div><div class="detail-value">${escapeHtml(item.created_at)}</div></div>
+                <div class="detail-row"><div class="detail-label">命中次数</div><div class="detail-value">${item.hit_count || 0}</div></div>
+                <div class="modal-footer">
+                    <button class="btn btn-gray btn-sm" onclick="closeDetailModal()">关闭</button>
+                    <button class="btn btn-primary btn-sm" onclick="editFromDetail()">编辑</button>
+                </div>
+            `;
+            document.getElementById('detail-modal').classList.add('show');
+        }
+
+        function closeDetailModal() {
+            document.getElementById('detail-modal').classList.remove('show');
+        }
+
+        function editFromDetail() {
+            closeDetailModal();
+            openEditModal();
+        }
+
+        function addGlossary() {
+            currentEditingId = null;
+            openEditModal();
+        }
+
+        function openEditModal() {
+            document.getElementById('edit-modal-title').textContent = currentEditingId ? '编辑梗' : '添加梗';
+            document.getElementById('edit-delete-btn').style.display = currentEditingId ? 'inline-flex' : 'none';
+            document.getElementById('edit-term').value = '';
+            document.getElementById('edit-category').value = '其他梗';
+            document.getElementById('edit-meaning').value = '';
+            document.getElementById('edit-source').value = '';
+            document.getElementById('edit-tags').value = '';
+            if (currentEditingId) {
+                const item = allItems.find(i => i.id === currentEditingId);
+                if (item) {
+                    document.getElementById('edit-term').value = item.term || '';
+                    document.getElementById('edit-category').value = item.category || '其他梗';
+                    document.getElementById('edit-meaning').value = item.meaning || '';
+                    document.getElementById('edit-source').value = item.source || '';
+                    document.getElementById('edit-tags').value = item.tags || '';
+                }
+            }
+            document.getElementById('edit-modal').classList.add('show');
+        }
+
+        function closeEditModal() {
+            document.getElementById('edit-modal').classList.remove('show');
+            currentEditingId = null;
+        }
+
+        async function saveGlossary() {
+            const term = document.getElementById('edit-term').value.trim();
+            if (!term) { alert('梗词不能为空'); return; }
+            const payload = {
+                term,
+                category: document.getElementById('edit-category').value,
+                meaning: document.getElementById('edit-meaning').value,
+                source: document.getElementById('edit-source').value,
+                tags: document.getElementById('edit-tags').value
+            };
+            try {
+                if (currentEditingId) {
+                    const resp = await apiPost(`api/glossary/${currentEditingId}/update`, payload);
+                    alert(resp && resp.result ? resp.result : '已更新');
+                } else {
+                    const resp = await apiPost('api/glossary', payload);
+                    if (resp && resp.status === 'error') { alert(resp.message || '已存在相同梗词'); return; }
+                    alert(resp && resp.result ? resp.result : '已添加');
+                }
+                closeEditModal();
+                refreshAll();
+            } catch (e) { alert('保存失败: ' + e.message); }
+        }
+
+        async function deleteCurrent() {
+            if (!currentEditingId) return;
+            if (!confirm('确定删除该梗？')) return;
+            try {
+                const resp = await apiPost(`api/glossary/${currentEditingId}/delete`, {});
+                alert(resp && resp.result ? resp.result : '已删除');
+                closeEditModal();
+                refreshAll();
+            } catch (e) { alert('删除失败: ' + e.message); }
+        }
+
+        function showImportModal() {
+            document.getElementById('import-jsonl').value = '';
+            document.getElementById('import-file').value = '';
+            document.getElementById('import-result').textContent = '';
+            document.getElementById('import-modal').classList.add('show');
+        }
+
+        function closeImportModal() {
+            document.getElementById('import-modal').classList.remove('show');
+        }
+
+        async function doImport() {
+            let items = null;
+            const fileInput = document.getElementById('import-file');
+            const jsonlText = document.getElementById('import-jsonl').value.trim();
+            try {
+                if (fileInput.files.length > 0) {
+                    const text = await fileInput.files[0].text();
+                    items = parseJsonl(text);
+                } else if (jsonlText) {
+                    items = parseJsonl(jsonlText);
+                } else {
+                    document.getElementById('import-result').innerHTML = '<span style="color:#ef4444;">请选择文件或粘贴 JSONL 文本</span>';
+                    return;
+                }
+            } catch (e) {
+                document.getElementById('import-result').innerHTML = '<span style="color:#ef4444;">解析失败: ' + e.message + '</span>';
+                return;
+            }
+            if (!items || !items.length) {
+                document.getElementById('import-result').innerHTML = '<span style="color:#ef4444;">未解析到有效数据</span>';
+                return;
+            }
+            try {
+                const resp = await apiPost('api/glossary/import', { items });
+                document.getElementById('import-result').innerHTML = '<span style="color:#10b981;">' + (resp.result || '导入完成') + '</span>';
+                refreshAll();
+            } catch (e) {
+                document.getElementById('import-result').innerHTML = '<span style="color:#ef4444;">导入失败: ' + e.message + '</span>';
+            }
+        }
+
+        function parseJsonl(text) {
+            const lines = text.split(/\r?\n/).filter(l => l.trim());
+            return lines.map(line => {
+                try { return JSON.parse(line); }
+                catch (e) { throw new Error(`第 ${lines.indexOf(line) + 1} 行不是合法 JSON`); }
+            });
+        }
+
+        async function exportGlossary() {
+            try {
+                const resp = await apiGet('api/glossary/export');
+                const jsonl = resp.jsonl || '';
+                const blob = new Blob([jsonl], { type: 'text/plain;charset=utf-8' });
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = 'glossary.jsonl';
+                a.click();
+                URL.revokeObjectURL(a.href);
+            } catch (e) { alert('导出失败: ' + e.message); }
+        }
+
+        function refreshAll() {
+            loadStats();
+            loadGlossaries(currentPage);
+            loadCategories();
+        }
+
+        let searchTimer = null;
+        document.getElementById('search-input').addEventListener('input', function() {
+            clearTimeout(searchTimer);
+            searchTimer = setTimeout(() => {
+                currentQuery = this.value.trim();
+                currentPage = 1;
+                loadGlossaries(1);
+            }, 300);
+        });
+
+        document.getElementById('detail-modal').addEventListener('click', function(e) { if (e.target === this) closeDetailModal(); });
+        document.getElementById('edit-modal').addEventListener('click', function(e) { if (e.target === this) closeEditModal(); });
+        document.getElementById('import-modal').addEventListener('click', function(e) { if (e.target === this) closeImportModal(); });
+
+        // 暴露到 window 供 onclick 使用
+        window.selectCategory = selectCategory;
+        window.showDetail = showDetail;
+        window.closeDetailModal = closeDetailModal;
+        window.editFromDetail = editFromDetail;
+        window.addGlossary = addGlossary;
+        window.closeEditModal = closeEditModal;
+        window.saveGlossary = saveGlossary;
+        window.deleteCurrent = deleteCurrent;
+        window.showImportModal = showImportModal;
+        window.closeImportModal = closeImportModal;
+        window.doImport = doImport;
+        window.exportGlossary = exportGlossary;
+        window.loadGlossaries = loadGlossaries;
+
+        await loadStats();
+        await loadCategories();
+        await loadGlossaries(1);
+    </script>
+</body>
+</html>

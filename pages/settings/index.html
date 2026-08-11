@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>系统设置</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #2d3748;
+            background: transparent;
+            min-height: 100vh;
+            padding: 24px;
+        }
+        [data-theme="dark"] body { color: #e2e8f0; }
+        .page-header { margin-bottom: 22px; }
+        .page-title { font-size: 1.6rem; font-weight: 700; color: #2d3748; margin-bottom: 6px; }
+        [data-theme="dark"] .page-title { color: #e2e8f0; }
+        .page-subtitle { font-size: 0.9rem; color: #94a3b8; }
+
+        .toolbar { display: flex; gap: 10px; margin-bottom: 18px; flex-wrap: wrap; align-items: center; }
+        .btn {
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 10px 16px; border: none; border-radius: 10px;
+            cursor: pointer; font-size: 0.88rem; font-weight: 500;
+            transition: all 0.3s ease; color: #fff;
+        }
+        .btn:hover { transform: scale(1.02); }
+        .btn-primary { background: linear-gradient(135deg, #8b5cf6, #a78bfa); box-shadow: 0 4px 12px rgba(139,92,246,0.3); }
+        .btn-outline { background: rgba(255,255,255,0.6); color: #8b5cf6; border: 1px solid rgba(139,92,246,0.3); }
+        [data-theme="dark"] .btn-outline { background: rgba(255,255,255,0.06); color: #a78bfa; }
+
+        .settings-card {
+            background: rgba(139,92,246,0.04);
+            border: 1px solid rgba(139,92,246,0.12);
+            border-radius: 14px;
+            padding: 20px 22px;
+            margin-bottom: 16px;
+        }
+        .settings-title { font-size: 1rem; font-weight: 600; color: #2d3748; margin-bottom: 16px; }
+        [data-theme="dark"] .settings-title { color: #e2e8f0; }
+        .setting-row {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 10px 0; border-bottom: 1px solid rgba(139,92,246,0.08);
+            gap: 16px; flex-wrap: wrap;
+        }
+        .setting-row:last-child { border-bottom: none; }
+        .setting-info { flex: 1; min-width: 220px; }
+        .setting-name { font-size: 0.9rem; font-weight: 500; color: #475569; }
+        [data-theme="dark"] .setting-name { color: #cbd5e1; }
+        .setting-hint { font-size: 0.78rem; color: #94a3b8; margin-top: 3px; }
+        .setting-control { width: 240px; }
+        .form-control {
+            width: 100%; padding: 8px 12px;
+            background: rgba(139,92,246,0.04); border: 1px solid rgba(139,92,246,0.15);
+            border-radius: 9px; color: #2d3748; font-size: 0.88rem; transition: all 0.3s ease;
+        }
+        [data-theme="dark"] .form-control { color: #e2e8f0; background: rgba(255,255,255,0.05); }
+        .form-control:focus { outline: none; border-color: #8b5cf6; box-shadow: 0 0 0 3px rgba(139,92,246,0.1); }
+        select.form-control option { background: #fff; color: #2d3748; }
+        .save-bar {
+            position: sticky; bottom: 0;
+            background: rgba(255,255,255,0.85);
+            backdrop-filter: blur(16px);
+            border: 1px solid rgba(139,92,246,0.12);
+            border-radius: 12px;
+            padding: 12px 20px;
+            display: flex; justify-content: flex-end; align-items: center; gap: 12px;
+        }
+        [data-theme="dark"] .save-bar { background: rgba(30,41,59,0.85); }
+        .save-status { font-size: 0.85rem; color: #10b981; }
+        .switch { position: relative; display: inline-block; width: 46px; height: 24px; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider {
+            position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0;
+            background: #cbd5e1; border-radius: 24px; transition: 0.3s;
+        }
+        .slider:before {
+            position: absolute; content: ""; height: 18px; width: 18px;
+            left: 3px; bottom: 3px; background: #fff; border-radius: 50%; transition: 0.3s;
+        }
+        input:checked + .slider { background: linear-gradient(135deg, #8b5cf6, #a78bfa); }
+        input:checked + .slider:before { transform: translateX(22px); }
+    </style>
+</head>
+<body>
+    <div class="page-header">
+        <h1 class="page-title">系统设置</h1>
+        <p class="page-subtitle">注意：修改后可能需要重启插件生效</p>
+    </div>
+
+    <div class="toolbar">
+        <button class="btn btn-primary btn-sm" onclick="saveSettings()">保存设置</button>
+        <button class="btn btn-outline btn-sm" onclick="loadSettings()">刷新</button>
+    </div>
+
+    <div class="settings-card">
+        <div class="settings-title">核心功能</div>
+        <div class="setting-row">
+            <div class="setting-info">
+                <div class="setting-name">自动注入</div>
+                <div class="setting-hint">每次对话时自动注入对方档案等信息到 AI 上下文</div>
+            </div>
+            <div class="setting-control"><label class="switch"><input type="checkbox" id="set-auto_inject_enabled"><span class="slider"></span></label></div>
+        </div>
+        <div class="setting-row">
+            <div class="setting-info">
+                <div class="setting-name">记忆宫殿</div>
+                <div class="setting-hint">主动记忆（write_memory 工具）总开关</div>
+            </div>
+            <div class="setting-control"><label class="switch"><input type="checkbox" id="set-memory_palace"><span class="slider"></span></label></div>
+        </div>
+        <div class="setting-row">
+            <div class="setting-info">
+                <div class="setting-name">关系注入刷新间隔（秒）</div>
+                <div class="setting-hint">-1 表示每次都注入</div>
+            </div>
+            <div class="setting-control"><input type="number" class="form-control" id="set-relation_injection_refresh_time"></div>
+        </div>
+        <div class="setting-row">
+            <div class="setting-info">
+                <div class="setting-name">注入位置</div>
+                <div class="setting-hint">system_prompt / user_prompt / insert_system_prompt</div>
+            </div>
+            <div class="setting-control">
+                <select class="form-control" id="set-context_inject_position">
+                    <option value="system_prompt">system_prompt</option>
+                    <option value="user_prompt">user_prompt</option>
+                    <option value="insert_system_prompt">insert_system_prompt</option>
+                </select>
+            </div>
+        </div>
+    </div>
+
+    <div class="settings-card">
+        <div class="settings-title">搜索联想</div>
+        <div class="setting-row">
+            <div class="setting-info">
+                <div class="setting-name">联想记忆条数</div>
+                <div class="setting-hint">搜索时额外返回的不完全相关记忆数，0 关闭</div>
+            </div>
+            <div class="setting-control"><input type="number" class="form-control" id="set-search_related_limit"></div>
+        </div>
+    </div>
+
+    <div class="settings-card">
+        <div class="settings-title">WebUI</div>
+        <div class="setting-row">
+            <div class="setting-info">
+                <div class="setting-name">启用独立 WebUI</div>
+                <div class="setting-hint">默认关闭，推荐使用 AstrBot Dashboard 嵌入式页面（无需开放端口）</div>
+            </div>
+            <div class="setting-control"><label class="switch"><input type="checkbox" id="set-webui_enabled"><span class="slider"></span></label></div>
+        </div>
+        <div class="setting-row">
+            <div class="setting-info">
+                <div class="setting-name">WebUI 端口</div>
+                <div class="setting-hint">启用独立 WebUI 时的监听端口</div>
+            </div>
+            <div class="setting-control"><input type="number" class="form-control" id="set-webui_port"></div>
+        </div>
+    </div>
+
+    <div class="save-bar">
+        <span class="save-status" id="save-status"></span>
+        <button class="btn btn-primary btn-sm" onclick="saveSettings()">保存设置</button>
+    </div>
+
+    <script type="module">
+        const bridge = window.AstrBotPluginPage;
+        await bridge.ready();
+
+        let settingsCache = {};
+
+        async function apiGet(endpoint, params) { return bridge.apiGet(endpoint, params); }
+        async function apiPost(endpoint, body) { return bridge.apiPost(endpoint, body); }
+
+        async function loadSettings() {
+            try {
+                const data = await apiGet('api/settings');
+                settingsCache = data.settings || {};
+                applySettings(settingsCache);
+            } catch (e) {
+                console.error('加载设置失败:', e);
+                document.getElementById('save-status').textContent = '加载设置失败';
+            }
+        }
+
+        function applySettings(cfg) {
+            setBool('set-auto_inject_enabled', cfg.auto_inject_enabled, true);
+            setBool('set-memory_palace', cfg.memory_palace, true);
+            setBool('set-webui_enabled', cfg.webui_enabled, false);
+            setNum('set-relation_injection_refresh_time', cfg.relation_injection_refresh_time, 3600);
+            setNum('set-search_related_limit', cfg.search_related_limit, 3);
+            setNum('set-webui_port', cfg.webui_port, 5000);
+            const pos = document.getElementById('set-context_inject_position');
+            pos.value = cfg.context_inject_position || 'system_prompt';
+        }
+
+        function setBool(id, val, def) {
+            const el = document.getElementById(id);
+            if (el) el.checked = val !== undefined ? !!val : def;
+        }
+        function setNum(id, val, def) {
+            const el = document.getElementById(id);
+            if (el) el.value = val !== undefined ? val : def;
+        }
+
+        async function saveSettings() {
+            const updates = {};
+            const fields = [
+                ['set-auto_inject_enabled', 'auto_inject_enabled', 'bool'],
+                ['set-memory_palace', 'memory_palace', 'bool'],
+                ['set-webui_enabled', 'webui_enabled', 'bool'],
+                ['set-relation_injection_refresh_time', 'relation_injection_refresh_time', 'int'],
+                ['set-search_related_limit', 'search_related_limit', 'int'],
+                ['set-webui_port', 'webui_port', 'int'],
+                ['set-context_inject_position', 'context_inject_position', 'str']
+            ];
+            for (const [elId, key, type] of fields) {
+                const el = document.getElementById(elId);
+                if (!el) continue;
+                if (type === 'bool') updates[key] = el.checked;
+                else if (type === 'int') updates[key] = parseInt(el.value) || 0;
+                else updates[key] = el.value;
+            }
+            try {
+                await apiPost('api/settings', updates);
+                document.getElementById('save-status').textContent = '已保存 ✓（部分设置需重启插件生效）';
+                setTimeout(() => document.getElementById('save-status').textContent = '', 3000);
+            } catch (e) {
+                document.getElementById('save-status').textContent = '保存失败: ' + e.message;
+            }
+        }
+
+        window.loadSettings = loadSettings;
+        window.saveSettings = saveSettings;
+
+        await loadSettings();
+    </script>
+</body>
+</html>
