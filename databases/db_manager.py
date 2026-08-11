@@ -261,10 +261,22 @@ class DatabaseManager:
                 id INTEGER PRIMARY KEY AUTOINCREMENT, memory_id INTEGER,
                 activity_type TEXT NOT NULL, description TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
+            cursor.execute('''CREATE TABLE IF NOT EXISTS glossary (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                term TEXT NOT NULL,
+                category TEXT DEFAULT '其他梗',
+                meaning TEXT DEFAULT '',
+                source TEXT DEFAULT '',
+                tags TEXT DEFAULT '',
+                hit_count INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_memories_category ON memories(category)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_memories_importance ON memories(importance)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_memories_created ON memories(created_at)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_relationships_nickname ON relationships(nickname)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_glossary_term ON glossary(term)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_glossary_category ON glossary(category)')
             try:
                 cursor.execute('''CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
                     content, tags, category, content='memories', content_rowid='id')''')
@@ -887,3 +899,232 @@ class DatabaseManager:
             }
         result = self._execute_read(_do_op)
         return result if result is not None else {'error': 'stats read failed'}
+
+    # ==================== Glossary (梗/黑话库) ====================
+
+    def add_glossary(self, term, category='其他梗', meaning='', source='', tags=''):
+        term = str(term).strip()
+        if not term:
+            return "Error: term is empty"
+        if isinstance(tags, list):
+            tags = ','.join(tags)
+        def _do_op(conn):
+            cursor = conn.cursor()
+            cursor.execute('SELECT id FROM glossary WHERE term = ?', (term,))
+            if cursor.fetchone():
+                return "already_exists"
+            cursor.execute(
+                'INSERT INTO glossary (term, category, meaning, source, tags) VALUES (?, ?, ?, ?, ?)',
+                (term, category, meaning, source, tags))
+            return f"Glossary saved (ID:{cursor.lastrowid})"
+        result = self._execute_write(_do_op)
+        if result == "already_exists":
+            return "already_exists"
+        return result if result is not None else "Error: database write failed"
+
+    def update_glossary(self, glossary_id, term=None, category=None, meaning=None, source=None, tags=None):
+        _tags = tags
+        def _do_op(conn):
+            nonlocal _tags
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM glossary WHERE id = ?', (glossary_id,))
+            if not cursor.fetchone():
+                return "Glossary not found"
+            updates = []
+            params = []
+            if term is not None:
+                updates.append("term = ?"); params.append(str(term).strip())
+            if category is not None:
+                updates.append("category = ?"); params.append(category)
+            if meaning is not None:
+                updates.append("meaning = ?"); params.append(meaning)
+            if source is not None:
+                updates.append("source = ?"); params.append(source)
+            if _tags is not None:
+                if isinstance(_tags, list): _tags = ','.join(_tags)
+                updates.append("tags = ?"); params.append(_tags)
+            updates.append("updated_at = ?"); params.append(datetime.now().isoformat())
+            params.append(glossary_id)
+            cursor.execute(f'UPDATE glossary SET {", ".join(updates)} WHERE id = ?', params)
+            return f"Glossary updated (ID:{glossary_id})"
+        result = self._execute_write(_do_op)
+        return result if result is not None else "Error: operation failed"
+
+    def delete_glossary(self, glossary_id):
+        def _do_op(conn):
+            cursor = conn.cursor()
+            cursor.execute('DELETE FROM glossary WHERE id = ?', (glossary_id,))
+            if cursor.rowcount == 0:
+                return "Glossary not found"
+            return f"Glossary deleted (ID:{glossary_id})"
+        result = self._execute_write(_do_op)
+        return result if result is not None else "Error: operation failed"
+
+    def get_glossary(self, glossary_id):
+        def _do_op(conn):
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM glossary WHERE id = ?', (glossary_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+        return self._execute_read(_do_op)
+
+    def get_glossaries(self, limit=28, offset=0, category=None, query=None):
+        def _do_op(conn):
+            cursor = conn.cursor()
+            conditions = []
+            params = []
+            if category:
+                conditions.append("category = ?"); params.append(category)
+            if query:
+                q = str(query).strip()
+                if q:
+                    conditions.append("(term LIKE ? OR meaning LIKE ? OR tags LIKE ? OR source LIKE ?)")
+                    params.extend([f'%{q}%', f'%{q}%', f'%{q}%', f'%{q}%'])
+            where = (' WHERE ' + ' AND '.join(conditions)) if conditions else ''
+            cursor.execute(
+                f'SELECT * FROM glossary{where} ORDER BY created_at DESC LIMIT ? OFFSET ?',
+                params + [limit, offset])
+            return [dict(row) for row in cursor.fetchall()]
+        result = self._execute_read(_do_op)
+        return result if result is not None else []
+
+    def get_glossaries_count(self, category=None, query=None):
+        def _do_op(conn):
+            cursor = conn.cursor()
+            conditions = []
+            params = []
+            if category:
+                conditions.append("category = ?"); params.append(category)
+            if query:
+                q = str(query).strip()
+                if q:
+                    conditions.append("(term LIKE ? OR meaning LIKE ? OR tags LIKE ? OR source LIKE ?)")
+                    params.extend([f'%{q}%', f'%{q}%', f'%{q}%', f'%{q}%'])
+            where = (' WHERE ' + ' AND '.join(conditions)) if conditions else ''
+            cursor.execute(f'SELECT COUNT(*) FROM glossary{where}', params)
+            return cursor.fetchone()[0]
+        result = self._execute_read(_do_op)
+        return result if result is not None else 0
+
+    def get_glossary_categories(self):
+        def _do_op(conn):
+            cursor = conn.cursor()
+            cursor.execute('SELECT DISTINCT category FROM glossary ORDER BY category')
+            cats = [row[0] for row in cursor.fetchall()]
+            ordered = ['谐音梗', '行为梗', '抽象梗', '表情包梗', '其他梗']
+            return list(dict.fromkeys([c for c in ordered if c in cats] + [c for c in cats if c not in ordered]))
+        result = self._execute_read(_do_op)
+        return result if result is not None else []
+
+    def get_glossary_stats(self):
+        def _do_op(conn):
+            cursor = conn.cursor()
+            cursor.execute('SELECT COUNT(*) FROM glossary')
+            total = cursor.fetchone()[0]
+            cursor.execute('SELECT COUNT(DISTINCT category) FROM glossary')
+            categories = cursor.fetchone()[0]
+            from datetime import date
+            today = date.today().isoformat()
+            cursor.execute('SELECT COUNT(*) FROM glossary WHERE created_at >= ?', (today,))
+            today_new = cursor.fetchone()[0]
+            cursor.execute('SELECT COUNT(*) FROM glossary WHERE hit_count > 0')
+            used = cursor.fetchone()[0]
+            return {'total': total, 'categories': categories, 'today_new': today_new, 'used': used}
+        result = self._execute_read(_do_op)
+        return result if result is not None else {'total': 0, 'categories': 0, 'today_new': 0, 'used': 0}
+
+    def get_all_glossary_terms(self):
+        """返回所有梗词条目，用于对话匹配注入。"""
+        def _do_op(conn):
+            cursor = conn.cursor()
+            cursor.execute('SELECT id, term, meaning, category, source FROM glossary')
+            return [dict(row) for row in cursor.fetchall()]
+        result = self._execute_read(_do_op)
+        return result if result is not None else []
+
+    def increment_glossary_hit(self, glossary_id):
+        def _do_op(conn):
+            conn.execute('UPDATE glossary SET hit_count = hit_count + 1 WHERE id = ?', (glossary_id,))
+            return "ok"
+        self._execute_write(_do_op)
+
+    def bulk_import_glossary(self, items):
+        def _do_op(conn):
+            cursor = conn.cursor()
+            imported = 0
+            skipped = 0
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                term = str(item.get('term', '')).strip()
+                if not term:
+                    continue
+                cursor.execute('SELECT id FROM glossary WHERE term = ?', (term,))
+                if cursor.fetchone():
+                    skipped += 1
+                    continue
+                category = item.get('category') or '其他梗'
+                meaning = str(item.get('meaning', '') or '')
+                source = str(item.get('source', '') or '')
+                tags = item.get('tags')
+                if isinstance(tags, list):
+                    tags = ','.join(str(t) for t in tags)
+                elif tags is None:
+                    tags = ''
+                else:
+                    tags = str(tags)
+                cursor.execute(
+                    'INSERT INTO glossary (term, category, meaning, source, tags) VALUES (?, ?, ?, ?, ?)',
+                    (term, category, meaning, source, tags))
+                imported += 1
+            return f"Imported: {imported}, Skipped (duplicate): {skipped}"
+        result = self._execute_write(_do_op)
+        return result if result is not None else "Error: bulk import failed"
+
+    # ==================== Associative Memory (搜索联想) ====================
+
+    def search_memory_related(self, query, exclude_ids=None, limit=3):
+        """在精确搜索结果之外，返回一些不完全相关但可能有用的记忆（联想）。"""
+        exclude_ids = exclude_ids or []
+        def _do_op(conn):
+            cursor = conn.cursor()
+            excl_ph = ','.join('?' * len(exclude_ids)) if exclude_ids else ''
+            excl_sql = f' AND id NOT IN ({excl_ph})' if excl_ph else ''
+            excl_params = list(exclude_ids)
+
+            related = []
+            # 1) 同分类的高分记忆
+            query_words = set(re.findall(r'\w{2,}', str(query).lower()))
+            cats = set()
+            if query_words:
+                for w in query_words:
+                    cursor.execute(
+                        f'SELECT category, COUNT(*) as c FROM memories WHERE content LIKE ? GROUP BY category ORDER BY c DESC LIMIT 1',
+                        (f'%{w}%',))
+                    row = cursor.fetchone()
+                    if row and row['category']:
+                        cats.add(row['category'])
+            if cats:
+                cat_ph = ','.join('?' * len(cats))
+                cursor.execute(
+                    f'SELECT id, content, category, importance, tags, created_at FROM memories '
+                    f'WHERE category IN ({cat_ph}) AND importance >= 6{excl_sql} '
+                    f'ORDER BY importance DESC, created_at DESC LIMIT ?',
+                    list(cats) + excl_params + [limit])
+                related.extend(dict(r) for r in cursor.fetchall())
+            # 2) 补充：随机"也许有用"的高分记忆（不同分类，避免完全无关）
+            if len(related) < limit:
+                seen = set(exclude_ids) | {r['id'] for r in related}
+                seen_ph = ','.join('?' * len(seen)) if seen else ''
+                seen_sql = f' AND id NOT IN ({seen_ph})' if seen_ph else ''
+                cursor.execute(
+                    f'SELECT id, content, category, importance, tags, created_at FROM memories '
+                    f'WHERE importance >= 7{seen_sql} ORDER BY RANDOM() LIMIT ?',
+                    list(seen) + [limit - len(related)])
+                related.extend(dict(r) for r in cursor.fetchall())
+            for r in related:
+                r['content'] = r['content'][:80] + ('...' if len(r['content']) > 80 else '')
+                r['associative'] = True
+            return related[:limit]
+        result = self._execute_read(_do_op)
+        return result if result is not None else []

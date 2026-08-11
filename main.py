@@ -29,6 +29,9 @@ class MemoryCapsulePlugin(Star):
         self._relation_cache_time = 0
         self._relation_cache_ttl = self.config.get('relation_cache_ttl', 300)
         self._relation_injection_last_time = 0
+        self._glossary_cache = None
+        self._glossary_cache_time = 0
+        self._glossary_cache_ttl = self.config.get('glossary_cache_ttl', 120)
 
     async def initialize(self):
         self._create_directories()
@@ -200,6 +203,7 @@ class MemoryCapsulePlugin(Star):
     async def search_memory(self, event, query, category_filter=None, limit=None, tags=None):
         """
         搜索记忆。用多个相关词一起搜效果更好。例如搜"吃饭口味"不如搜"吃饭 口味 喜欢 爱吃的"。
+        除了精确匹配的结果，还会额外返回几条不完全相关但可能有用的"联想记忆"（associative=true）。
 
         Args:
             query(str): 搜索关键词，多个词用空格隔开，越多越准
@@ -207,10 +211,10 @@ class MemoryCapsulePlugin(Star):
             limit(int): 返回条数，默认5
             tags(str): 按标签筛选，多个标签逗号分隔
         Returns:
-            搜索结果JSON
+            搜索结果JSON，含 results 与 related 两个数组
         """
         if not self.config.get('memory_palace', True):
-            return '{"results":[]}'
+            return '{"results":[],"related":[]}'
         try:
             results = await asyncio.to_thread(
                 self.db_manager.search_memory, str(query),
@@ -226,9 +230,48 @@ class MemoryCapsulePlugin(Star):
                         if any(t in r_tags for t in tag_list):
                             filtered.append(r)
                     results = filtered
-            return json.dumps({"results": results}, ensure_ascii=False)
+            # 联想记忆：不完全相关但可能有用的
+            related = []
+            try:
+                exclude_ids = [r['id'] for r in results if r.get('id')]
+                rel_limit = self.config.get('search_related_limit', 3)
+                if rel_limit > 0:
+                    related = await asyncio.to_thread(
+                        self.db_manager.search_memory_related,
+                        str(query), exclude_ids, int(rel_limit)
+                    )
+            except Exception:
+                related = []
+            return json.dumps({"results": results, "related": related}, ensure_ascii=False)
         except Exception:
-            return '{"results":[]}'
+            return '{"results":[],"related":[]}'
+
+    @filter.llm_tool(name="get_all_memories")
+    async def get_all_memories(self, event, limit=50, min_importance=None, category=None):
+        """
+        一次性批量取出笔记/记忆，用于集中查看、整理或搬运大量内容。当需要回顾多个记忆、做总结、
+        或用户要求"把所有记录给我看看"时使用。注意此工具会返回较多内容，请合理设置 limit。
+
+        Args:
+            limit(int): 返回条数，默认50，最大200
+            min_importance(int): 只取重要性 >= 此值的记忆，可选
+            category(str): 只取某分类，可选
+        Returns:
+            记忆列表JSON
+        """
+        if not self.config.get('memory_palace', True):
+            return '{"memories":[]}'
+        try:
+            limit = max(1, min(int(limit), 200))
+            memories = await asyncio.to_thread(
+                self.db_manager.get_all_memories, limit, 0, category
+            )
+            if min_importance is not None:
+                mi = int(min_importance)
+                memories = [m for m in memories if (m.get('importance') or 0) >= mi]
+            return json.dumps({"memories": memories}, ensure_ascii=False)
+        except Exception:
+            return '{"memories":[]}'
 
     @filter.llm_tool(name="delete_memory")
     async def delete_memory(self, event, memory_id):
@@ -306,6 +349,29 @@ class MemoryCapsulePlugin(Star):
 
             await asyncio.to_thread(self.db_manager.auto_update_last_interaction, user_id)
 
+            injection_parts = []
+
+            # ---------- 梗库匹配注入（每次消息独立检查，不受关系注入节流影响） ----------
+            try:
+                user_message = event.message_str or ""
+                if user_message.strip():
+                    glossary_hits = await asyncio.to_thread(self._match_glossary, user_message)
+                    if glossary_hits:
+                        hit_lines = []
+                        for g in glossary_hits:
+                            line = f"{g['term']}：{g['meaning']}"
+                            if g.get('source'):
+                                line += f"（来源：{g['source']}）"
+                            hit_lines.append(line)
+                        injection_parts.append(
+                            "<用户消息中出现了以下梗/黑话，含义如下>\n"
+                            + "\n".join(hit_lines)
+                            + "\n</梗/黑话释义>"
+                        )
+            except Exception as e:
+                logger.error(f"梗匹配注入失败: {e}")
+
+            # ---------- 关系注入（按原有节流逻辑） ----------
             should_inject = False
             if self.relation_injection_refresh_time == -1:
                 should_inject = True
@@ -314,44 +380,46 @@ class MemoryCapsulePlugin(Star):
             elif current_time - self._relation_injection_last_time >= self.relation_injection_refresh_time:
                 should_inject = True
 
-            if not should_inject:
+            if should_inject:
+                if (self._relation_cache is not None and
+                    self._relation_cache_user_id == user_id and
+                    current_time - self._relation_cache_time < self._relation_cache_ttl):
+                    user_relation = self._relation_cache
+                else:
+                    user_relation = await asyncio.to_thread(self.db_manager.get_relationship_with_identity, user_id)
+                    self._relation_cache = user_relation
+                    self._relation_cache_user_id = user_id
+                    self._relation_cache_time = current_time
+
+                current_group = ""
+                try: current_group = event.get_group_id() or ""
+                except Exception: pass
+
+                if user_relation:
+                    relation_xml = self._build_relation_xml(user_relation, current_group)
+                else:
+                    sender_name = ""
+                    try: sender_name = event.get_sender_name() or ""
+                    except Exception: pass
+                    if sender_name:
+                        relation_xml = f"<relationship>ID={user_id}, 名称={sender_name}, 该对象暂未存入档案</relationship>"
+                    else:
+                        relation_xml = f"<relationship>ID={user_id}, 该对象暂未存入档案</relationship>"
+
+                self._relation_injection_last_time = current_time
+                self.last_relation_user_id = user_id
+
+                injection_parts.append(
+                    "<对当前对话对象的了解>\n"
+                    "以下是关于正在和你聊天的这个人的信息，是你之前和TA相处时记下的印象。请自然地融入对话中，不要像报档案一样逐条念出来。\n"
+                    f"{relation_xml}\n"
+                    "</对当前对话对象的了解>"
+                )
+
+            if not injection_parts:
                 return req
 
-            if (self._relation_cache is not None and
-                self._relation_cache_user_id == user_id and
-                current_time - self._relation_cache_time < self._relation_cache_ttl):
-                user_relation = self._relation_cache
-            else:
-                user_relation = await asyncio.to_thread(self.db_manager.get_relationship_with_identity, user_id)
-                self._relation_cache = user_relation
-                self._relation_cache_user_id = user_id
-                self._relation_cache_time = current_time
-
-            current_group = ""
-            try: current_group = event.get_group_id() or ""
-            except Exception: pass
-
-            if user_relation:
-                relation_xml = self._build_relation_xml(user_relation, current_group)
-            else:
-                sender_name = ""
-                try: sender_name = event.get_sender_name() or ""
-                except Exception: pass
-                if sender_name:
-                    relation_xml = f"<relationship>ID={user_id}, 名称={sender_name}, 该对象暂未存入档案</relationship>"
-                else:
-                    relation_xml = f"<relationship>ID={user_id}, 该对象暂未存入档案</relationship>"
-
-            self._relation_injection_last_time = current_time
-            self.last_relation_user_id = user_id
-
-            injection_text = (
-                "<对当前对话对象的了解>\n"
-                "以下是关于正在和你聊天的这个人的信息，是你之前和TA相处时记下的印象。请自然地融入对话中，不要像报档案一样逐条念出来。\n"
-                f"{relation_xml}\n"
-                "</对当前对话对象的了解>"
-            )
-
+            injection_text = "\n\n".join(injection_parts)
             injection_text = sanitize_injection_text(injection_text)
 
             inject_pos = self.config.get('context_inject_position', 'system_prompt')
@@ -368,6 +436,30 @@ class MemoryCapsulePlugin(Star):
         except Exception as e:
             logger.error(f"注入失败: {e}")
         return req
+
+    def _match_glossary(self, text):
+        """匹配用户消息中出现的梗词，返回命中的梗列表。"""
+        current_time = time.time()
+        if (self._glossary_cache is None or
+            current_time - self._glossary_cache_time >= self._glossary_cache_ttl):
+            self._glossary_cache = self.db_manager.get_all_glossary_terms()
+            self._glossary_cache_time = current_time
+        if not self._glossary_cache:
+            return []
+        hits = []
+        seen = set()
+        for g in self._glossary_cache:
+            term = str(g.get('term', '')).strip()
+            if not term or term in seen:
+                continue
+            if term in text:
+                seen.add(term)
+                hits.append(g)
+                try:
+                    self.db_manager.increment_glossary_hit(g['id'])
+                except Exception:
+                    pass
+        return hits[:10]
 
     def _format_relative_time(self, dt):
         now = datetime.now()

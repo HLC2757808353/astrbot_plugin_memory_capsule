@@ -136,6 +136,13 @@ class WebUIServer:
             response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
             return response
 
+        @self.app.route('/glossary')
+        @self._require_auth
+        def glossary_page():
+            response = make_response(render_template('glossary.html'))
+            response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+            return response
+
         @self.app.route('/settings')
         @self._require_auth
         def settings():
@@ -232,6 +239,92 @@ class WebUIServer:
             limit = request.args.get('limit', default=None, type=int)
             memories = self.db_manager.search_memory(query, category_filter=category, limit=limit)
             return jsonify(memories)
+
+        # ==================== Glossary API ====================
+
+        @self.app.route('/api/glossary')
+        @self._require_auth
+        def api_glossary_list():
+            page = int(request.args.get('page', 1))
+            limit = int(request.args.get('limit', 28))
+            offset = (page - 1) * limit
+            category = request.args.get('category') or None
+            query = request.args.get('q') or None
+            items = self.db_manager.get_glossaries(limit, offset, category, query)
+            total = self.db_manager.get_glossaries_count(category, query)
+            return jsonify({
+                'items': items, 'total': total, 'page': page,
+                'limit': limit, 'total_pages': (total + limit - 1) // limit if limit else 1
+            })
+
+        @self.app.route('/api/glossary', methods=['POST'])
+        @self._require_auth
+        def api_glossary_add():
+            data = request.json or {}
+            result = self.db_manager.add_glossary(
+                term=data.get('term', ''),
+                category=data.get('category', '其他梗'),
+                meaning=data.get('meaning', ''),
+                source=data.get('source', ''),
+                tags=data.get('tags', '')
+            )
+            if result == "already_exists":
+                return jsonify({'result': '已存在相同梗词'}), 409
+            return jsonify({'result': result})
+
+        @self.app.route('/api/glossary/<int:glossary_id>', methods=['PUT'])
+        @self._require_auth
+        def api_glossary_update(glossary_id):
+            data = request.json or {}
+            result = self.db_manager.update_glossary(
+                glossary_id,
+                term=data.get('term'),
+                category=data.get('category'),
+                meaning=data.get('meaning'),
+                source=data.get('source'),
+                tags=data.get('tags')
+            )
+            return jsonify({'result': result})
+
+        @self.app.route('/api/glossary/<int:glossary_id>', methods=['DELETE'])
+        @self._require_auth
+        def api_glossary_delete(glossary_id):
+            result = self.db_manager.delete_glossary(glossary_id)
+            return jsonify({'result': result})
+
+        @self.app.route('/api/glossary/categories')
+        @self._require_auth
+        def api_glossary_categories():
+            cats = self.db_manager.get_glossary_categories()
+            return jsonify(cats)
+
+        @self.app.route('/api/glossary/stats')
+        @self._require_auth
+        def api_glossary_stats():
+            stats = self.db_manager.get_glossary_stats()
+            return jsonify(stats)
+
+        @self.app.route('/api/glossary/import', methods=['POST'])
+        @self._require_auth
+        def api_glossary_import():
+            try:
+                data = request.json or {}
+                items = data.get('items', [])
+                if not items or not isinstance(items, list):
+                    return jsonify({'result': 'No items array provided'}), 400
+                if len(items) > 5000:
+                    return jsonify({'result': f'Too many items ({len(items)}), max 5000 per batch'}), 400
+                result = self.db_manager.bulk_import_glossary(items)
+                return jsonify({'result': result})
+            except Exception as e:
+                logger.error(f"Glossary bulk import error: {e}")
+                return jsonify({'result': f'Import failed: {e}'}), 500
+
+        @self.app.route('/api/glossary/export')
+        @self._require_auth
+        def api_glossary_export():
+            items = self.db_manager.get_glossaries(limit=99999)
+            return jsonify({'items': items})
 
         @self.app.route('/api/tags')
         @self._require_auth
