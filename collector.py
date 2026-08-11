@@ -241,7 +241,8 @@ class HotTrendCollector:
                     it["category"],
                     it["meaning"],
                     it.get("source", "自动采集"),
-                    ""
+                    "",
+                    True   # fuzzy_dedup：与已有梗相似度高的也视为重复
                 )
                 if result == "already_exists":
                     skipped += 1

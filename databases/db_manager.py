@@ -3,6 +3,8 @@ import os
 import re
 import math
 import hashlib
+import difflib
+import unicodedata
 from datetime import datetime, timedelta
 
 try:
@@ -10,6 +12,14 @@ try:
 except ImportError:
     import logging
     logger = logging.getLogger(__name__)
+
+
+def normalize_term(term):
+    """归一化梗词用于去重比较：全角转半角、小写、去空格。"""
+    if not term:
+        return ""
+    s = unicodedata.normalize("NFKC", str(term))
+    return s.lower().replace(" ", "").strip()
 
 _jieba_instance = None
 _pseg_instance = None
@@ -902,15 +912,24 @@ class DatabaseManager:
 
     # ==================== Glossary (梗/黑话库) ====================
 
-    def add_glossary(self, term, category='其他梗', meaning='', source='', tags=''):
+    def add_glossary(self, term, category='其他梗', meaning='', source='', tags='', fuzzy_dedup=False):
         term = str(term).strip()
         if not term:
             return "Error: term is empty"
         if isinstance(tags, list):
             tags = ','.join(tags)
+        # 模糊去重：与已有梗相似度超阈值则视为重复（采集/手动添加场景）
+        if fuzzy_dedup:
+            similar = self.find_similar_glossary(term)
+            if similar:
+                return "already_exists"
         def _do_op(conn):
             cursor = conn.cursor()
-            cursor.execute('SELECT id FROM glossary WHERE term = ?', (term,))
+            # 归一化判重：忽略大小写/全角半角/空格差异（如 yyds / YYDS / ｙｙｄｓ）
+            norm = normalize_term(term)
+            cursor.execute(
+                'SELECT id FROM glossary WHERE LOWER(REPLACE(term, " ", "")) = ?',
+                (norm,))
             if cursor.fetchone():
                 return "already_exists"
             cursor.execute(
@@ -921,6 +940,36 @@ class DatabaseManager:
         if result == "already_exists":
             return "already_exists"
         return result if result is not None else "Error: database write failed"
+
+    def find_similar_glossary(self, term, threshold=0.85, limit=1):
+        """查找与 term 高度相似的已有梗（用于模糊去重）。
+
+        先用长度粗筛缩小范围，再用 difflib 序列相似度比较。
+        千级梗库单次调用在毫秒级，仅用于新增/采集入库时。
+        """
+        norm = normalize_term(term)
+        if not norm:
+            return []
+        def _do_op(conn):
+            cursor = conn.cursor()
+            cursor.execute('SELECT id, term FROM glossary')
+            rows = cursor.fetchall()
+            # 长度粗筛：长度差超过 max(2, 词长/3) 的词不可能相似，跳过
+            max_diff = max(2, len(norm) // 3)
+            candidates = []
+            for row in rows:
+                t = normalize_term(row['term'])
+                if not t or t == norm:
+                    continue
+                if abs(len(t) - len(norm)) > max_diff:
+                    continue
+                ratio = difflib.SequenceMatcher(None, norm, t).ratio()
+                if ratio >= threshold:
+                    candidates.append((ratio, row['id'], row['term']))
+            candidates.sort(key=lambda x: -x[0])
+            return [{'id': i, 'term': t, 'score': round(s, 3)} for s, i, t in candidates[:limit]]
+        result = self._execute_read(_do_op)
+        return result if result is not None else []
 
     def update_glossary(self, glossary_id, term=None, category=None, meaning=None, source=None, tags=None):
         _tags = tags
@@ -1059,7 +1108,10 @@ class DatabaseManager:
                 term = str(item.get('term', '')).strip()
                 if not term:
                     continue
-                cursor.execute('SELECT id FROM glossary WHERE term = ?', (term,))
+                norm = normalize_term(term)
+                cursor.execute(
+                    'SELECT id FROM glossary WHERE LOWER(REPLACE(term, " ", "")) = ?',
+                    (norm,))
                 if cursor.fetchone():
                     skipped += 1
                     continue
