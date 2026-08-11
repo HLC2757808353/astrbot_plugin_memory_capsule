@@ -206,23 +206,51 @@
         .category-item:hover { background: rgba(139,92,246,0.08); color: #8b5cf6; }
         .category-item.active { background: linear-gradient(135deg, #8b5cf6, #a78bfa); color: #fff; }
         .category-count { font-size: 0.72rem; opacity: 0.7; }
-        .glossary-grid { flex: 1; display: grid; grid-template-columns: repeat(7, 1fr); gap: 10px; }
+        .glossary-grid { flex: 1; display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
         .glossary-card {
             background: rgba(139,92,246,0.05);
             border: 1px solid rgba(139,92,246,0.12);
             border-radius: 10px; padding: 12px 10px; cursor: pointer;
             transition: all 0.3s ease; text-align: center; position: relative; overflow: hidden;
-            min-height: 74px; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 5px;
+            height: 88px; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 5px;
+            min-width: 0;
         }
+        .glossary-card.batch-active { border-color: rgba(139,92,246,0.35); }
+        .glossary-card.g-selected {
+            background: rgba(139,92,246,0.15);
+            border-color: #8b5cf6;
+            box-shadow: 0 0 0 2px rgba(139,92,246,0.4);
+        }
+        .g-check {
+            position: absolute; top: 6px; right: 8px;
+            width: 20px; height: 20px; border-radius: 6px;
+            border: 2px solid rgba(139,92,246,0.4);
+            display: none; align-items: center; justify-content: center;
+            font-size: 13px; color: #fff;
+            background: rgba(139,92,246,0.3);
+        }
+        .glossary-card.batch-active .g-check { display: flex; }
+        .glossary-card.g-selected .g-check { background: #8b5cf6; border-color: #8b5cf6; }
         .glossary-card::before {
             content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 3px;
             background: linear-gradient(90deg, #8b5cf6, #ec4899); opacity: 0; transition: opacity 0.3s ease;
         }
         .glossary-card:hover { transform: translateY(-3px); box-shadow: 0 8px 24px rgba(139,92,246,0.15); }
         .glossary-card:hover::before { opacity: 1; }
-        .glossary-term { font-size: 1rem; font-weight: 700; color: #2d3748; word-break: break-all; }
+        .glossary-term { font-size: 1rem; font-weight: 700; color: #2d3748; word-break: break-all; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
         [data-theme="dark"] .glossary-term { color: #e2e8f0; }
-        .glossary-cat { font-size: 0.68rem; color: #8b5cf6; background: rgba(139,92,246,0.1); padding: 2px 8px; border-radius: 8px; }
+        .glossary-cat { font-size: 0.68rem; color: #8b5cf6; background: rgba(139,92,246,0.1); padding: 2px 8px; border-radius: 8px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+        .batch-bar {
+            display: flex; align-items: center; gap: 12px;
+            margin-bottom: 14px; padding: 10px 16px;
+            background: rgba(239,68,68,0.06);
+            border: 1px solid rgba(239,68,68,0.2);
+            border-radius: 12px;
+            font-size: 0.9rem; color: #475569;
+        }
+        [data-theme="dark"] .batch-bar { color: #cbd5e1; }
+        .batch-bar b { color: #ef4444; }
 
         /* ===== 记忆宫殿 ===== */
         .memories-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; margin-bottom: 18px; }
@@ -305,10 +333,10 @@
         input:checked + .slider { background: linear-gradient(135deg, #8b5cf6, #a78bfa); }
         input:checked + .slider:before { transform: translateX(22px); }
 
-        @media (max-width: 1400px) { .glossary-grid { grid-template-columns: repeat(5, 1fr); } }
-        @media (max-width: 1100px) { .glossary-grid { grid-template-columns: repeat(4, 1fr); } }
+        @media (max-width: 1400px) { .glossary-grid { grid-template-columns: repeat(4, 1fr); } }
+        @media (max-width: 1100px) { .glossary-grid { grid-template-columns: repeat(3, 1fr); } }
         @media (max-width: 860px) {
-            .glossary-grid { grid-template-columns: repeat(3, 1fr); }
+            .glossary-grid { grid-template-columns: repeat(2, 1fr); }
             .content-row { flex-direction: column; }
             .category-side { width: 100%; position: static; display: flex; flex-wrap: wrap; gap: 5px; }
             .category-item { flex: 1; justify-content: center; }
@@ -365,8 +393,14 @@
             <div class="toolbar">
                 <input type="text" class="search-box" id="g-search" placeholder="搜索梗词 / 解释 / 标签 / 来源...">
                 <button class="btn btn-primary btn-sm" onclick="gAdd()">+ 添加梗</button>
+                <button class="btn btn-outline btn-sm" id="g-batch-btn" onclick="gEnterBatch()">&#128203; 批量编辑</button>
                 <button class="btn btn-outline btn-sm" onclick="gShowImport()">&#8681; 批量导入</button>
                 <button class="btn btn-outline btn-sm" onclick="gExport()">&#8682; 导出</button>
+            </div>
+            <div class="batch-bar" id="g-batch-bar" style="display:none;">
+                <span>已选 <b id="g-batch-count">0</b> 项</span>
+                <button class="btn btn-danger btn-sm" onclick="gBatchDelete()">删除选中</button>
+                <button class="btn btn-gray btn-sm" onclick="gExitBatch()">取消</button>
             </div>
             <div class="content-row">
                 <div class="category-side" id="g-category-side"></div>
@@ -473,6 +507,23 @@
             </div>
             <div style="margin-top:10px;">
                 <span class="save-status" id="s-status" style="font-size:0.85rem;color:#10b981;"></span>
+            </div>
+        </div>
+    </div>
+
+    <!-- 通用：自定义确认 Modal（替代被 iframe 沙箱阻止的 confirm/alert） -->
+    <div id="confirm-modal" class="modal">
+        <div class="modal-content" style="max-width:420px;">
+            <div class="modal-header">
+                <h3 class="modal-title" id="confirm-title">确认操作</h3>
+                <button class="modal-close" onclick="closeModal('confirm-modal')">&times;</button>
+            </div>
+            <div id="confirm-body" style="font-size:0.92rem;color:#475569;margin-bottom:8px;">
+                [data-theme="dark"] #confirm-body { color: #cbd5e1; }
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-gray btn-sm" onclick="closeModal('confirm-modal')">取消</button>
+                <button class="btn btn-danger btn-sm" id="confirm-ok-btn">确认</button>
             </div>
         </div>
     </div>
@@ -684,6 +735,19 @@
             document.getElementById(id).classList.remove('show');
         }
 
+        // 自定义确认弹窗（iframe 沙箱禁用原生 confirm/alert，必须用页面内 modal）
+        function showConfirm(message, onOk) {
+            document.getElementById('confirm-body').textContent = message;
+            const okBtn = document.getElementById('confirm-ok-btn');
+            const modal = document.getElementById('confirm-modal');
+            // 替换旧的 onclick，避免叠加
+            okBtn.onclick = function() {
+                closeModal('confirm-modal');
+                if (typeof onOk === 'function') onOk();
+            };
+            modal.classList.add('show');
+        }
+
         // ==================== Tab 切换 ====================
         function switchTab(name) {
             document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
@@ -730,7 +794,17 @@
 
         // ==================== 梗百科 ====================
         let gPage = 1, gCat = '', gQuery = '', gEditingId = null, gAllItems = [];
-        const G_PAGE_SIZE = 28;
+        let gBatchMode = false;
+        let gSelected = new Set();
+
+        // 分页大小：随列数变化，保证每行填满（列数 × 3 行）
+        function gPageSize() {
+            const w = window.innerWidth;
+            if (w > 1400) return 15;   // 5 列 × 3 行
+            if (w > 1100) return 12;   // 4 列 × 3 行
+            if (w > 860) return 9;     // 3 列 × 3 行
+            return 6;                  // 2 列 × 3 行
+        }
 
         async function gLoadStats() {
             try {
@@ -770,9 +844,10 @@
 
         async function gLoad(page = 1) {
             gPage = page;
+            const limit = gPageSize();
             try {
                 const d = await apiGet('api/glossary', {
-                    page, limit: G_PAGE_SIZE,
+                    page, limit,
                     category: gCat || undefined,
                     q: gQuery || undefined
                 });
@@ -780,14 +855,20 @@
                 if (!(d.items || []).length) {
                     grid.innerHTML = '<div class="empty-state">暂无梗，点击"添加梗"或"批量导入"开始收集吧</div>';
                 } else {
-                    grid.innerHTML = d.items.map(i => `
-                        <div class="glossary-card" onclick="gShowDetail(${i.id})">
+                    grid.innerHTML = d.items.map(i => {
+                        const selected = gSelected.has(i.id);
+                        const batchCls = gBatchMode ? ' batch-active' : '';
+                        const selCls = selected ? ' g-selected' : '';
+                        return `
+                        <div class="glossary-card${batchCls}${selCls}" onclick="gCardClick(${i.id})">
+                            <div class="g-check">&#10003;</div>
                             <div class="glossary-term">${escapeHtml(i.term)}</div>
                             <div class="glossary-cat">${escapeHtml(i.category)}</div>
-                        </div>
-                    `).join('');
+                        </div>`;
+                    }).join('');
                 }
                 gRenderPagination(d.total, d.total_pages);
+                gUpdateBatchBar();
             } catch (e) { console.error('梗加载失败:', e); }
         }
 
@@ -807,30 +888,57 @@
             el.innerHTML = html;
         }
 
-        async function gShowDetail(id) {
-            gEditingId = id;
-            await gLoadAll();
-            const item = gAllItems.find(i => i.id === id);
-            if (!item) return;
-            document.getElementById('g-detail-title').textContent = escapeHtml(item.term);
-            document.getElementById('g-detail-body').innerHTML = `
-                <div class="detail-row"><div class="detail-label">分类</div><div class="detail-value">${escapeHtml(item.category)}</div></div>
-                <div class="detail-row"><div class="detail-label">解释</div><div class="detail-value">${escapeHtml(item.meaning) || '（无）'}</div></div>
-                <div class="detail-row"><div class="detail-label">来源</div><div class="detail-value">${escapeHtml(item.source) || '（无）'}</div></div>
-                <div class="detail-row"><div class="detail-label">标签</div><div class="detail-value">${escapeHtml(item.tags) || '（无）'}</div></div>
-                <div class="detail-row"><div class="detail-label">收集时间</div><div class="detail-value">${escapeHtml(item.created_at)}</div></div>
-                <div class="detail-row"><div class="detail-label">命中次数</div><div class="detail-value">${item.hit_count || 0}</div></div>
-                <div class="modal-footer">
-                    <button class="btn btn-gray btn-sm" onclick="closeModal('g-detail-modal')">关闭</button>
-                    <button class="btn btn-primary btn-sm" onclick="gEditFromDetail()">编辑</button>
-                </div>
-            `;
-            document.getElementById('g-detail-modal').classList.add('show');
+        // 点击卡片：批量模式下切换选中，否则直接打开编辑
+        function gCardClick(id) {
+            if (gBatchMode) {
+                if (gSelected.has(id)) gSelected.delete(id);
+                else gSelected.add(id);
+                gUpdateBatchBar();
+                // 只更新当前卡片的选中样式（不重新渲染整页，避免闪烁）
+                const card = document.querySelector(`.glossary-card[data-id="${id}"]`);
+                if (card) card.classList.toggle('g-selected', gSelected.has(id));
+            } else {
+                gOpenEdit(id);
+            }
         }
 
-        function gEditFromDetail() {
-            closeModal('g-detail-modal');
-            gOpenEdit();
+        function gEnterBatch() {
+            gBatchMode = true;
+            gSelected.clear();
+            document.getElementById('g-batch-bar').style.display = 'flex';
+            document.getElementById('g-batch-btn').textContent = '\u2705 批量编辑中';
+            gLoad(gPage);
+        }
+
+        function gExitBatch() {
+            gBatchMode = false;
+            gSelected.clear();
+            document.getElementById('g-batch-bar').style.display = 'none';
+            document.getElementById('g-batch-btn').textContent = '\uD83D\uDDCB 批量编辑';
+            gLoad(gPage);
+        }
+
+        function gUpdateBatchBar() {
+            document.getElementById('g-batch-count').textContent = gSelected.size;
+        }
+
+        function gBatchDelete() {
+            if (gSelected.size === 0) {
+                showConfirm('请先勾选要删除的梗', function(){});
+                return;
+            }
+            const count = gSelected.size;
+            showConfirm(`确定删除选中的 ${count} 个梗？此操作不可恢复。`, async function() {
+                try {
+                    for (const id of [...gSelected]) {
+                        await apiPost(`api/glossary/${id}/delete`, {});
+                    }
+                    gSelected.clear();
+                    gLoadStats(); gLoad(1); gLoadCats();
+                } catch (e) {
+                    showConfirm('删除失败: ' + e.message, function(){});
+                }
+            });
         }
 
         function gAdd() {
@@ -838,7 +946,8 @@
             gOpenEdit();
         }
 
-        function gOpenEdit() {
+        async function gOpenEdit(id) {
+            gEditingId = id || null;
             document.getElementById('g-edit-title').textContent = gEditingId ? '编辑梗' : '添加梗';
             document.getElementById('g-del-btn').style.display = gEditingId ? 'inline-flex' : 'none';
             document.getElementById('g-term').value = '';
@@ -847,6 +956,7 @@
             document.getElementById('g-source').value = '';
             document.getElementById('g-tags').value = '';
             if (gEditingId) {
+                await gLoadAll();
                 const item = gAllItems.find(i => i.id === gEditingId);
                 if (item) {
                     document.getElementById('g-term').value = item.term || '';
@@ -861,7 +971,7 @@
 
         async function gSave() {
             const term = document.getElementById('g-term').value.trim();
-            if (!term) { alert('梗词不能为空'); return; }
+            if (!term) { showConfirm('梗词不能为空', function(){}); return; }
             const payload = {
                 term,
                 category: document.getElementById('g-category').value,
@@ -877,17 +987,18 @@
                 }
                 closeModal('g-edit-modal');
                 gLoadStats(); gLoad(gPage); gLoadCats();
-            } catch (e) { alert('保存失败: ' + e.message); }
+            } catch (e) { showConfirm('保存失败: ' + e.message, function(){}); }
         }
 
         async function gDelete() {
             if (!gEditingId) return;
-            if (!confirm('确定删除该梗？')) return;
-            try {
-                await apiPost(`api/glossary/${gEditingId}/delete`, {});
-                closeModal('g-edit-modal');
-                gLoadStats(); gLoad(gPage); gLoadCats();
-            } catch (e) { alert('删除失败: ' + e.message); }
+            showConfirm('确定删除该梗？此操作不可恢复。', async function() {
+                try {
+                    await apiPost(`api/glossary/${gEditingId}/delete`, {});
+                    closeModal('g-edit-modal');
+                    gLoadStats(); gLoad(gPage); gLoadCats();
+                } catch (e) { showConfirm('删除失败: ' + e.message, function(){}); }
+            });
         }
 
         function gShowImport() {
@@ -936,7 +1047,7 @@
                 a.download = 'glossary.jsonl';
                 a.click();
                 URL.revokeObjectURL(a.href);
-            } catch (e) { alert('导出失败: ' + e.message); }
+            } catch (e) { showConfirm('导出失败: ' + e.message, function(){}); }
         }
 
         function parseJsonl(text) {
@@ -1059,7 +1170,7 @@
         async function mSave() {
             const id = document.getElementById('m-memory-id').value;
             const content = document.getElementById('m-content').value.trim();
-            if (!content) { alert('内容不能为空'); return; }
+            if (!content) { showConfirm('内容不能为空', function(){}); return; }
             const payload = {
                 content,
                 category: document.getElementById('m-category').value,
@@ -1074,15 +1185,16 @@
                 }
                 closeModal('m-edit-modal');
                 mLoad(mPage);
-            } catch (e) { alert('保存失败: ' + e.message); }
+            } catch (e) { showConfirm('保存失败: ' + e.message, function(){}); }
         }
 
         async function mDelete(id) {
-            if (!confirm('确定删除该记忆？')) return;
-            try {
-                await apiPost(`api/memories/${id}/delete`, {});
-                mLoad(mPage);
-            } catch (e) { alert('删除失败: ' + e.message); }
+            showConfirm('确定删除该记忆？此操作不可恢复。', async function() {
+                try {
+                    await apiPost(`api/memories/${id}/delete`, {});
+                    mLoad(mPage);
+                } catch (e) { showConfirm('删除失败: ' + e.message, function(){}); }
+            });
         }
 
         function mChangeSort() {
@@ -1235,7 +1347,7 @@
 
         async function rSave() {
             const userId = document.getElementById('r-user-id').value.trim();
-            if (!userId) { alert('用户ID不能为空'); return; }
+            if (!userId) { showConfirm('用户ID不能为空', function(){}); return; }
             const payload = {
                 user_id: userId,
                 nickname: document.getElementById('r-nickname').value,
@@ -1248,25 +1360,27 @@
                 await apiPost('api/relationships', payload);
                 closeModal('r-edit-modal');
                 rLoad(rPage);
-            } catch (e) { alert('保存失败: ' + e.message); }
+            } catch (e) { showConfirm('保存失败: ' + e.message, function(){}); }
         }
 
         async function rDeleteCurrent() {
             if (!rEditingUserId) return;
-            if (!confirm('确定删除该关系？')) return;
-            try {
-                await apiPost(`api/relationships/${encodeURIComponent(rEditingUserId)}/delete`, {});
-                closeModal('r-edit-modal');
-                rLoad(rPage);
-            } catch (e) { alert('删除失败: ' + e.message); }
+            showConfirm('确定删除该关系？此操作不可恢复。', async function() {
+                try {
+                    await apiPost(`api/relationships/${encodeURIComponent(rEditingUserId)}/delete`, {});
+                    closeModal('r-edit-modal');
+                    rLoad(rPage);
+                } catch (e) { showConfirm('删除失败: ' + e.message, function(){}); }
+            });
         }
 
         async function rDelete(userId) {
-            if (!confirm('确定删除该关系？')) return;
-            try {
-                await apiPost(`api/relationships/${encodeURIComponent(userId)}/delete`, {});
-                rLoad(rPage);
-            } catch (e) { alert('删除失败: ' + e.message); }
+            showConfirm('确定删除该关系？此操作不可恢复。', async function() {
+                try {
+                    await apiPost(`api/relationships/${encodeURIComponent(userId)}/delete`, {});
+                    rLoad(rPage);
+                } catch (e) { showConfirm('删除失败: ' + e.message, function(){}); }
+            });
         }
 
         let rSearchTimer = null;
@@ -1329,8 +1443,10 @@
 
         // ==================== 对外暴露（onclick 需要） ====================
         window.gSelectCat = gSelectCat;
-        window.gShowDetail = gShowDetail;
-        window.gEditFromDetail = gEditFromDetail;
+        window.gCardClick = gCardClick;
+        window.gEnterBatch = gEnterBatch;
+        window.gExitBatch = gExitBatch;
+        window.gBatchDelete = gBatchDelete;
         window.gAdd = gAdd;
         window.gSave = gSave;
         window.gDelete = gDelete;
