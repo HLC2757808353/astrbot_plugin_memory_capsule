@@ -653,11 +653,18 @@
     </div>
 
     <script type="module">
+        // 注意：函数声明会提升，window 暴露语句放在最前执行，
+        // 不依赖 bridge.ready() 完成，确保按钮始终可点。
         const bridge = window.AstrBotPluginPage;
-        await bridge.ready();
 
-        async function apiGet(endpoint, params) { return bridge.apiGet(endpoint, params); }
-        async function apiPost(endpoint, body) { return bridge.apiPost(endpoint, body); }
+        async function apiGet(endpoint, params) {
+            if (!bridge) throw new Error('bridge 未就绪');
+            return bridge.apiGet(endpoint, params);
+        }
+        async function apiPost(endpoint, body) {
+            if (!bridge) throw new Error('bridge 未就绪');
+            return bridge.apiPost(endpoint, body);
+        }
 
         function escapeHtml(s) {
             return (s || '').replace(/[&<>"']/g, c => ({
@@ -1354,8 +1361,17 @@
             m.addEventListener('click', function(e) { if (e.target === this) this.classList.remove('show'); });
         });
 
-        // 初始化：加载仪表盘 + 预加载梗分类
-        await Promise.all([loadDashboard(), gLoadCats()]);
+        // 初始化：等 bridge 就绪后加载数据（非阻塞，按钮已可点击）
+        async function initApp() {
+            try {
+                if (bridge) await bridge.ready();
+            } catch (e) {
+                console.error('bridge ready 失败:', e);
+            }
+            try { await loadDashboard(); } catch (e) { console.error(e); }
+            try { await gLoadCats(); } catch (e) { console.error(e); }
+        }
+        initApp();
     </script>
 </body>
 </html>

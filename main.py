@@ -41,8 +41,11 @@ class MemoryCapsulePlugin(Star):
         self.db_manager.initialize(persistent_data_dir)
         from . import set_global_manager
         set_global_manager(self.db_manager)
-        from .embedded_api import register_embedded_apis
-        register_embedded_apis(self.context, self.db_manager, self.config)
+        try:
+            from .embedded_api import register_embedded_apis
+            register_embedded_apis(self.context, self.db_manager, self.config)
+        except Exception as e:
+            logger.error(f"嵌入式 Web API 注册失败（不影响核心功能）: {e}")
         if self.config.get('webui_enabled', False):
             self._start_webui()
         else:

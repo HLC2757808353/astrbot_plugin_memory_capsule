@@ -8,8 +8,11 @@ from __future__ import annotations
 
 import json
 
-from astrbot.api import logger
-from astrbot.api.web import request
+try:
+    from astrbot.api import logger
+except ImportError:
+    import logging
+    logger = logging.getLogger(__name__)
 
 PLUGIN_NAME = "astrbot_plugin_memory_capsule"
 
@@ -18,6 +21,12 @@ class EmbeddedAPI:
     def __init__(self, db_manager, config=None):
         self.db_manager = db_manager
         self.config = config or {}
+
+    @property
+    def _req(self):
+        """惰性获取当前请求（astrbot.api.web.request 在 handler 调用时才有上下文）。"""
+        from astrbot.api.web import request
+        return request
 
     # ==================== 工具方法 ====================
 
@@ -37,7 +46,7 @@ class EmbeddedAPI:
             return self._err(e)
 
     async def api_activities(self):
-        limit = request.query.get("limit", 30, type=int)
+        limit = self._req.query.get("limit", 30, type=int)
         try:
             items = await self._to_thread(self.db_manager.get_recent_activities, limit)
             return self._ok(activities=items)
@@ -47,10 +56,10 @@ class EmbeddedAPI:
     # ==================== 记忆 ====================
 
     async def api_memories_list(self):
-        page = request.query.get("page", 1, type=int)
-        limit = request.query.get("limit", 12, type=int)
+        page = self._req.query.get("page", 1, type=int)
+        limit = self._req.query.get("limit", 12, type=int)
         offset = (page - 1) * limit
-        category = request.query.get("category")
+        category = self._req.query.get("category")
         try:
             memories = await self._to_thread(self.db_manager.get_all_memories, limit, offset, category)
             total = await self._to_thread(self.db_manager.get_memories_count)
@@ -60,7 +69,7 @@ class EmbeddedAPI:
             return self._err(e)
 
     async def api_memories_add(self):
-        data = await request.json() or {}
+        data = await self._req.json() or {}
         try:
             result = await self._to_thread(
                 self.db_manager.write_memory,
@@ -75,7 +84,7 @@ class EmbeddedAPI:
 
     async def api_memories_import(self):
         try:
-            data = await request.json() or {}
+            data = await self._req.json() or {}
             items = data.get("memories", [])
             if not items or not isinstance(items, list):
                 return self._err("No memories array provided")
@@ -87,7 +96,7 @@ class EmbeddedAPI:
             return self._err(e)
 
     async def api_memories_update(self, memory_id):
-        data = await request.json() or {}
+        data = await self._req.json() or {}
         try:
             result = await self._to_thread(
                 self.db_manager.update_memory,
@@ -109,9 +118,9 @@ class EmbeddedAPI:
             return self._err(e)
 
     async def api_memories_search(self):
-        query = request.query.get("q", "")
-        category = request.query.get("category")
-        limit = request.query.get("limit", None, type=int)
+        query = self._req.query.get("q", "")
+        category = self._req.query.get("category")
+        limit = self._req.query.get("limit", None, type=int)
         try:
             results = await self._to_thread(self.db_manager.search_memory, str(query), category, limit)
             # 联想记忆
@@ -143,8 +152,8 @@ class EmbeddedAPI:
     # ==================== 关系 ====================
 
     async def api_relationships_list(self):
-        page = request.query.get("page", 1, type=int)
-        limit = request.query.get("limit", 12, type=int)
+        page = self._req.query.get("page", 1, type=int)
+        limit = self._req.query.get("limit", 12, type=int)
         offset = (page - 1) * limit
         try:
             items = await self._to_thread(self.db_manager.get_all_relationships, limit, offset)
@@ -155,7 +164,7 @@ class EmbeddedAPI:
             return self._err(e)
 
     async def api_relationships_add(self):
-        data = await request.json() or {}
+        data = await self._req.json() or {}
         try:
             result = await self._to_thread(
                 self.db_manager.update_relationship_enhanced,
@@ -178,7 +187,7 @@ class EmbeddedAPI:
             return self._err(e)
 
     async def api_relationships_search(self):
-        query = request.query.get("q", "")
+        query = self._req.query.get("q", "")
         try:
             results = await self._to_thread(self.db_manager.search_relationship, str(query), 10)
             return self._ok(results=results)
@@ -188,11 +197,11 @@ class EmbeddedAPI:
     # ==================== 梗库 ====================
 
     async def api_glossary_list(self):
-        page = request.query.get("page", 1, type=int)
-        limit = request.query.get("limit", 28, type=int)
+        page = self._req.query.get("page", 1, type=int)
+        limit = self._req.query.get("limit", 28, type=int)
         offset = (page - 1) * limit
-        category = request.query.get("category") or None
-        query = request.query.get("q") or None
+        category = self._req.query.get("category") or None
+        query = self._req.query.get("q") or None
         try:
             items = await self._to_thread(self.db_manager.get_glossaries, limit, offset, category, query)
             total = await self._to_thread(self.db_manager.get_glossaries_count, category, query)
@@ -202,7 +211,7 @@ class EmbeddedAPI:
             return self._err(e)
 
     async def api_glossary_add(self):
-        data = await request.json() or {}
+        data = await self._req.json() or {}
         try:
             result = await self._to_thread(
                 self.db_manager.add_glossary,
@@ -219,7 +228,7 @@ class EmbeddedAPI:
             return self._err(e)
 
     async def api_glossary_update(self, glossary_id):
-        data = await request.json() or {}
+        data = await self._req.json() or {}
         try:
             result = await self._to_thread(
                 self.db_manager.update_glossary,
@@ -257,7 +266,7 @@ class EmbeddedAPI:
 
     async def api_glossary_import(self):
         try:
-            data = await request.json() or {}
+            data = await self._req.json() or {}
             items = data.get("items", [])
             if not items or not isinstance(items, list):
                 return self._err("No items array provided")
@@ -295,7 +304,7 @@ class EmbeddedAPI:
 
     async def api_settings_save(self):
         try:
-            data = await request.json() or {}
+            data = await self._req.json() or {}
             if self.db_manager and self.db_manager.config is not None:
                 for key, value in data.items():
                     self.db_manager.config[key] = value
