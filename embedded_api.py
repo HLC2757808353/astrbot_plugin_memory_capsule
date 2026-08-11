@@ -305,6 +305,25 @@ class EmbeddedAPI:
 
     # ==================== 设置 ====================
 
+    async def api_providers(self):
+        """返回可用的 LLM Provider 列表（用于设置页选择提炼模型）。"""
+        try:
+            providers = []
+            if self.context:
+                for p in self.context.get_all_providers():
+                    try:
+                        meta = p.meta()
+                        providers.append({
+                            "id": meta.id,
+                            "name": f"{meta.type} / {meta.model}",
+                            "model": meta.model
+                        })
+                    except Exception:
+                        continue
+            return self._ok(providers=providers)
+        except Exception as e:
+            return self._err(e)
+
     async def api_settings_get(self):
         try:
             cfg = self.config or {}
@@ -355,6 +374,7 @@ def register_embedded_apis(context, db_manager, config=None):
         (f"/{PLUGIN_NAME}/api/glossary/collect", api.api_glossary_collect, ["POST"], "热榜采集"),
         (f"/{PLUGIN_NAME}/api/glossary/<glossary_id>/update", api.api_glossary_update, ["POST"], "更新梗"),
         (f"/{PLUGIN_NAME}/api/glossary/<glossary_id>/delete", api.api_glossary_delete, ["POST"], "删除梗"),
+        (f"/{PLUGIN_NAME}/api/providers", api.api_providers, ["GET"], "LLM提供商列表"),
         (f"/{PLUGIN_NAME}/api/settings", api.api_settings_get, ["GET"], "读取设置"),
         (f"/{PLUGIN_NAME}/api/settings", api.api_settings_save, ["POST"], "保存设置"),
     ]

@@ -228,10 +228,12 @@
             border: 2px solid rgba(139,92,246,0.4);
             display: none; align-items: center; justify-content: center;
             font-size: 13px; color: #fff;
-            background: rgba(139,92,246,0.3);
+            background: transparent;
         }
+        .g-check::after { content: ''; }
         .glossary-card.batch-active .g-check { display: flex; }
         .glossary-card.g-selected .g-check { background: #8b5cf6; border-color: #8b5cf6; }
+        .glossary-card.g-selected .g-check::after { content: '✓'; }
         .glossary-card::before {
             content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 3px;
             background: linear-gradient(90deg, #8b5cf6, #ec4899); opacity: 0; transition: opacity 0.3s ease;
@@ -240,7 +242,6 @@
         .glossary-card:hover::before { opacity: 1; }
         .glossary-term { font-size: 1rem; font-weight: 700; color: #2d3748; word-break: break-all; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
         [data-theme="dark"] .glossary-term { color: #e2e8f0; }
-        .glossary-cat { font-size: 0.68rem; color: #8b5cf6; background: rgba(139,92,246,0.1); padding: 2px 8px; border-radius: 8px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
         .batch-bar {
             display: flex; align-items: center; gap: 12px;
@@ -254,11 +255,13 @@
         .batch-bar b { color: #ef4444; }
 
         /* ===== 记忆宫殿 ===== */
-        .memories-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; margin-bottom: 18px; }
+        .memories-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 18px; }
         .memory-card {
             background: rgba(139,92,246,0.04);
             border: 1px solid rgba(139,92,246,0.12);
-            border-radius: 12px; padding: 16px; transition: all 0.3s ease; position: relative; overflow: hidden;
+            border-radius: 12px; padding: 14px; transition: all 0.3s ease; position: relative; overflow: hidden;
+            aspect-ratio: 4 / 3;
+            display: flex; flex-direction: column; min-width: 0;
         }
         .memory-card::before {
             content: ''; position: absolute; top: 0; left: 0; width: 3px; height: 100%;
@@ -270,9 +273,13 @@
         .memory-importance { font-size: 0.75rem; color: #8b5cf6; font-weight: 600; background: rgba(139,92,246,0.1); padding: 3px 9px; border-radius: 8px; }
         .memory-category { font-size: 0.75rem; color: #ec4899; font-weight: 600; background: rgba(236,72,153,0.08); padding: 3px 9px; border-radius: 8px; }
         .memory-date { font-size: 0.75rem; color: #a0aec0; }
-        .memory-content { margin-bottom: 10px; line-height: 1.6; color: #475569; font-size: 0.9rem; }
+        .memory-content {
+            flex: 1; margin-bottom: 10px; line-height: 1.6; color: #475569; font-size: 0.9rem;
+            overflow: hidden; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical;
+            word-break: break-word;
+        }
         [data-theme="dark"] .memory-content { color: #cbd5e1; }
-        .memory-tags { margin-bottom: 12px; }
+        .memory-tags { margin-bottom: 10px; max-height: 56px; overflow: hidden; }
         .tag { display: inline-block; padding: 2px 9px; margin-right: 5px; margin-bottom: 5px; background: rgba(139,92,246,0.08); border: 1px solid rgba(139,92,246,0.15); border-radius: 9px; font-size: 0.72rem; color: #8b5cf6; }
         .memory-actions { display: flex; gap: 8px; justify-content: flex-end; align-items: center; }
         .related-section {
@@ -334,17 +341,18 @@
         input:checked + .slider { background: linear-gradient(135deg, #8b5cf6, #a78bfa); }
         input:checked + .slider:before { transform: translateX(22px); }
 
-        @media (max-width: 1400px) { .glossary-grid { grid-template-columns: repeat(4, 1fr); } }
-        @media (max-width: 1100px) { .glossary-grid { grid-template-columns: repeat(3, 1fr); } }
+        @media (max-width: 1400px) { .glossary-grid { grid-template-columns: repeat(4, 1fr); } .memories-grid { grid-template-columns: repeat(3, 1fr); } }
+        @media (max-width: 1100px) { .glossary-grid { grid-template-columns: repeat(3, 1fr); } .memories-grid { grid-template-columns: repeat(2, 1fr); } }
         @media (max-width: 860px) {
             .glossary-grid { grid-template-columns: repeat(2, 1fr); }
             .content-row { flex-direction: column; }
             .category-side { width: 100%; position: static; display: flex; flex-wrap: wrap; gap: 5px; }
             .category-item { flex: 1; justify-content: center; }
             .stats-row { grid-template-columns: repeat(2, 1fr); }
-            .memories-grid { grid-template-columns: 1fr; }
+            .memories-grid { grid-template-columns: repeat(2, 1fr); }
             .rel-grid { grid-template-columns: 1fr; }
         }
+        @media (max-width: 700px) { .memories-grid { grid-template-columns: 1fr; } }
     </style>
 </head>
 <body>
@@ -498,12 +506,16 @@
             <div class="settings-card">
                 <div class="settings-title">梗库自动采集</div>
                 <div class="setting-row">
-                    <div class="setting-info"><div class="setting-name">启用热榜采集</div><div class="setting-hint">定时抓取 微博/B站/百度/知乎 热榜，LLM 提炼出梗词自动入库</div></div>
+                    <div class="setting-info"><div class="setting-name">启用热榜采集</div><div class="setting-hint">定时抓取 B站/百度/头条 热榜，LLM 提炼出梗词自动入库</div></div>
                     <div class="setting-control"><label class="switch"><input type="checkbox" id="s-collect_enabled"><span class="slider"></span></label></div>
                 </div>
                 <div class="setting-row">
-                    <div class="setting-info"><div class="setting-name">采集间隔（小时）</div><div class="setting-hint">梗不是每天都有，默认 24h 一次。修改需重启插件</div></div>
+                    <div class="setting-info"><div class="setting-name">采集间隔（小时）</div><div class="setting-hint">梗不是每天都有，默认 24h 一次，下次采集时生效</div></div>
                     <div class="setting-control"><input type="number" class="form-control" id="s-collect_interval"></div>
+                </div>
+                <div class="setting-row">
+                    <div class="setting-info"><div class="setting-name">提炼模型</div><div class="setting-hint">用于把热榜标题提炼成梗词的 LLM，留空自动使用第一个可用模型</div></div>
+                    <div class="setting-control"><select class="form-control" id="s-collect_llm"><option value="">自动（第一个可用模型）</option></select></div>
                 </div>
                 <div class="setting-row">
                     <div class="setting-info"><div class="setting-name">立即采集一次</div><div class="setting-hint">手动触发一次热榜抓取+提炼（消耗约1次LLM调用）</div></div>
@@ -878,9 +890,8 @@
                         const selCls = selected ? ' g-selected' : '';
                         return `
                         <div class="glossary-card${batchCls}${selCls}" onclick="gCardClick(${i.id})">
-                            <div class="g-check">&#10003;</div>
+                            <div class="g-check"></div>
                             <div class="glossary-term">${escapeHtml(i.term)}</div>
-                            <div class="glossary-cat">${escapeHtml(i.category)}</div>
                         </div>`;
                     }).join('');
                 }
@@ -1083,14 +1094,22 @@
 
         // ==================== 记忆宫殿 ====================
         let mPage = 1, mMemories = [], mCategories = [];
-        const M_PAGE_SIZE = 12;
+
+        // 分页大小：随列数变化，保证每行填满（列数 × 3 行）
+        function mPageSize() {
+            const w = window.innerWidth;
+            if (w > 1400) return 12;   // 4 列 × 3 行
+            if (w > 1100) return 9;    // 3 列 × 3 行
+            if (w > 700) return 6;     // 2 列 × 3 行
+            return 3;                  // 1 列 × 3 行
+        }
 
         async function mLoad(page = 1) {
             mPage = page;
             const q = document.getElementById('m-search').value.trim();
             try {
                 if (q) {
-                    const d = await apiGet('api/memories/search', { q, page, limit: M_PAGE_SIZE });
+                    const d = await apiGet('api/memories/search', { q, page, limit: mPageSize() });
                     mMemories = d.results || [];
                     const related = d.related || [];
                     const sec = document.getElementById('m-related');
@@ -1104,7 +1123,7 @@
                     mRender(mMemories);
                     document.getElementById('m-pagination').innerHTML = `<span class="page-info">共 ${mMemories.length} 条</span>`;
                 } else {
-                    const d = await apiGet('api/memories', { page, limit: M_PAGE_SIZE });
+                    const d = await apiGet('api/memories', { page, limit: mPageSize() });
                     mMemories = d.memories || [];
                     document.getElementById('m-related').style.display = 'none';
                     mRender(mMemories);
@@ -1407,6 +1426,16 @@
         });
 
         // ==================== 设置 ====================
+        async function sLoadProviders() {
+            try {
+                const d = await apiGet('api/providers');
+                const sel = document.getElementById('s-collect_llm');
+                sel.innerHTML = '<option value="">自动（第一个可用模型）</option>' +
+                    (d.providers || []).map(p =>
+                        `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}</option>`).join('');
+            } catch (e) { console.error('加载 LLM 列表失败:', e); }
+        }
+
         async function sLoad() {
             try {
                 const d = await apiGet('api/settings');
@@ -1420,6 +1449,8 @@
                 document.getElementById('s-inject_pos').value = cfg.context_inject_position || 'system_prompt';
                 setBool('s-collect_enabled', cfg.glossary_collect_enabled, true);
                 setNum('s-collect_interval', cfg.glossary_collect_interval_hours, 24);
+                await sLoadProviders();
+                document.getElementById('s-collect_llm').value = cfg.glossary_collect_llm_model || '';
             } catch (e) { console.error('设置加载失败:', e); }
         }
 
@@ -1443,7 +1474,8 @@
                 ['s-webui_port', 'webui_port', 'int'],
                 ['s-inject_pos', 'context_inject_position', 'str'],
                 ['s-collect_enabled', 'glossary_collect_enabled', 'bool'],
-                ['s-collect_interval', 'glossary_collect_interval_hours', 'int']
+                ['s-collect_interval', 'glossary_collect_interval_hours', 'int'],
+                ['s-collect_llm', 'glossary_collect_llm_model', 'str']
             ];
             for (const [elId, key, type] of fields) {
                 const el = document.getElementById(elId);
