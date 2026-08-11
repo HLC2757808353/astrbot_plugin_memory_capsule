@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>仪表盘</title>
+    <title>记忆胶囊</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
@@ -12,32 +12,154 @@
             color: #2d3748;
             background: transparent;
             min-height: 100vh;
-            padding: 24px;
         }
         [data-theme="dark"] body { color: #e2e8f0; }
-        .page-header { margin-bottom: 22px; }
-        .page-title { font-size: 1.6rem; font-weight: 700; color: #2d3748; margin-bottom: 6px; }
-        [data-theme="dark"] .page-title { color: #e2e8f0; }
-        .page-subtitle { font-size: 0.9rem; color: #94a3b8; }
 
-        .stats-row {
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 14px;
-            margin-bottom: 22px;
+        /* ===== 顶部 Tab 栏 ===== */
+        .tab-bar {
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            display: flex;
+            gap: 4px;
+            padding: 10px 16px;
+            background: rgba(255,255,255,0.92);
+            backdrop-filter: blur(16px);
+            border-bottom: 1px solid rgba(139,92,246,0.12);
+            flex-wrap: wrap;
         }
+        [data-theme="dark"] .tab-bar { background: rgba(30,41,59,0.92); }
+        .tab-btn {
+            padding: 9px 18px;
+            border: none;
+            border-radius: 10px;
+            background: transparent;
+            color: #64748b;
+            font-size: 0.9rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        [data-theme="dark"] .tab-btn { color: #94a3b8; }
+        .tab-btn:hover { background: rgba(139,92,246,0.08); color: #8b5cf6; }
+        .tab-btn.active {
+            background: linear-gradient(135deg, #8b5cf6, #a78bfa);
+            color: #fff;
+            box-shadow: 0 4px 12px rgba(139,92,246,0.3);
+        }
+        .tab-btn.active:hover { color: #fff; }
+
+        .page-wrap { padding: 20px 24px 32px; }
+        .view { display: none; }
+        .view.active { display: block; animation: fadeIn 0.3s ease; }
+
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* ===== 通用 ===== */
+        .page-header { margin-bottom: 20px; }
+        .page-title { font-size: 1.5rem; font-weight: 700; color: #2d3748; margin-bottom: 4px; }
+        [data-theme="dark"] .page-title { color: #e2e8f0; }
+        .page-subtitle { font-size: 0.88rem; color: #94a3b8; }
+
+        .btn {
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 10px 16px; border: none; border-radius: 10px;
+            cursor: pointer; font-size: 0.88rem; font-weight: 500;
+            transition: all 0.3s ease; color: #fff;
+        }
+        .btn:hover { transform: scale(1.02); }
+        .btn-primary { background: linear-gradient(135deg, #8b5cf6, #a78bfa); box-shadow: 0 4px 12px rgba(139,92,246,0.3); }
+        .btn-outline { background: rgba(255,255,255,0.6); color: #8b5cf6; border: 1px solid rgba(139,92,246,0.3); }
+        .btn-outline:hover { background: rgba(139,92,246,0.08); }
+        [data-theme="dark"] .btn-outline { background: rgba(255,255,255,0.06); color: #a78bfa; }
+        .btn-danger { background: linear-gradient(135deg, #ef4444, #f87171); box-shadow: 0 4px 12px rgba(239,68,68,0.3); }
+        .btn-gray { background: rgba(148,163,184,0.3); color: #475569; }
+        .btn-sm { padding: 7px 12px; font-size: 0.8rem; }
+
+        .toolbar { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
+        .search-box {
+            flex: 1; min-width: 220px;
+            padding: 10px 16px;
+            background: rgba(139,92,246,0.05);
+            border: 1px solid rgba(139,92,246,0.15);
+            border-radius: 10px;
+            color: #2d3748; font-size: 0.92rem;
+            transition: all 0.3s ease;
+        }
+        [data-theme="dark"] .search-box { color: #e2e8f0; background: rgba(255,255,255,0.05); }
+        .search-box:focus { outline: none; border-color: #8b5cf6; box-shadow: 0 0 0 3px rgba(139,92,246,0.1); }
+        .search-box::placeholder { color: #a0aec0; }
+        select.filter-control, select {
+            padding: 10px 14px;
+            background: rgba(139,92,246,0.05);
+            border: 1px solid rgba(139,92,246,0.15);
+            border-radius: 10px;
+            color: #2d3748; font-size: 0.9rem;
+        }
+        [data-theme="dark"] select { color: #e2e8f0; background: rgba(255,255,255,0.05); }
+        select option { background: #fff; color: #2d3748; }
+
+        .empty-state { text-align: center; padding: 48px 20px; color: #94a3b8; font-size: 0.95rem; }
+
+        .pagination { display: flex; justify-content: center; align-items: center; gap: 8px; margin-top: 20px; flex-wrap: wrap; }
+        .pagination button {
+            padding: 7px 12px; background: rgba(255,255,255,0.6);
+            border: 1px solid rgba(139,92,246,0.15); border-radius: 9px;
+            color: #64748b; cursor: pointer; transition: all 0.3s ease; font-size: 0.82rem;
+        }
+        [data-theme="dark"] .pagination button { background: rgba(255,255,255,0.05); color: #94a3b8; }
+        .pagination button:hover { background: rgba(139,92,246,0.08); border-color: #8b5cf6; color: #8b5cf6; }
+        .pagination button.active { background: linear-gradient(135deg, #8b5cf6, #a78bfa); color: #fff; border-color: transparent; }
+        .pagination button:disabled { opacity: 0.4; cursor: not-allowed; }
+        .pagination .page-info { font-size: 0.82rem; color: #94a3b8; margin-left: 8px; }
+
+        .modal {
+            display: none; position: fixed; z-index: 1000; left: 0; top: 0;
+            width: 100%; height: 100%; background: rgba(0,0,0,0.3); backdrop-filter: blur(10px);
+        }
+        .modal.show { display: flex; align-items: center; justify-content: center; animation: fadeIn 0.3s ease; }
+        .modal-content {
+            background: #fff; border: 1px solid rgba(139,92,246,0.12); border-radius: 14px;
+            padding: 26px; width: 90%; max-width: 560px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.15); animation: fadeIn 0.3s ease;
+            max-height: 88vh; overflow-y: auto;
+        }
+        [data-theme="dark"] .modal-content { background: #1e293b; }
+        .modal-header { padding-bottom: 14px; border-bottom: 1px solid rgba(139,92,246,0.1); margin-bottom: 18px; display: flex; justify-content: space-between; align-items: center; }
+        .modal-title { font-size: 1.1rem; font-weight: 600; color: #2d3748; }
+        [data-theme="dark"] .modal-title { color: #e2e8f0; }
+        .modal-close { background: rgba(139,92,246,0.08); border: none; width: 30px; height: 30px; border-radius: 8px; font-size: 1.1rem; cursor: pointer; color: #8b5cf6; }
+        .modal-close:hover { background: rgba(139,92,246,0.15); }
+        .form-group { margin-bottom: 14px; }
+        .form-label { display: block; font-size: 0.82rem; color: #64748b; font-weight: 500; margin-bottom: 5px; }
+        [data-theme="dark"] .form-label { color: #94a3b8; }
+        .form-control {
+            width: 100%; padding: 9px 12px;
+            background: rgba(139,92,246,0.04); border: 1px solid rgba(139,92,246,0.15);
+            border-radius: 9px; color: #2d3748; font-size: 0.88rem; transition: all 0.3s ease;
+        }
+        [data-theme="dark"] .form-control { color: #e2e8f0; background: rgba(255,255,255,0.05); }
+        .form-control:focus { outline: none; border-color: #8b5cf6; box-shadow: 0 0 0 3px rgba(139,92,246,0.1); }
+        textarea.form-control { min-height: 80px; resize: vertical; font-family: inherit; }
+        .modal-footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; padding-top: 14px; border-top: 1px solid rgba(139,92,246,0.1); }
+        .importance-slider { width: 100%; accent-color: #8b5cf6; margin-top: 4px; }
+        .importance-hint { font-size: 0.75rem; color: #94a3b8; margin-top: 4px; }
+        .hint { font-size: 0.76rem; color: #94a3b8; margin-top: 5px; }
+        .result-msg { margin-top: 8px; font-size: 0.86rem; }
+        .detail-row { margin-bottom: 12px; }
+        .detail-label { font-size: 0.78rem; color: #94a3b8; font-weight: 500; margin-bottom: 3px; }
+        .detail-value { font-size: 0.92rem; color: #475569; word-break: break-all; }
+        [data-theme="dark"] .detail-value { color: #cbd5e1; }
+
+        /* ===== 仪表盘 ===== */
+        .stats-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 22px; }
         .stat-card {
             background: rgba(139,92,246,0.06);
             border: 1px solid rgba(139,92,246,0.15);
             border-radius: 14px;
-            padding: 20px;
-            text-align: center;
-            position: relative;
-            overflow: hidden;
+            padding: 20px; text-align: center; position: relative; overflow: hidden;
         }
-        .stat-card::before {
-            content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
-        }
+        .stat-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; }
         .stat-card:nth-child(1)::before { background: linear-gradient(90deg, #8b5cf6, #a78bfa); }
         .stat-card:nth-child(2)::before { background: linear-gradient(90deg, #ec4899, #f472b6); }
         .stat-card:nth-child(3)::before { background: linear-gradient(90deg, #3b82f6, #60a5fa); }
@@ -49,13 +171,10 @@
             background-clip: text; margin-bottom: 2px;
         }
         .stat-label { font-size: 0.82rem; color: #94a3b8; font-weight: 500; }
-
         .card {
             background: rgba(139,92,246,0.04);
             border: 1px solid rgba(139,92,246,0.12);
-            border-radius: 14px;
-            margin-bottom: 18px;
-            overflow: hidden;
+            border-radius: 14px; margin-bottom: 18px; overflow: hidden;
         }
         .card-header { padding: 14px 20px; border-bottom: 1px solid rgba(139,92,246,0.1); }
         .card-title { font-size: 1rem; font-weight: 600; color: #2d3748; }
@@ -67,70 +186,469 @@
         .activity-time { font-size: 0.75rem; color: #a0aec0; margin-bottom: 2px; }
         .activity-content { color: #475569; font-size: 0.88rem; }
         [data-theme="dark"] .activity-content { color: #cbd5e1; }
-        .empty-state { text-align: center; padding: 36px 20px; color: #94a3b8; font-size: 0.9rem; }
 
-        .quick-links { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
-        .quick-link {
-            display: inline-flex; align-items: center; gap: 8px;
-            padding: 12px 20px;
-            background: rgba(139,92,246,0.06);
-            border: 1px solid rgba(139,92,246,0.15);
-            border-radius: 12px;
-            color: #8b5cf6; text-decoration: none; font-size: 0.9rem; font-weight: 500;
-            transition: all 0.3s ease;
+        /* ===== 梗百科 ===== */
+        .content-row { display: flex; gap: 16px; align-items: flex-start; }
+        .category-side {
+            width: 150px; flex-shrink: 0;
+            background: rgba(139,92,246,0.04);
+            border: 1px solid rgba(139,92,246,0.12);
+            border-radius: 14px; padding: 12px 8px;
+            position: sticky; top: 70px;
         }
-        .quick-link:hover { background: rgba(139,92,246,0.12); transform: translateY(-2px); }
+        .category-item {
+            padding: 9px 12px; border-radius: 9px; cursor: pointer;
+            color: #64748b; font-size: 0.86rem; font-weight: 500;
+            transition: all 0.3s ease;
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        [data-theme="dark"] .category-item { color: #94a3b8; }
+        .category-item:hover { background: rgba(139,92,246,0.08); color: #8b5cf6; }
+        .category-item.active { background: linear-gradient(135deg, #8b5cf6, #a78bfa); color: #fff; }
+        .category-count { font-size: 0.72rem; opacity: 0.7; }
+        .glossary-grid { flex: 1; display: grid; grid-template-columns: repeat(7, 1fr); gap: 10px; }
+        .glossary-card {
+            background: rgba(139,92,246,0.05);
+            border: 1px solid rgba(139,92,246,0.12);
+            border-radius: 10px; padding: 12px 10px; cursor: pointer;
+            transition: all 0.3s ease; text-align: center; position: relative; overflow: hidden;
+            min-height: 74px; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 5px;
+        }
+        .glossary-card::before {
+            content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 3px;
+            background: linear-gradient(90deg, #8b5cf6, #ec4899); opacity: 0; transition: opacity 0.3s ease;
+        }
+        .glossary-card:hover { transform: translateY(-3px); box-shadow: 0 8px 24px rgba(139,92,246,0.15); }
+        .glossary-card:hover::before { opacity: 1; }
+        .glossary-term { font-size: 1rem; font-weight: 700; color: #2d3748; word-break: break-all; }
+        [data-theme="dark"] .glossary-term { color: #e2e8f0; }
+        .glossary-cat { font-size: 0.68rem; color: #8b5cf6; background: rgba(139,92,246,0.1); padding: 2px 8px; border-radius: 8px; }
 
-        @media (max-width: 768px) { .stats-row { grid-template-columns: repeat(2, 1fr); } }
+        /* ===== 记忆宫殿 ===== */
+        .memories-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; margin-bottom: 18px; }
+        .memory-card {
+            background: rgba(139,92,246,0.04);
+            border: 1px solid rgba(139,92,246,0.12);
+            border-radius: 12px; padding: 16px; transition: all 0.3s ease; position: relative; overflow: hidden;
+        }
+        .memory-card::before {
+            content: ''; position: absolute; top: 0; left: 0; width: 3px; height: 100%;
+            background: linear-gradient(to bottom, #8b5cf6, #ec4899); opacity: 0; transition: opacity 0.3s ease;
+        }
+        .memory-card:hover { transform: translateY(-3px); box-shadow: 0 10px 30px rgba(139,92,246,0.12); }
+        .memory-card:hover::before { opacity: 1; }
+        .memory-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; gap: 6px; flex-wrap: wrap; }
+        .memory-importance { font-size: 0.75rem; color: #8b5cf6; font-weight: 600; background: rgba(139,92,246,0.1); padding: 3px 9px; border-radius: 8px; }
+        .memory-category { font-size: 0.75rem; color: #ec4899; font-weight: 600; background: rgba(236,72,153,0.08); padding: 3px 9px; border-radius: 8px; }
+        .memory-date { font-size: 0.75rem; color: #a0aec0; }
+        .memory-content { margin-bottom: 10px; line-height: 1.6; color: #475569; font-size: 0.9rem; }
+        [data-theme="dark"] .memory-content { color: #cbd5e1; }
+        .memory-tags { margin-bottom: 12px; }
+        .tag { display: inline-block; padding: 2px 9px; margin-right: 5px; margin-bottom: 5px; background: rgba(139,92,246,0.08); border: 1px solid rgba(139,92,246,0.15); border-radius: 9px; font-size: 0.72rem; color: #8b5cf6; }
+        .memory-actions { display: flex; gap: 8px; justify-content: flex-end; align-items: center; }
+        .related-section {
+            margin-bottom: 18px; background: rgba(59,130,246,0.04);
+            border: 1px dashed rgba(59,130,246,0.25); border-radius: 12px; padding: 12px 16px;
+        }
+        .related-title { font-size: 0.82rem; color: #3b82f6; font-weight: 600; margin-bottom: 8px; }
+        .related-item { font-size: 0.85rem; color: #64748b; padding: 4px 0; border-bottom: 1px dashed rgba(59,130,246,0.1); }
+        [data-theme="dark"] .related-item { color: #94a3b8; }
+        .related-item:last-child { border-bottom: none; }
+        .related-cat { color: #ec4899; font-size: 0.72rem; margin-left: 6px; }
+
+        /* ===== 关系图谱 ===== */
+        .rel-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; margin-bottom: 18px; }
+        .rel-card {
+            background: rgba(139,92,246,0.04);
+            border: 1px solid rgba(139,92,246,0.12);
+            border-radius: 12px; padding: 16px; transition: all 0.3s ease; position: relative; overflow: hidden;
+        }
+        .rel-card::before {
+            content: ''; position: absolute; top: 0; left: 0; width: 3px; height: 100%;
+            background: linear-gradient(to bottom, #8b5cf6, #ec4899); opacity: 0; transition: opacity 0.3s ease;
+        }
+        .rel-card:hover { transform: translateY(-3px); box-shadow: 0 10px 30px rgba(139,92,246,0.12); }
+        .rel-card:hover::before { opacity: 1; }
+        .rel-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; gap: 6px; flex-wrap: wrap; }
+        .rel-nickname { font-size: 1rem; font-weight: 700; color: #2d3748; }
+        [data-theme="dark"] .rel-nickname { color: #e2e8f0; }
+        .rel-type { font-size: 0.75rem; color: #8b5cf6; font-weight: 600; background: rgba(139,92,246,0.1); padding: 3px 9px; border-radius: 8px; }
+        .rel-user-id { font-size: 0.72rem; color: #94a3b8; margin-bottom: 8px; word-break: break-all; }
+        .rel-summary { font-size: 0.88rem; color: #475569; margin-bottom: 8px; line-height: 1.6; }
+        [data-theme="dark"] .rel-summary { color: #cbd5e1; }
+        .rel-notes { font-size: 0.82rem; color: #ec4899; background: rgba(236,72,153,0.06); padding: 6px 10px; border-radius: 8px; margin-bottom: 8px; }
+        .rel-meta { font-size: 0.75rem; color: #a0aec0; margin-bottom: 10px; }
+        .rel-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
+        /* ===== 设置 ===== */
+        .settings-card {
+            background: rgba(139,92,246,0.04);
+            border: 1px solid rgba(139,92,246,0.12);
+            border-radius: 14px; padding: 20px 22px; margin-bottom: 16px;
+        }
+        .settings-title { font-size: 1rem; font-weight: 600; color: #2d3748; margin-bottom: 16px; }
+        [data-theme="dark"] .settings-title { color: #e2e8f0; }
+        .setting-row {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 10px 0; border-bottom: 1px solid rgba(139,92,246,0.08); gap: 16px; flex-wrap: wrap;
+        }
+        .setting-row:last-child { border-bottom: none; }
+        .setting-info { flex: 1; min-width: 220px; }
+        .setting-name { font-size: 0.9rem; font-weight: 500; color: #475569; }
+        [data-theme="dark"] .setting-name { color: #cbd5e1; }
+        .setting-hint { font-size: 0.78rem; color: #94a3b8; margin-top: 3px; }
+        .setting-control { width: 240px; }
+        .switch { position: relative; display: inline-block; width: 46px; height: 24px; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background: #cbd5e1; border-radius: 24px; transition: 0.3s; }
+        .slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background: #fff; border-radius: 50%; transition: 0.3s; }
+        input:checked + .slider { background: linear-gradient(135deg, #8b5cf6, #a78bfa); }
+        input:checked + .slider:before { transform: translateX(22px); }
+
+        @media (max-width: 1400px) { .glossary-grid { grid-template-columns: repeat(5, 1fr); } }
+        @media (max-width: 1100px) { .glossary-grid { grid-template-columns: repeat(4, 1fr); } }
+        @media (max-width: 860px) {
+            .glossary-grid { grid-template-columns: repeat(3, 1fr); }
+            .content-row { flex-direction: column; }
+            .category-side { width: 100%; position: static; display: flex; flex-wrap: wrap; gap: 5px; }
+            .category-item { flex: 1; justify-content: center; }
+            .stats-row { grid-template-columns: repeat(2, 1fr); }
+            .memories-grid { grid-template-columns: 1fr; }
+            .rel-grid { grid-template-columns: 1fr; }
+        }
     </style>
 </head>
 <body>
-    <div class="page-header">
-        <h1 class="page-title">记忆胶囊仪表盘</h1>
-        <p class="page-subtitle">记忆、关系、梗百科数据概览</p>
+    <div class="tab-bar">
+        <button class="tab-btn active" data-tab="dashboard" onclick="switchTab('dashboard')">&#9632; 仪表盘</button>
+        <button class="tab-btn" data-tab="glossary" onclick="switchTab('glossary')">&#10024; 梗百科</button>
+        <button class="tab-btn" data-tab="memories" onclick="switchTab('memories')">&#9830; 记忆宫殿</button>
+        <button class="tab-btn" data-tab="relationships" onclick="switchTab('relationships')">&#10070; 关系图谱</button>
+        <button class="tab-btn" data-tab="settings" onclick="switchTab('settings')">&#9881; 设置</button>
     </div>
 
-    <div class="stats-row">
-        <div class="stat-card">
-            <div class="stat-value" id="stat-memories">0</div>
-            <div class="stat-label">总记忆数</div>
+    <div class="page-wrap">
+        <!-- ==================== 仪表盘 ==================== -->
+        <div class="view active" id="view-dashboard">
+            <div class="page-header">
+                <h1 class="page-title">记忆胶囊仪表盘</h1>
+                <p class="page-subtitle">记忆、关系、梗百科数据概览</p>
+            </div>
+            <div class="stats-row">
+                <div class="stat-card"><div class="stat-value" id="stat-memories">0</div><div class="stat-label">总记忆数</div></div>
+                <div class="stat-card"><div class="stat-value" id="stat-relationships">0</div><div class="stat-label">总关系数</div></div>
+                <div class="stat-card"><div class="stat-value" id="stat-glossary">0</div><div class="stat-label">梗总数</div></div>
+                <div class="stat-card"><div class="stat-value" id="stat-activities">0</div><div class="stat-label">操作记录</div></div>
+            </div>
+            <div class="card">
+                <div class="card-header"><div class="card-title">最近活动 <span style="font-size:12px;font-weight:400;color:#a0aec0;">(最新30条)</span></div></div>
+                <div class="card-body">
+                    <ul class="activity-list" id="activity-list">
+                        <li class="activity-item"><div class="activity-content">加载中...</div></li>
+                    </ul>
+                </div>
+            </div>
         </div>
-        <div class="stat-card">
-            <div class="stat-value" id="stat-relationships">0</div>
-            <div class="stat-label">总关系数</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-value" id="stat-glossary">0</div>
-            <div class="stat-label">梗总数</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-value" id="stat-activities">0</div>
-            <div class="stat-label">操作记录</div>
-        </div>
-    </div>
 
-    <div class="card">
-        <div class="card-header">
-            <div class="card-title">快速入口</div>
+        <!-- ==================== 梗百科 ==================== -->
+        <div class="view" id="view-glossary">
+            <div class="page-header">
+                <h1 class="page-title">梗百科</h1>
+                <p class="page-subtitle">黑话 / 谐音梗 / 行为梗 / 抽象梗 小词典，对话中命中会自动注入给 AI</p>
+            </div>
+            <div class="stats-row" style="grid-template-columns:repeat(4,1fr);">
+                <div class="stat-card"><div class="stat-value" id="gstat-total">0</div><div class="stat-label">梗总数</div></div>
+                <div class="stat-card"><div class="stat-value" id="gstat-cats">0</div><div class="stat-label">分类数</div></div>
+                <div class="stat-card"><div class="stat-value" id="gstat-today">0</div><div class="stat-label">今日新增</div></div>
+                <div class="stat-card"><div class="stat-value" id="gstat-used">0</div><div class="stat-label">已被使用</div></div>
+            </div>
+            <div class="toolbar">
+                <input type="text" class="search-box" id="g-search" placeholder="搜索梗词 / 解释 / 标签 / 来源...">
+                <button class="btn btn-primary btn-sm" onclick="gAdd()">+ 添加梗</button>
+                <button class="btn btn-outline btn-sm" onclick="gShowImport()">&#8681; 批量导入</button>
+                <button class="btn btn-outline btn-sm" onclick="gExport()">&#8682; 导出</button>
+            </div>
+            <div class="content-row">
+                <div class="category-side" id="g-category-side"></div>
+                <div style="flex:1;">
+                    <div class="glossary-grid" id="g-grid"></div>
+                    <div class="pagination" id="g-pagination"></div>
+                </div>
+            </div>
         </div>
-        <div class="card-body">
-            <div class="quick-links">
-                <a class="quick-link" href="#/plugin-page/astrbot_plugin_memory_capsule/glossary">&#10024; 梗百科</a>
-                <a class="quick-link" href="#/plugin-page/astrbot_plugin_memory_capsule/memories">&#9830; 记忆宫殿</a>
-                <a class="quick-link" href="#/plugin-page/astrbot_plugin_memory_capsule/relationships">&#10070; 关系图谱</a>
-                <a class="quick-link" href="#/plugin-page/astrbot_plugin_memory_capsule/settings">&#9881; 系统设置</a>
+
+        <!-- ==================== 记忆宫殿 ==================== -->
+        <div class="view" id="view-memories">
+            <div class="page-header">
+                <h1 class="page-title">记忆宫殿</h1>
+                <p class="page-subtitle">管理和浏览所有记忆（精确记忆 / 小本本）</p>
+            </div>
+            <div class="toolbar">
+                <input type="text" class="search-box" id="m-search" placeholder="搜索记忆（多个词效果更好）...">
+                <select id="m-sort" onchange="mChangeSort()">
+                    <option value="created_at_desc">记录时间 (新→旧)</option>
+                    <option value="created_at_old">记录时间 (旧→新)</option>
+                    <option value="importance_desc">重要程度 (高→低)</option>
+                    <option value="access_count_desc">调用次数 (多→少)</option>
+                </select>
+                <button class="btn btn-primary btn-sm" onclick="mAdd()">+ 添加记忆</button>
+                <button class="btn btn-outline btn-sm" onclick="mShowImport()">批量导入</button>
+                <button class="btn btn-outline btn-sm" onclick="mLoad(1)">刷新</button>
+            </div>
+            <div class="related-section" id="m-related" style="display:none;">
+                <div class="related-title">&#129504; 联想记忆（不完全相关但可能有用）</div>
+                <div id="m-related-list"></div>
+            </div>
+            <div class="memories-grid" id="m-grid"></div>
+            <div class="pagination" id="m-pagination"></div>
+        </div>
+
+        <!-- ==================== 关系图谱 ==================== -->
+        <div class="view" id="view-relationships">
+            <div class="page-header">
+                <h1 class="page-title">关系图谱</h1>
+                <p class="page-subtitle">记录每个重要人物的人际档案</p>
+            </div>
+            <div class="toolbar">
+                <input type="text" class="search-box" id="r-search" placeholder="搜索昵称 / 用户ID / 关系 / 印象...">
+                <button class="btn btn-primary btn-sm" onclick="rAdd()">+ 添加关系</button>
+                <button class="btn btn-outline btn-sm" onclick="rLoad(1)">刷新</button>
+            </div>
+            <div class="rel-grid" id="r-grid"></div>
+            <div class="pagination" id="r-pagination"></div>
+        </div>
+
+        <!-- ==================== 设置 ==================== -->
+        <div class="view" id="view-settings">
+            <div class="page-header">
+                <h1 class="page-title">系统设置</h1>
+                <p class="page-subtitle">注意：修改后可能需要重启插件生效</p>
+            </div>
+            <div class="toolbar">
+                <button class="btn btn-primary btn-sm" onclick="sSave()">保存设置</button>
+                <button class="btn btn-outline btn-sm" onclick="sLoad()">刷新</button>
+            </div>
+            <div class="settings-card">
+                <div class="settings-title">核心功能</div>
+                <div class="setting-row">
+                    <div class="setting-info"><div class="setting-name">自动注入</div><div class="setting-hint">每次对话时自动注入对方档案等信息到 AI 上下文</div></div>
+                    <div class="setting-control"><label class="switch"><input type="checkbox" id="s-auto_inject"><span class="slider"></span></label></div>
+                </div>
+                <div class="setting-row">
+                    <div class="setting-info"><div class="setting-name">记忆宫殿</div><div class="setting-hint">主动记忆（write_memory 工具）总开关</div></div>
+                    <div class="setting-control"><label class="switch"><input type="checkbox" id="s-memory_palace"><span class="slider"></span></label></div>
+                </div>
+                <div class="setting-row">
+                    <div class="setting-info"><div class="setting-name">关系注入刷新间隔（秒）</div><div class="setting-hint">-1 表示每次都注入</div></div>
+                    <div class="setting-control"><input type="number" class="form-control" id="s-rel_refresh"></div>
+                </div>
+                <div class="setting-row">
+                    <div class="setting-info"><div class="setting-name">注入位置</div><div class="setting-hint">system_prompt / user_prompt / insert_system_prompt</div></div>
+                    <div class="setting-control">
+                        <select class="form-control" id="s-inject_pos">
+                            <option value="system_prompt">system_prompt</option>
+                            <option value="user_prompt">user_prompt</option>
+                            <option value="insert_system_prompt">insert_system_prompt</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+            <div class="settings-card">
+                <div class="settings-title">搜索联想</div>
+                <div class="setting-row">
+                    <div class="setting-info"><div class="setting-name">联想记忆条数</div><div class="setting-hint">搜索时额外返回的不完全相关记忆数，0 关闭</div></div>
+                    <div class="setting-control"><input type="number" class="form-control" id="s-related_limit"></div>
+                </div>
+            </div>
+            <div class="settings-card">
+                <div class="settings-title">独立 WebUI（嵌入式已启用，通常无需开启）</div>
+                <div class="setting-row">
+                    <div class="setting-info"><div class="setting-name">启用独立 WebUI</div><div class="setting-hint">默认关闭；开启后需开放对应端口</div></div>
+                    <div class="setting-control"><label class="switch"><input type="checkbox" id="s-webui_enabled"><span class="slider"></span></label></div>
+                </div>
+                <div class="setting-row">
+                    <div class="setting-info"><div class="setting-name">WebUI 端口</div></div>
+                    <div class="setting-control"><input type="number" class="form-control" id="s-webui_port"></div>
+                </div>
+            </div>
+            <div style="margin-top:10px;">
+                <span class="save-status" id="s-status" style="font-size:0.85rem;color:#10b981;"></span>
             </div>
         </div>
     </div>
 
-    <div class="card">
-        <div class="card-header">
-            <div class="card-title">最近活动 <span style="font-size:12px;font-weight:400;color:#a0aec0;">(最新30条)</span></div>
+    <!-- 通用：梗详情 Modal -->
+    <div id="g-detail-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title" id="g-detail-title">梗详情</h3>
+                <button class="modal-close" onclick="closeModal('g-detail-modal')">&times;</button>
+            </div>
+            <div id="g-detail-body"></div>
         </div>
-        <div class="card-body">
-            <ul class="activity-list" id="activity-list">
-                <li class="activity-item"><div class="activity-content">加载中...</div></li>
-            </ul>
+    </div>
+
+    <!-- 通用：梗编辑 Modal -->
+    <div id="g-edit-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title" id="g-edit-title">添加梗</h3>
+                <button class="modal-close" onclick="closeModal('g-edit-modal')">&times;</button>
+            </div>
+            <div class="form-group">
+                <label class="form-label">梗词 *</label>
+                <input type="text" class="form-control" id="g-term" placeholder="如：yys">
+            </div>
+            <div class="form-group">
+                <label class="form-label">分类</label>
+                <select class="form-control" id="g-category">
+                    <option value="谐音梗">谐音梗</option>
+                    <option value="行为梗">行为梗</option>
+                    <option value="抽象梗">抽象梗 / 黑话</option>
+                    <option value="表情包梗">表情包 / 图片梗</option>
+                    <option value="其他梗">其他梗</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="form-label">解释</label>
+                <textarea class="form-control" id="g-meaning" placeholder="如：阴阳师的谐音缩写"></textarea>
+            </div>
+            <div class="form-group">
+                <label class="form-label">来源（简略）</label>
+                <input type="text" class="form-control" id="g-source" placeholder="如：游戏圈 / 群友常用">
+            </div>
+            <div class="form-group">
+                <label class="form-label">标签（逗号分隔，可多个）</label>
+                <input type="text" class="form-control" id="g-tags" placeholder="如：游戏,缩写">
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-danger btn-sm" id="g-del-btn" style="display:none; margin-right:auto;" onclick="gDelete()">删除</button>
+                <button class="btn btn-gray btn-sm" onclick="closeModal('g-edit-modal')">取消</button>
+                <button class="btn btn-primary btn-sm" onclick="gSave()">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 通用：梗导入 Modal -->
+    <div id="g-import-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title">批量导入梗（JSONL）</h3>
+                <button class="modal-close" onclick="closeModal('g-import-modal')">&times;</button>
+            </div>
+            <div class="form-group">
+                <label class="form-label">选择 JSONL 文件（每行一个 JSON 对象）</label>
+                <input type="file" id="g-import-file" accept=".jsonl,.ndjson,.json,.txt" class="form-control" style="padding:6px;">
+            </div>
+            <div class="form-group">
+                <label class="form-label">或直接粘贴 JSONL 文本</label>
+                <textarea class="form-control" id="g-import-jsonl" style="min-height:140px;font-family:monospace;font-size:12px;" placeholder='{"term":"yys","category":"谐音梗","meaning":"阴阳师缩写","source":"游戏圈","tags":"游戏,缩写"}
+{"term":"栓Q","category":"谐音梗","meaning":"thank you 谐音，表无奈感谢","source":"网络流行"}'></textarea>
+                <div class="hint">支持字段: term(必填), category, meaning, source, tags(逗号分隔或数组)。term 重复自动跳过。</div>
+            </div>
+            <div id="g-import-result" class="result-msg"></div>
+            <div class="modal-footer">
+                <button class="btn btn-gray btn-sm" onclick="closeModal('g-import-modal')">取消</button>
+                <button class="btn btn-primary btn-sm" onclick="gDoImport()">开始导入</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 通用：记忆编辑 Modal -->
+    <div id="m-edit-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title" id="m-edit-title">添加记忆</h3>
+                <button class="modal-close" onclick="closeModal('m-edit-modal')">&times;</button>
+            </div>
+            <input type="hidden" id="m-memory-id">
+            <div class="form-group">
+                <label class="form-label">内容 *</label>
+                <textarea class="form-control" id="m-content" placeholder="记录一条信息..."></textarea>
+            </div>
+            <div class="form-group">
+                <label class="form-label">分类</label>
+                <select class="form-control" id="m-category"></select>
+            </div>
+            <div class="form-group">
+                <label class="form-label">标签 (逗号分隔)</label>
+                <input type="text" class="form-control" id="m-tags" placeholder="如：工作,技术">
+            </div>
+            <div class="form-group">
+                <label class="form-label">重要性 <span id="m-importance-display">5</span>/10</label>
+                <input type="range" class="importance-slider" id="m-importance" min="1" max="10" value="5" oninput="document.getElementById('m-importance-display').textContent=this.value">
+                <div class="importance-hint">1-3=闲聊 | 4-6=普通笔记 | 7-9=重要信息 | 10=核心身份/约定</div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-gray btn-sm" onclick="closeModal('m-edit-modal')">取消</button>
+                <button class="btn btn-primary btn-sm" onclick="mSave()">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 通用：记忆导入 Modal -->
+    <div id="m-import-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title">批量导入记忆</h3>
+                <button class="modal-close" onclick="closeModal('m-import-modal')">&times;</button>
+            </div>
+            <div class="form-group">
+                <label class="form-label">JSON 格式（数组）</label>
+                <textarea class="form-control" id="m-import-json" style="min-height:140px;font-family:monospace;font-size:12px;" placeholder='[
+  {"content": "Python是解释型语言", "category": "技术笔记", "importance": 5},
+  {"content": "用户喜欢猫", "importance": 3}
+]'></textarea>
+                <div class="hint">支持字段: content(必填), category, importance(1-10), tags, source。单次最多500条，自动去重。</div>
+            </div>
+            <div class="form-group">
+                <label class="form-label">或上传 JSON 文件</label>
+                <input type="file" id="m-import-file" accept=".json" class="form-control" style="padding:6px;">
+            </div>
+            <div id="m-import-result" class="result-msg"></div>
+            <div class="modal-footer">
+                <button class="btn btn-gray btn-sm" onclick="closeModal('m-import-modal')">取消</button>
+                <button class="btn btn-primary btn-sm" onclick="mDoImport()">导入</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 通用：关系编辑 Modal -->
+    <div id="r-edit-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title" id="r-edit-title">添加关系</h3>
+                <button class="modal-close" onclick="closeModal('r-edit-modal')">&times;</button>
+            </div>
+            <div class="form-group">
+                <label class="form-label">用户 ID *</label>
+                <input type="text" class="form-control" id="r-user-id" placeholder="对方唯一ID（群里的ID）">
+            </div>
+            <div class="form-group">
+                <label class="form-label">称呼 / 昵称</label>
+                <input type="text" class="form-control" id="r-nickname" placeholder="如：小明">
+            </div>
+            <div class="form-group">
+                <label class="form-label">关系类型</label>
+                <input type="text" class="form-control" id="r-rel-type" placeholder="如：朋友 / 同事 / 家人">
+            </div>
+            <div class="form-group">
+                <label class="form-label">印象总结</label>
+                <textarea class="form-control" id="r-summary" placeholder="如：性格开朗，Java后端开发，喜欢猫咪"></textarea>
+            </div>
+            <div class="form-group">
+                <label class="form-label">备注 / 约定</label>
+                <textarea class="form-control" id="r-notes" placeholder="如：每周五一起打球"></textarea>
+            </div>
+            <div class="form-group">
+                <label class="form-label">初次见面地点</label>
+                <input type="text" class="form-control" id="r-first-met" placeholder="如：技术交流群">
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-danger btn-sm" id="r-del-btn" style="display:none; margin-right:auto;" onclick="rDeleteCurrent()">删除</button>
+                <button class="btn btn-gray btn-sm" onclick="closeModal('r-edit-modal')">取消</button>
+                <button class="btn btn-primary btn-sm" onclick="rSave()">保存</button>
+            </div>
         </div>
     </div>
 
@@ -139,6 +657,7 @@
         await bridge.ready();
 
         async function apiGet(endpoint, params) { return bridge.apiGet(endpoint, params); }
+        async function apiPost(endpoint, body) { return bridge.apiPost(endpoint, body); }
 
         function escapeHtml(s) {
             return (s || '').replace(/[&<>"']/g, c => ({
@@ -146,19 +665,46 @@
             }[c]));
         }
 
+        function formatDate(dateStr) {
+            if (!dateStr) return '未知';
+            try {
+                const d = new Date(dateStr);
+                return `${d.getFullYear()}年${String(d.getMonth()+1).padStart(2,'0')}月${String(d.getDate()).padStart(2,'0')}日`;
+            } catch (e) { return '未知'; }
+        }
+
+        function closeModal(id) {
+            document.getElementById(id).classList.remove('show');
+        }
+
+        // ==================== Tab 切换 ====================
+        function switchTab(name) {
+            document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.getElementById('view-' + name).classList.add('active');
+            document.querySelector(`.tab-btn[data-tab="${name}"]`).classList.add('active');
+            // 切换时刷新对应数据
+            if (name === 'dashboard') loadDashboard();
+            if (name === 'glossary') { gLoadStats(); gLoad(1); }
+            if (name === 'memories') mLoad(1);
+            if (name === 'relationships') rLoad(1);
+            if (name === 'settings') sLoad();
+        }
+        window.switchTab = switchTab;
+        window.closeModal = closeModal;
+
+        // ==================== 仪表盘 ====================
         async function loadDashboard() {
             try {
                 const stats = await apiGet('api/stats');
                 document.getElementById('stat-memories').textContent = stats.memories || 0;
                 document.getElementById('stat-relationships').textContent = stats.relationships || 0;
                 document.getElementById('stat-activities').textContent = stats.activities || 0;
-            } catch (e) { console.error('加载统计失败:', e); }
-
+            } catch (e) { console.error('统计失败:', e); }
             try {
-                const gstats = await apiGet('api/glossary/stats');
-                document.getElementById('stat-glossary').textContent = gstats.total || 0;
-            } catch (e) { console.error('加载梗统计失败:', e); }
-
+                const gs = await apiGet('api/glossary/stats');
+                document.getElementById('stat-glossary').textContent = gs.total || 0;
+            } catch (e) {}
             try {
                 const acts = await apiGet('api/activities', { limit: 30 });
                 const list = document.getElementById('activity-list');
@@ -172,10 +718,644 @@
                         </li>
                     `).join('');
                 }
-            } catch (e) { console.error('加载活动失败:', e); }
+            } catch (e) { console.error('活动失败:', e); }
         }
 
-        await loadDashboard();
+        // ==================== 梗百科 ====================
+        let gPage = 1, gCat = '', gQuery = '', gEditingId = null, gAllItems = [];
+        const G_PAGE_SIZE = 28;
+
+        async function gLoadStats() {
+            try {
+                const s = await apiGet('api/glossary/stats');
+                document.getElementById('gstat-total').textContent = s.total || 0;
+                document.getElementById('gstat-cats').textContent = s.categories || 0;
+                document.getElementById('gstat-today').textContent = s.today_new || 0;
+                document.getElementById('gstat-used').textContent = s.used || 0;
+            } catch (e) {}
+        }
+
+        async function gLoadAll() {
+            try {
+                const d = await apiGet('api/glossary', { limit: 1000 });
+                gAllItems = d.items || [];
+            } catch (e) { gAllItems = []; }
+        }
+
+        async function gLoadCats() {
+            try {
+                const r = await apiGet('api/glossary/categories');
+                await gLoadAll();
+                const side = document.getElementById('g-category-side');
+                let html = `<div class="category-item ${gCat === '' ? 'active' : ''}" onclick="gSelectCat('')"><span>全部</span><span class="category-count">${gAllItems.length}</span></div>`;
+                for (const c of (r.categories || [])) {
+                    const cnt = gAllItems.filter(i => i.category === c).length;
+                    html += `<div class="category-item ${gCat === c ? 'active' : ''}" onclick="gSelectCat('${c}')"><span>${c}</span><span class="category-count">${cnt}</span></div>`;
+                }
+                side.innerHTML = html;
+            } catch (e) {}
+        }
+
+        async function gSelectCat(c) {
+            gCat = c; gPage = 1;
+            await gLoad(1); await gLoadCats();
+        }
+
+        async function gLoad(page = 1) {
+            gPage = page;
+            try {
+                const d = await apiGet('api/glossary', {
+                    page, limit: G_PAGE_SIZE,
+                    category: gCat || undefined,
+                    q: gQuery || undefined
+                });
+                const grid = document.getElementById('g-grid');
+                if (!(d.items || []).length) {
+                    grid.innerHTML = '<div class="empty-state">暂无梗，点击"添加梗"或"批量导入"开始收集吧</div>';
+                } else {
+                    grid.innerHTML = d.items.map(i => `
+                        <div class="glossary-card" onclick="gShowDetail(${i.id})">
+                            <div class="glossary-term">${escapeHtml(i.term)}</div>
+                            <div class="glossary-cat">${escapeHtml(i.category)}</div>
+                        </div>
+                    `).join('');
+                }
+                gRenderPagination(d.total, d.total_pages);
+            } catch (e) { console.error('梗加载失败:', e); }
+        }
+
+        function gRenderPagination(total, totalPages) {
+            const el = document.getElementById('g-pagination');
+            if (totalPages <= 1) { el.innerHTML = `<span class="page-info">共 ${total} 条</span>`; return; }
+            let html = `<button ${gPage === 1 ? 'disabled' : ''} onclick="gLoad(${gPage - 1})">上一页</button>`;
+            for (let i = 1; i <= totalPages; i++) {
+                if (i === 1 || i === totalPages || Math.abs(i - gPage) <= 2) {
+                    html += `<button class="${i === gPage ? 'active' : ''}" onclick="gLoad(${i})">${i}</button>`;
+                } else if (Math.abs(i - gPage) === 3) {
+                    html += `<button disabled>...</button>`;
+                }
+            }
+            html += `<button ${gPage === totalPages ? 'disabled' : ''} onclick="gLoad(${gPage + 1})">下一页</button>`;
+            html += `<span class="page-info">共 ${total} 条</span>`;
+            el.innerHTML = html;
+        }
+
+        async function gShowDetail(id) {
+            gEditingId = id;
+            await gLoadAll();
+            const item = gAllItems.find(i => i.id === id);
+            if (!item) return;
+            document.getElementById('g-detail-title').textContent = escapeHtml(item.term);
+            document.getElementById('g-detail-body').innerHTML = `
+                <div class="detail-row"><div class="detail-label">分类</div><div class="detail-value">${escapeHtml(item.category)}</div></div>
+                <div class="detail-row"><div class="detail-label">解释</div><div class="detail-value">${escapeHtml(item.meaning) || '（无）'}</div></div>
+                <div class="detail-row"><div class="detail-label">来源</div><div class="detail-value">${escapeHtml(item.source) || '（无）'}</div></div>
+                <div class="detail-row"><div class="detail-label">标签</div><div class="detail-value">${escapeHtml(item.tags) || '（无）'}</div></div>
+                <div class="detail-row"><div class="detail-label">收集时间</div><div class="detail-value">${escapeHtml(item.created_at)}</div></div>
+                <div class="detail-row"><div class="detail-label">命中次数</div><div class="detail-value">${item.hit_count || 0}</div></div>
+                <div class="modal-footer">
+                    <button class="btn btn-gray btn-sm" onclick="closeModal('g-detail-modal')">关闭</button>
+                    <button class="btn btn-primary btn-sm" onclick="gEditFromDetail()">编辑</button>
+                </div>
+            `;
+            document.getElementById('g-detail-modal').classList.add('show');
+        }
+
+        function gEditFromDetail() {
+            closeModal('g-detail-modal');
+            gOpenEdit();
+        }
+
+        function gAdd() {
+            gEditingId = null;
+            gOpenEdit();
+        }
+
+        function gOpenEdit() {
+            document.getElementById('g-edit-title').textContent = gEditingId ? '编辑梗' : '添加梗';
+            document.getElementById('g-del-btn').style.display = gEditingId ? 'inline-flex' : 'none';
+            document.getElementById('g-term').value = '';
+            document.getElementById('g-category').value = '其他梗';
+            document.getElementById('g-meaning').value = '';
+            document.getElementById('g-source').value = '';
+            document.getElementById('g-tags').value = '';
+            if (gEditingId) {
+                const item = gAllItems.find(i => i.id === gEditingId);
+                if (item) {
+                    document.getElementById('g-term').value = item.term || '';
+                    document.getElementById('g-category').value = item.category || '其他梗';
+                    document.getElementById('g-meaning').value = item.meaning || '';
+                    document.getElementById('g-source').value = item.source || '';
+                    document.getElementById('g-tags').value = item.tags || '';
+                }
+            }
+            document.getElementById('g-edit-modal').classList.add('show');
+        }
+
+        async function gSave() {
+            const term = document.getElementById('g-term').value.trim();
+            if (!term) { alert('梗词不能为空'); return; }
+            const payload = {
+                term,
+                category: document.getElementById('g-category').value,
+                meaning: document.getElementById('g-meaning').value,
+                source: document.getElementById('g-source').value,
+                tags: document.getElementById('g-tags').value
+            };
+            try {
+                if (gEditingId) {
+                    await apiPost(`api/glossary/${gEditingId}/update`, payload);
+                } else {
+                    await apiPost('api/glossary', payload);
+                }
+                closeModal('g-edit-modal');
+                gLoadStats(); gLoad(gPage); gLoadCats();
+            } catch (e) { alert('保存失败: ' + e.message); }
+        }
+
+        async function gDelete() {
+            if (!gEditingId) return;
+            if (!confirm('确定删除该梗？')) return;
+            try {
+                await apiPost(`api/glossary/${gEditingId}/delete`, {});
+                closeModal('g-edit-modal');
+                gLoadStats(); gLoad(gPage); gLoadCats();
+            } catch (e) { alert('删除失败: ' + e.message); }
+        }
+
+        function gShowImport() {
+            document.getElementById('g-import-jsonl').value = '';
+            document.getElementById('g-import-file').value = '';
+            document.getElementById('g-import-result').textContent = '';
+            document.getElementById('g-import-modal').classList.add('show');
+        }
+
+        async function gDoImport() {
+            let items = null;
+            const fileInput = document.getElementById('g-import-file');
+            const text = document.getElementById('g-import-jsonl').value.trim();
+            try {
+                if (fileInput.files.length > 0) {
+                    items = parseJsonl(await fileInput.files[0].text());
+                } else if (text) {
+                    items = parseJsonl(text);
+                } else {
+                    document.getElementById('g-import-result').innerHTML = '<span style="color:#ef4444;">请选择文件或粘贴 JSONL 文本</span>';
+                    return;
+                }
+            } catch (e) {
+                document.getElementById('g-import-result').innerHTML = '<span style="color:#ef4444;">解析失败: ' + e.message + '</span>';
+                return;
+            }
+            if (!items || !items.length) {
+                document.getElementById('g-import-result').innerHTML = '<span style="color:#ef4444;">未解析到有效数据</span>';
+                return;
+            }
+            try {
+                const resp = await apiPost('api/glossary/import', { items });
+                document.getElementById('g-import-result').innerHTML = '<span style="color:#10b981;">' + (resp.result || '导入完成') + '</span>';
+                gLoadStats(); gLoad(1); gLoadCats();
+            } catch (e) {
+                document.getElementById('g-import-result').innerHTML = '<span style="color:#ef4444;">导入失败: ' + e.message + '</span>';
+            }
+        }
+
+        async function gExport() {
+            try {
+                const resp = await apiGet('api/glossary/export');
+                const blob = new Blob([resp.jsonl || ''], { type: 'text/plain;charset=utf-8' });
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = 'glossary.jsonl';
+                a.click();
+                URL.revokeObjectURL(a.href);
+            } catch (e) { alert('导出失败: ' + e.message); }
+        }
+
+        function parseJsonl(text) {
+            const lines = text.split(/\r?\n/).filter(l => l.trim());
+            return lines.map(line => {
+                try { return JSON.parse(line); }
+                catch (e) { throw new Error(`第 ${lines.indexOf(line) + 1} 行不是合法 JSON`); }
+            });
+        }
+
+        let gSearchTimer = null;
+        document.getElementById('g-search').addEventListener('input', function() {
+            clearTimeout(gSearchTimer);
+            gSearchTimer = setTimeout(() => { gQuery = this.value.trim(); gPage = 1; gLoad(1); }, 300);
+        });
+
+        // ==================== 记忆宫殿 ====================
+        let mPage = 1, mMemories = [], mCategories = [];
+        const M_PAGE_SIZE = 12;
+
+        async function mLoad(page = 1) {
+            mPage = page;
+            const q = document.getElementById('m-search').value.trim();
+            try {
+                if (q) {
+                    const d = await apiGet('api/memories/search', { q, page, limit: M_PAGE_SIZE });
+                    mMemories = d.results || [];
+                    const related = d.related || [];
+                    const sec = document.getElementById('m-related');
+                    if (related.length) {
+                        sec.style.display = 'block';
+                        document.getElementById('m-related-list').innerHTML = related.map(r =>
+                            `<div class="related-item">${escapeHtml(r.content)}<span class="related-cat">${escapeHtml(r.category || '')}</span></div>`).join('');
+                    } else {
+                        sec.style.display = 'none';
+                    }
+                    mRender(mMemories);
+                    document.getElementById('m-pagination').innerHTML = `<span class="page-info">共 ${mMemories.length} 条</span>`;
+                } else {
+                    const d = await apiGet('api/memories', { page, limit: M_PAGE_SIZE });
+                    mMemories = d.memories || [];
+                    document.getElementById('m-related').style.display = 'none';
+                    mRender(mMemories);
+                    mRenderPagination(d.total, d.total_pages);
+                }
+            } catch (e) { console.error('记忆加载失败:', e); }
+        }
+
+        function mRender(mems) {
+            const grid = document.getElementById('m-grid');
+            if (!mems.length) {
+                grid.innerHTML = '<div class="empty-state">暂无记忆，点击"添加记忆"开始记录吧</div>';
+                return;
+            }
+            grid.innerHTML = mems.map(m => `
+                <div class="memory-card">
+                    <div class="memory-header">
+                        <span class="memory-importance">重要性: ${m.importance || 1}</span>
+                        <span class="memory-category">${escapeHtml(m.category || 'general')}</span>
+                    </div>
+                    <div class="memory-content">${escapeHtml(m.content)}</div>
+                    ${m.tags ? `<div class="memory-tags">${m.tags.split(',').filter(Boolean).map(t => `<span class="tag">${escapeHtml(t.trim())}</span>`).join('')}</div>` : ''}
+                    <div class="memory-actions">
+                        <span class="memory-date">${formatDate(m.created_at)}</span>
+                        <button class="btn btn-outline btn-sm" onclick="mEdit(${m.id})">编辑</button>
+                        <button class="btn btn-danger btn-sm" onclick="mDelete(${m.id})">删除</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function mRenderPagination(total, totalPages) {
+            const el = document.getElementById('m-pagination');
+            if (totalPages <= 1) { el.innerHTML = `<span class="page-info">共 ${total} 条</span>`; return; }
+            let html = `<button ${mPage === 1 ? 'disabled' : ''} onclick="mLoad(${mPage - 1})">上一页</button>`;
+            for (let i = 1; i <= totalPages; i++) {
+                if (i === 1 || i === totalPages || Math.abs(i - mPage) <= 2) {
+                    html += `<button class="${i === mPage ? 'active' : ''}" onclick="mLoad(${i})">${i}</button>`;
+                } else if (Math.abs(i - mPage) === 3) {
+                    html += `<button disabled>...</button>`;
+                }
+            }
+            html += `<button ${mPage === totalPages ? 'disabled' : ''} onclick="mLoad(${mPage + 1})">下一页</button>`;
+            html += `<span class="page-info">共 ${total} 条</span>`;
+            el.innerHTML = html;
+        }
+
+        async function mLoadCats() {
+            try {
+                const d = await apiGet('api/categories');
+                mCategories = d.categories || [];
+                document.getElementById('m-category').innerHTML = mCategories.map(c =>
+                    `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+            } catch (e) {}
+        }
+
+        function mAdd() {
+            document.getElementById('m-memory-id').value = '';
+            document.getElementById('m-content').value = '';
+            document.getElementById('m-tags').value = '';
+            document.getElementById('m-importance').value = 5;
+            document.getElementById('m-importance-display').textContent = 5;
+            document.getElementById('m-edit-title').textContent = '添加记忆';
+            document.getElementById('m-edit-modal').classList.add('show');
+        }
+
+        function mEdit(id) {
+            document.getElementById('m-memory-id').value = id;
+            const m = mMemories.find(x => x.id === id);
+            if (!m) return;
+            document.getElementById('m-content').value = m.content || '';
+            document.getElementById('m-category').value = m.category || 'general';
+            document.getElementById('m-tags').value = m.tags || '';
+            document.getElementById('m-importance').value = m.importance || 5;
+            document.getElementById('m-importance-display').textContent = m.importance || 5;
+            document.getElementById('m-edit-title').textContent = '编辑记忆';
+            document.getElementById('m-edit-modal').classList.add('show');
+        }
+
+        async function mSave() {
+            const id = document.getElementById('m-memory-id').value;
+            const content = document.getElementById('m-content').value.trim();
+            if (!content) { alert('内容不能为空'); return; }
+            const payload = {
+                content,
+                category: document.getElementById('m-category').value,
+                tags: document.getElementById('m-tags').value,
+                importance: parseInt(document.getElementById('m-importance').value)
+            };
+            try {
+                if (id) {
+                    await apiPost(`api/memories/${id}/update`, payload);
+                } else {
+                    await apiPost('api/memories', payload);
+                }
+                closeModal('m-edit-modal');
+                mLoad(mPage);
+            } catch (e) { alert('保存失败: ' + e.message); }
+        }
+
+        async function mDelete(id) {
+            if (!confirm('确定删除该记忆？')) return;
+            try {
+                await apiPost(`api/memories/${id}/delete`, {});
+                mLoad(mPage);
+            } catch (e) { alert('删除失败: ' + e.message); }
+        }
+
+        function mChangeSort() {
+            const sort = document.getElementById('m-sort').value;
+            const list = [...mMemories];
+            switch (sort) {
+                case 'importance_desc': list.sort((a, b) => (b.importance || 1) - (a.importance || 1)); break;
+                case 'created_at_old': list.sort((a, b) => new Date(a.created_at) - new Date(b.created_at)); break;
+                case 'access_count_desc': list.sort((a, b) => (b.access_count || 0) - (a.access_count || 0)); break;
+                default: list.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+            }
+            mRender(list);
+        }
+
+        function mShowImport() {
+            document.getElementById('m-import-json').value = '';
+            document.getElementById('m-import-file').value = '';
+            document.getElementById('m-import-result').textContent = '';
+            document.getElementById('m-import-modal').classList.add('show');
+        }
+
+        async function mDoImport() {
+            let items = null;
+            const fileInput = document.getElementById('m-import-file');
+            const jsonText = document.getElementById('m-import-json').value.trim();
+            try {
+                if (fileInput.files.length > 0) {
+                    items = JSON.parse(await fileInput.files[0].text());
+                } else if (jsonText) {
+                    items = JSON.parse(jsonText);
+                } else {
+                    document.getElementById('m-import-result').innerHTML = '<span style="color:#ef4444;">请输入JSON或上传文件</span>';
+                    return;
+                }
+            } catch (e) {
+                document.getElementById('m-import-result').innerHTML = '<span style="color:#ef4444;">JSON解析失败: ' + e.message + '</span>';
+                return;
+            }
+            if (!Array.isArray(items)) {
+                document.getElementById('m-import-result').innerHTML = '<span style="color:#ef4444;">数据必须是数组格式</span>';
+                return;
+            }
+            try {
+                const resp = await apiPost('api/memories/import', { memories: items });
+                document.getElementById('m-import-result').innerHTML = '<span style="color:#10b981;">' + (resp.result || '导入完成') + '</span>';
+                mLoad(1);
+            } catch (e) {
+                document.getElementById('m-import-result').innerHTML = '<span style="color:#ef4444;">导入失败: ' + e.message + '</span>';
+            }
+        }
+
+        let mSearchTimer = null;
+        document.getElementById('m-search').addEventListener('input', function() {
+            clearTimeout(mSearchTimer);
+            mSearchTimer = setTimeout(() => mLoad(1), 400);
+        });
+
+        // ==================== 关系图谱 ====================
+        let rPage = 1, rRelations = [], rEditingUserId = null;
+        const R_PAGE_SIZE = 12;
+
+        async function rLoad(page = 1) {
+            rPage = page;
+            const q = document.getElementById('r-search').value.trim();
+            try {
+                let data;
+                if (q) {
+                    const resp = await apiGet('api/relationships/search', { q });
+                    rRelations = resp.results || [];
+                    document.getElementById('r-pagination').innerHTML = `<span class="page-info">共 ${rRelations.length} 条</span>`;
+                } else {
+                    data = await apiGet('api/relationships', { page, limit: R_PAGE_SIZE });
+                    rRelations = data.relationships || [];
+                    rRenderPagination(data.total, data.total_pages);
+                }
+                rRender(rRelations);
+            } catch (e) { console.error('关系加载失败:', e); }
+        }
+
+        function rRender(rels) {
+            const grid = document.getElementById('r-grid');
+            if (!rels.length) {
+                grid.innerHTML = '<div class="empty-state">暂无关系记录，点击"添加关系"开始记录吧</div>';
+                return;
+            }
+            grid.innerHTML = rels.map(r => `
+                <div class="rel-card">
+                    <div class="rel-header">
+                        <span class="rel-nickname">${escapeHtml(r.nickname || '未记录名称')}</span>
+                        <span class="rel-type">${escapeHtml(r.relation_type || 'friend')}</span>
+                    </div>
+                    <div class="rel-user-id">ID: ${escapeHtml(r.user_id)}</div>
+                    ${r.summary ? `<div class="rel-summary">${escapeHtml(r.summary)}</div>` : ''}
+                    ${r.notes ? `<div class="rel-notes">&#128276; ${escapeHtml(r.notes)}</div>` : ''}
+                    <div class="rel-meta">
+                        ${r.first_met_location ? `初识于 ${escapeHtml(r.first_met_location)}` : ''}
+                        ${r.interaction_count ? ` · 互动 ${r.interaction_count} 次` : ''}
+                    </div>
+                    <div class="rel-actions">
+                        <button class="btn btn-outline btn-sm" onclick="rEdit('${escapeHtml(r.user_id)}')">编辑</button>
+                        <button class="btn btn-danger btn-sm" onclick="rDelete('${escapeHtml(r.user_id)}')">删除</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function rRenderPagination(total, totalPages) {
+            const el = document.getElementById('r-pagination');
+            if (totalPages <= 1) { el.innerHTML = `<span class="page-info">共 ${total} 条</span>`; return; }
+            let html = `<button ${rPage === 1 ? 'disabled' : ''} onclick="rLoad(${rPage - 1})">上一页</button>`;
+            for (let i = 1; i <= totalPages; i++) {
+                if (i === 1 || i === totalPages || Math.abs(i - rPage) <= 2) {
+                    html += `<button class="${i === rPage ? 'active' : ''}" onclick="rLoad(${i})">${i}</button>`;
+                } else if (Math.abs(i - rPage) === 3) {
+                    html += `<button disabled>...</button>`;
+                }
+            }
+            html += `<button ${rPage === totalPages ? 'disabled' : ''} onclick="rLoad(${rPage + 1})">下一页</button>`;
+            html += `<span class="page-info">共 ${total} 条</span>`;
+            el.innerHTML = html;
+        }
+
+        function rAdd() {
+            rEditingUserId = null;
+            document.getElementById('r-user-id').value = '';
+            document.getElementById('r-nickname').value = '';
+            document.getElementById('r-rel-type').value = '';
+            document.getElementById('r-summary').value = '';
+            document.getElementById('r-notes').value = '';
+            document.getElementById('r-first-met').value = '';
+            document.getElementById('r-del-btn').style.display = 'none';
+            document.getElementById('r-edit-title').textContent = '添加关系';
+            document.getElementById('r-edit-modal').classList.add('show');
+        }
+
+        function rEdit(userId) {
+            rEditingUserId = userId;
+            const r = rRelations.find(x => x.user_id === userId);
+            if (!r) return;
+            document.getElementById('r-user-id').value = r.user_id || '';
+            document.getElementById('r-nickname').value = r.nickname || '';
+            document.getElementById('r-rel-type').value = r.relation_type || '';
+            document.getElementById('r-summary').value = r.summary || '';
+            document.getElementById('r-notes').value = r.notes || '';
+            document.getElementById('r-first-met').value = r.first_met_location || '';
+            document.getElementById('r-del-btn').style.display = 'inline-flex';
+            document.getElementById('r-edit-title').textContent = '编辑关系';
+            document.getElementById('r-edit-modal').classList.add('show');
+        }
+
+        async function rSave() {
+            const userId = document.getElementById('r-user-id').value.trim();
+            if (!userId) { alert('用户ID不能为空'); return; }
+            const payload = {
+                user_id: userId,
+                nickname: document.getElementById('r-nickname').value,
+                relation_type: document.getElementById('r-rel-type').value,
+                summary: document.getElementById('r-summary').value,
+                notes: document.getElementById('r-notes').value,
+                first_met_location: document.getElementById('r-first-met').value
+            };
+            try {
+                await apiPost('api/relationships', payload);
+                closeModal('r-edit-modal');
+                rLoad(rPage);
+            } catch (e) { alert('保存失败: ' + e.message); }
+        }
+
+        async function rDeleteCurrent() {
+            if (!rEditingUserId) return;
+            if (!confirm('确定删除该关系？')) return;
+            try {
+                await apiPost(`api/relationships/${encodeURIComponent(rEditingUserId)}/delete`, {});
+                closeModal('r-edit-modal');
+                rLoad(rPage);
+            } catch (e) { alert('删除失败: ' + e.message); }
+        }
+
+        async function rDelete(userId) {
+            if (!confirm('确定删除该关系？')) return;
+            try {
+                await apiPost(`api/relationships/${encodeURIComponent(userId)}/delete`, {});
+                rLoad(rPage);
+            } catch (e) { alert('删除失败: ' + e.message); }
+        }
+
+        let rSearchTimer = null;
+        document.getElementById('r-search').addEventListener('input', function() {
+            clearTimeout(rSearchTimer);
+            rSearchTimer = setTimeout(() => rLoad(1), 400);
+        });
+
+        // ==================== 设置 ====================
+        async function sLoad() {
+            try {
+                const d = await apiGet('api/settings');
+                const cfg = d.settings || {};
+                setBool('s-auto_inject', cfg.auto_inject_enabled, true);
+                setBool('s-memory_palace', cfg.memory_palace, true);
+                setBool('s-webui_enabled', cfg.webui_enabled, false);
+                setNum('s-rel_refresh', cfg.relation_injection_refresh_time, 3600);
+                setNum('s-related_limit', cfg.search_related_limit, 3);
+                setNum('s-webui_port', cfg.webui_port, 5000);
+                document.getElementById('s-inject_pos').value = cfg.context_inject_position || 'system_prompt';
+            } catch (e) { console.error('设置加载失败:', e); }
+        }
+
+        function setBool(id, val, def) {
+            const el = document.getElementById(id);
+            if (el) el.checked = val !== undefined ? !!val : def;
+        }
+        function setNum(id, val, def) {
+            const el = document.getElementById(id);
+            if (el) el.value = val !== undefined ? val : def;
+        }
+
+        async function sSave() {
+            const updates = {};
+            const fields = [
+                ['s-auto_inject', 'auto_inject_enabled', 'bool'],
+                ['s-memory_palace', 'memory_palace', 'bool'],
+                ['s-webui_enabled', 'webui_enabled', 'bool'],
+                ['s-rel_refresh', 'relation_injection_refresh_time', 'int'],
+                ['s-related_limit', 'search_related_limit', 'int'],
+                ['s-webui_port', 'webui_port', 'int'],
+                ['s-inject_pos', 'context_inject_position', 'str']
+            ];
+            for (const [elId, key, type] of fields) {
+                const el = document.getElementById(elId);
+                if (!el) continue;
+                if (type === 'bool') updates[key] = el.checked;
+                else if (type === 'int') updates[key] = parseInt(el.value) || 0;
+                else updates[key] = el.value;
+            }
+            try {
+                await apiPost('api/settings', updates);
+                const st = document.getElementById('s-status');
+                st.textContent = '已保存 ✓（部分设置需重启插件生效）';
+                setTimeout(() => st.textContent = '', 3000);
+            } catch (e) {
+                document.getElementById('s-status').textContent = '保存失败: ' + e.message;
+            }
+        }
+
+        // ==================== 对外暴露（onclick 需要） ====================
+        window.gSelectCat = gSelectCat;
+        window.gShowDetail = gShowDetail;
+        window.gEditFromDetail = gEditFromDetail;
+        window.gAdd = gAdd;
+        window.gSave = gSave;
+        window.gDelete = gDelete;
+        window.gShowImport = gShowImport;
+        window.gDoImport = gDoImport;
+        window.gExport = gExport;
+        window.gLoad = gLoad;
+        window.mAdd = mAdd;
+        window.mEdit = mEdit;
+        window.mSave = mSave;
+        window.mDelete = mDelete;
+        window.mLoad = mLoad;
+        window.mChangeSort = mChangeSort;
+        window.mShowImport = mShowImport;
+        window.mDoImport = mDoImport;
+        window.rAdd = rAdd;
+        window.rEdit = rEdit;
+        window.rSave = rSave;
+        window.rDelete = rDelete;
+        window.rDeleteCurrent = rDeleteCurrent;
+        window.rLoad = rLoad;
+        window.sLoad = sLoad;
+        window.sSave = sSave;
+        window.loadDashboard = loadDashboard;
+
+        // Modal 点击遮罩关闭
+        document.querySelectorAll('.modal').forEach(m => {
+            m.addEventListener('click', function(e) { if (e.target === this) this.classList.remove('show'); });
+        });
+
+        // 初始化：加载仪表盘 + 预加载梗分类
+        await Promise.all([loadDashboard(), gLoadCats()]);
     </script>
 </body>
 </html>
