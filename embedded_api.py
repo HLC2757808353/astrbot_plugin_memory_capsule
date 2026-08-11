@@ -18,9 +18,10 @@ PLUGIN_NAME = "astrbot_plugin_memory_capsule"
 
 
 class EmbeddedAPI:
-    def __init__(self, db_manager, config=None):
+    def __init__(self, db_manager, config=None, context=None):
         self.db_manager = db_manager
         self.config = config or {}
+        self.context = context
 
     @property
     def _req(self):
@@ -293,6 +294,15 @@ class EmbeddedAPI:
         except Exception as e:
             return self._err(e)
 
+    async def api_glossary_collect(self):
+        """手动触发一次热榜采集（抓取 + LLM 提炼 + 入库）。"""
+        try:
+            from .collector import run_collect_once
+            result = await run_collect_once(self.db_manager, self.context, self.config)
+            return self._ok(**result)
+        except Exception as e:
+            return self._err(e)
+
     # ==================== 设置 ====================
 
     async def api_settings_get(self):
@@ -321,7 +331,7 @@ class EmbeddedAPI:
 
 def register_embedded_apis(context, db_manager, config=None):
     """注册全部嵌入式 Web API 到 AstrBot。"""
-    api = EmbeddedAPI(db_manager, config)
+    api = EmbeddedAPI(db_manager, config, context)
     routes = [
         (f"/{PLUGIN_NAME}/api/stats", api.api_stats, ["GET"], "统计信息"),
         (f"/{PLUGIN_NAME}/api/activities", api.api_activities, ["GET"], "最近活动"),
@@ -342,6 +352,7 @@ def register_embedded_apis(context, db_manager, config=None):
         (f"/{PLUGIN_NAME}/api/glossary/stats", api.api_glossary_stats, ["GET"], "梗统计"),
         (f"/{PLUGIN_NAME}/api/glossary/import", api.api_glossary_import, ["POST"], "梗批量导入"),
         (f"/{PLUGIN_NAME}/api/glossary/export", api.api_glossary_export, ["GET"], "梗导出"),
+        (f"/{PLUGIN_NAME}/api/glossary/collect", api.api_glossary_collect, ["POST"], "热榜采集"),
         (f"/{PLUGIN_NAME}/api/glossary/<glossary_id>/update", api.api_glossary_update, ["POST"], "更新梗"),
         (f"/{PLUGIN_NAME}/api/glossary/<glossary_id>/delete", api.api_glossary_delete, ["POST"], "删除梗"),
         (f"/{PLUGIN_NAME}/api/settings", api.api_settings_get, ["GET"], "读取设置"),

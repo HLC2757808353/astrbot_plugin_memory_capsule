@@ -193,6 +193,31 @@
     "editable": true,
     "display_name": "分类模型"
   },
+  "glossary_collect_enabled": {
+    "description": "是否启用热榜自动采集（微博/B站/百度/知乎 → LLM提炼 → 梗库）",
+    "type": "bool",
+    "default": true,
+    "hint": "建议开启，自动收集最新热词/梗",
+    "editable": true,
+    "display_name": "自动采集热榜"
+  },
+  "glossary_collect_interval_hours": {
+    "description": "热榜采集间隔（小时）",
+    "type": "int",
+    "default": 24,
+    "hint": "梗不是每天都会出现，24小时一次足够。修改后需重启插件",
+    "editable": true,
+    "display_name": "采集间隔(小时)"
+  },
+  "glossary_collect_llm_model": {
+    "description": "用于热榜提炼的LLM模型ID（留空自动用第一个可用模型）",
+    "type": "string",
+    "default": "",
+    "_special": "select_provider",
+    "hint": "留空则使用第一个可用模型。每次采集只调用1-2次LLM",
+    "editable": true,
+    "display_name": "提炼模型"
+  },
   "max_aliases_per_user": {
     "description": "每个用户最多允许的别名数量",
     "type": "int",

@@ -32,6 +32,7 @@ class MemoryCapsulePlugin(Star):
         self._glossary_cache = None
         self._glossary_cache_time = 0
         self._glossary_cache_ttl = self.config.get('glossary_cache_ttl', 120)
+        self._collect_task = None
 
     async def initialize(self):
         self._create_directories()
@@ -50,6 +51,25 @@ class MemoryCapsulePlugin(Star):
             self._start_webui()
         else:
             logger.info("独立 WebUI 已关闭（嵌入式 Pages 已启用，可在 AstrBot Dashboard 插件页访问）")
+        if self.config.get('glossary_collect_enabled', True):
+            self._collect_task = asyncio.create_task(self._collect_loop())
+            logger.info("热榜采集任务已启动")
+
+    async def _collect_loop(self):
+        """低频热榜采集循环。间隔可配置，默认 24h。"""
+        # 启动后先等一小段，避免与插件加载其他初始化冲突
+        await asyncio.sleep(60)
+        while True:
+            try:
+                from .collector import run_collect_once
+                result = await run_collect_once(self.db_manager, self.context, self.config)
+                logger.info(f"热榜采集结果: {result}")
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"热榜采集出错: {e}")
+            interval_hours = self.config.get('glossary_collect_interval_hours', 24)
+            await asyncio.sleep(max(1, int(interval_hours)) * 3600)
 
     def _create_directories(self):
         for d in ["databases", "webui/templates", "webui/static", "pages"]:
@@ -91,6 +111,10 @@ class MemoryCapsulePlugin(Star):
             logger.error(f"WebUI start failed: {e}")
 
     async def terminate(self):
+        if self._collect_task:
+            try: self._collect_task.cancel()
+            except Exception: pass
+            self._collect_task = None
         if self.webui_server:
             try: self.webui_server.stop()
             except Exception: pass

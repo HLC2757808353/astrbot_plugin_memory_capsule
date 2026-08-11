@@ -212,8 +212,9 @@
             border: 1px solid rgba(139,92,246,0.12);
             border-radius: 10px; padding: 12px 10px; cursor: pointer;
             transition: all 0.3s ease; text-align: center; position: relative; overflow: hidden;
-            height: 88px; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 5px;
-            min-width: 0;
+            aspect-ratio: 4 / 3;
+            display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 5px;
+            min-width: 0; width: 100%; height: auto;
         }
         .glossary-card.batch-active { border-color: rgba(139,92,246,0.35); }
         .glossary-card.g-selected {
@@ -493,6 +494,22 @@
                     <div class="setting-info"><div class="setting-name">联想记忆条数</div><div class="setting-hint">搜索时额外返回的不完全相关记忆数，0 关闭</div></div>
                     <div class="setting-control"><input type="number" class="form-control" id="s-related_limit"></div>
                 </div>
+            </div>
+            <div class="settings-card">
+                <div class="settings-title">梗库自动采集</div>
+                <div class="setting-row">
+                    <div class="setting-info"><div class="setting-name">启用热榜采集</div><div class="setting-hint">定时抓取 微博/B站/百度/知乎 热榜，LLM 提炼出梗词自动入库</div></div>
+                    <div class="setting-control"><label class="switch"><input type="checkbox" id="s-collect_enabled"><span class="slider"></span></label></div>
+                </div>
+                <div class="setting-row">
+                    <div class="setting-info"><div class="setting-name">采集间隔（小时）</div><div class="setting-hint">梗不是每天都有，默认 24h 一次。修改需重启插件</div></div>
+                    <div class="setting-control"><input type="number" class="form-control" id="s-collect_interval"></div>
+                </div>
+                <div class="setting-row">
+                    <div class="setting-info"><div class="setting-name">立即采集一次</div><div class="setting-hint">手动触发一次热榜抓取+提炼（消耗约1次LLM调用）</div></div>
+                    <div class="setting-control"><button class="btn btn-primary btn-sm" onclick="sCollectNow()">立即采集</button></div>
+                </div>
+                <div style="margin-top:10px;"><span class="save-status" id="s-collect-result" style="font-size:0.85rem;color:#10b981;"></span></div>
             </div>
             <div class="settings-card">
                 <div class="settings-title">独立 WebUI（嵌入式已启用，通常无需开启）</div>
@@ -1401,6 +1418,8 @@
                 setNum('s-related_limit', cfg.search_related_limit, 3);
                 setNum('s-webui_port', cfg.webui_port, 5000);
                 document.getElementById('s-inject_pos').value = cfg.context_inject_position || 'system_prompt';
+                setBool('s-collect_enabled', cfg.glossary_collect_enabled, true);
+                setNum('s-collect_interval', cfg.glossary_collect_interval_hours, 24);
             } catch (e) { console.error('设置加载失败:', e); }
         }
 
@@ -1422,7 +1441,9 @@
                 ['s-rel_refresh', 'relation_injection_refresh_time', 'int'],
                 ['s-related_limit', 'search_related_limit', 'int'],
                 ['s-webui_port', 'webui_port', 'int'],
-                ['s-inject_pos', 'context_inject_position', 'str']
+                ['s-inject_pos', 'context_inject_position', 'str'],
+                ['s-collect_enabled', 'glossary_collect_enabled', 'bool'],
+                ['s-collect_interval', 'glossary_collect_interval_hours', 'int']
             ];
             for (const [elId, key, type] of fields) {
                 const el = document.getElementById(elId);
@@ -1434,10 +1455,28 @@
             try {
                 await apiPost('api/settings', updates);
                 const st = document.getElementById('s-status');
-                st.textContent = '已保存 ✓（部分设置需重启插件生效）';
+                st.textContent = '已保存 ✓（采集间隔等设置需重启插件生效）';
                 setTimeout(() => st.textContent = '', 3000);
             } catch (e) {
                 document.getElementById('s-status').textContent = '保存失败: ' + e.message;
+            }
+        }
+
+        // 立即采集一次
+        async function sCollectNow() {
+            const btn = document.querySelector('button[onclick="sCollectNow()"]');
+            const resultEl = document.getElementById('s-collect-result');
+            if (btn) btn.disabled = true;
+            resultEl.textContent = '采集中（抓取热榜 + LLM提炼，约需数十秒）...';
+            try {
+                const resp = await apiPost('api/glossary/collect', {});
+                resultEl.textContent = '采集完成：' + (resp.message || JSON.stringify(resp));
+                gLoadStats(); gLoad(1); gLoadCats();
+            } catch (e) {
+                resultEl.style.color = '#ef4444';
+                resultEl.textContent = '采集失败: ' + e.message;
+            } finally {
+                if (btn) btn.disabled = false;
             }
         }
 
@@ -1470,6 +1509,7 @@
         window.rLoad = rLoad;
         window.sLoad = sLoad;
         window.sSave = sSave;
+        window.sCollectNow = sCollectNow;
         window.loadDashboard = loadDashboard;
 
         // Modal 点击遮罩关闭
