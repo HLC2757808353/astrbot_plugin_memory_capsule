@@ -251,6 +251,17 @@ class EmbeddedAPI:
         except Exception as e:
             return self._err(e)
 
+    async def api_glossary_delete_by_source(self):
+        data = await self._req.json() or {}
+        source = str(data.get("source", "")).strip()
+        if not source:
+            return self._err("No source provided")
+        try:
+            result = await self._to_thread(self.db_manager.delete_glossary_by_source, source)
+            return self._ok(result=result)
+        except Exception as e:
+            return self._err(e)
+
     async def api_glossary_categories(self):
         try:
             cats = await self._to_thread(self.db_manager.get_glossary_categories)
@@ -374,6 +385,7 @@ def register_embedded_apis(context, db_manager, config=None):
         (f"/{PLUGIN_NAME}/api/glossary/collect", api.api_glossary_collect, ["POST"], "热榜采集"),
         (f"/{PLUGIN_NAME}/api/glossary/<glossary_id>/update", api.api_glossary_update, ["POST"], "更新梗"),
         (f"/{PLUGIN_NAME}/api/glossary/<glossary_id>/delete", api.api_glossary_delete, ["POST"], "删除梗"),
+        (f"/{PLUGIN_NAME}/api/glossary/delete-by-source", api.api_glossary_delete_by_source, ["POST"], "按来源删除梗"),
         (f"/{PLUGIN_NAME}/api/providers", api.api_providers, ["GET"], "LLM提供商列表"),
         (f"/{PLUGIN_NAME}/api/settings", api.api_settings_get, ["GET"], "读取设置"),
         (f"/{PLUGIN_NAME}/api/settings", api.api_settings_save, ["POST"], "保存设置"),

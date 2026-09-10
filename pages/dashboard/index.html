@@ -242,6 +242,12 @@
         .glossary-card:hover::before { opacity: 1; }
         .glossary-term { font-size: 1rem; font-weight: 700; color: #2d3748; word-break: break-all; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
         [data-theme="dark"] .glossary-term { color: #e2e8f0; }
+        .g-src {
+            position: absolute; left: 6px; bottom: 5px;
+            font-size: 0.6rem; line-height: 1; padding: 2px 6px; border-radius: 6px;
+            background: rgba(245,158,11,0.14); color: #f59e0b;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 55%;
+        }
 
         .batch-bar {
             display: flex; align-items: center; gap: 12px;
@@ -405,6 +411,7 @@
                 <button class="btn btn-outline btn-sm" id="g-batch-btn" onclick="gEnterBatch()">&#128203; 批量编辑</button>
                 <button class="btn btn-outline btn-sm" onclick="gShowImport()">&#8681; 批量导入</button>
                 <button class="btn btn-outline btn-sm" onclick="gExport()">&#8682; 导出</button>
+                <button class="btn btn-outline btn-sm" style="color:#f59e0b;border-color:rgba(245,158,11,0.4);" onclick="gClearAuto()">&#128465; 清理自动采集</button>
             </div>
             <div class="batch-bar" id="g-batch-bar" style="display:none;">
                 <span>已选 <b id="g-batch-count">0</b> 项</span>
@@ -888,10 +895,12 @@
                         const selected = gSelected.has(i.id);
                         const batchCls = gBatchMode ? ' batch-active' : '';
                         const selCls = selected ? ' g-selected' : '';
+                        const isAuto = i.source === '自动采集';
                         return `
                         <div class="glossary-card${batchCls}${selCls}" onclick="gCardClick(${i.id})">
                             <div class="g-check"></div>
                             <div class="glossary-term">${escapeHtml(i.term)}</div>
+                            ${isAuto ? `<div class="g-src" title="自动采集，未经人工确认">自动</div>` : ''}
                         </div>`;
                     }).join('');
                 }
@@ -1076,6 +1085,20 @@
                 a.click();
                 URL.revokeObjectURL(a.href);
             } catch (e) { showConfirm('导出失败: ' + e.message, function(){}); }
+        }
+
+        // 清理所有"自动采集"来源的梗（LLM 采集质量不稳，允许一键清空重来）
+        function gClearAuto() {
+            showConfirm('确定删除所有"自动"来源的梗？这些是热榜自动采集入库、未经人工确认的条目。删除后可在设置页重新采集。', async function() {
+                try {
+                    const resp = await apiPost('api/glossary/delete-by-source', { source: '自动采集' });
+                    const msg = (resp.result && resp.result.deleted !== undefined)
+                        ? `已删除 ${resp.result.deleted} 条自动采集梗`
+                        : '清理完成';
+                    gLoadStats(); gLoad(1); gLoadCats();
+                    showConfirm(msg, function(){});
+                } catch (e) { showConfirm('清理失败: ' + e.message, function(){}); }
+            });
         }
 
         function parseJsonl(text) {
@@ -1524,6 +1547,7 @@
         window.gShowImport = gShowImport;
         window.gDoImport = gDoImport;
         window.gExport = gExport;
+        window.gClearAuto = gClearAuto;
         window.gLoad = gLoad;
         window.mAdd = mAdd;
         window.mEdit = mEdit;

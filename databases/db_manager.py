@@ -1009,6 +1009,15 @@ class DatabaseManager:
         result = self._execute_write(_do_op)
         return result if result is not None else "Error: operation failed"
 
+    def delete_glossary_by_source(self, source):
+        """删除指定来源的全部梗（如清空 source='自动采集' 的低质数据）。"""
+        def _do_op(conn):
+            cursor = conn.cursor()
+            cursor.execute('DELETE FROM glossary WHERE source = ?', (source,))
+            return {"deleted": cursor.rowcount, "source": source}
+        result = self._execute_write(_do_op)
+        return result if result is not None else {"deleted": 0, "source": source}
+
     def get_glossary(self, glossary_id):
         def _do_op(conn):
             cursor = conn.cursor()
