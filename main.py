@@ -19,7 +19,7 @@ from .security import (
 
 _IMPORTANT_KEYWORDS = frozenset(['约定','承诺','重要','记得','提醒','待办'])
 
-@register("memory_capsule", "引灯续昼", "记忆胶囊插件", "v0.27.0", "https://github.com/HLC2757808353/astrbot_plugin_memory_capsule")
+@register("memory_capsule", "引灯续昼", "记忆胶囊插件", "v0.27.1", "https://github.com/HLC2757808353/astrbot_plugin_memory_capsule")
 class MemoryCapsulePlugin(Star):
     def __init__(self, context: Context, config=None):
         super().__init__(context)
@@ -259,9 +259,14 @@ class MemoryCapsulePlugin(Star):
     @filter.llm_tool(name="search_memory")
     async def search_memory(self, event, query, category_filter=None, limit=None, tags=None):
         """
-        搜索记忆。用多个相关词一起搜效果更好。例如搜"吃饭口味"不如搜"吃饭 口味 喜欢 爱吃的"。
-        除了精确匹配的结果，还会额外返回几条不完全相关但可能有用的"联想记忆"（associative=true）。
-        结果里的 visibility 表示能不能当众说：private=只能在私下提，别在群里讲；public=群里说也没关系。
+        在"小本本"（长期笔记）里搜索记忆。用多个相关词一起搜效果更好。
+        例如搜"吃饭口味"不如搜"吃饭 口味 喜欢 爱吃的"。
+
+        重要：这是【小本本】的检索，不等于你的全部记忆。当前上下文里可能已经有
+        其他记忆模块注入的内容。**搜不到不代表你不知道**——不要因为这里没有结果
+        就说"我查不到""我没有记录"，请先依据上下文里已有的信息回答。
+        需要回忆具体细节（时间、约定、偏好）时才调用；只想确认"有没有记忆"不必调用。
+        结果里的 visibility 表示能不能当众说：private=只在私下提，群里别提。
 
         Args:
             query(str): 搜索关键词，多个词用空格隔开，越多越准
@@ -269,10 +274,11 @@ class MemoryCapsulePlugin(Star):
             limit(int): 返回条数，默认5
             tags(str): 按标签筛选，多个标签逗号分隔
         Returns:
-            搜索结果JSON，含 results 与 related 两个数组
+            搜索结果JSON，含 results / related，及说明性 note（可能还有 fallback）
         """
         if not self.config.get('memory_palace', True):
-            return '{"results":[],"related":[]}'
+            return json.dumps({"results": [], "related": [],
+                               "note": "记忆宫殿已关闭，小本本本轮不可用。"}, ensure_ascii=False)
         try:
             results = await asyncio.to_thread(
                 self.db_manager.search_memory, str(query),
@@ -300,9 +306,45 @@ class MemoryCapsulePlugin(Star):
                     )
             except Exception:
                 related = []
-            return json.dumps({"results": results, "related": related}, ensure_ascii=False)
-        except Exception:
-            return '{"results":[],"related":[]}'
+
+            payload = {"results": results, "related": related}
+            if results or related:
+                payload["note"] = (
+                    "以上是小本本（长期笔记）里的条目，可能并不完整。"
+                    "如果上下文里还有其他来源的记忆，以更具体、更新的为准。"
+                )
+            else:
+                # 一条都没匹配到：绝不能让它变成"我什么都不知道"的证据。
+                # 给一点兜底（库中较重要的条目），并明确告诉模型空结果的含义。
+                fallback = []
+                try:
+                    is_group = bool(event.get_group_id()) if event else False
+                    recent = await asyncio.to_thread(
+                        self.db_manager.get_all_memories, 30, 0, None)
+                    for m in recent:
+                        if (m.get('importance') or 0) < 7:
+                            continue
+                        if is_group and m.get('visibility') == 'private':
+                            continue
+                        fallback.append(m)
+                        if len(fallback) >= 3:
+                            break
+                except Exception:
+                    fallback = []
+                payload["fallback"] = fallback
+                payload["note"] = (
+                    "小本本里没有匹配到这条查询。但这不代表你不知道："
+                    "当前上下文里可能已经有其他记忆模块注入的相关内容，"
+                    "请优先依据上下文回答，不要在回复里说“我查不到/我没有记录”。"
+                    + ("下面几条是小本本里较重要的记录，仅供参考，不要硬套到当前话题上。"
+                       if fallback else "需要细节的话，换个更具体的关键词再搜一次。")
+                )
+            return json.dumps(payload, ensure_ascii=False)
+        except Exception as e:
+            return json.dumps({
+                "results": [], "related": [],
+                "note": f"小本本读取异常（{e}），这不代表你没有记忆，请依据上下文回答。",
+            }, ensure_ascii=False)
 
     @filter.llm_tool(name="get_all_memories")
     async def get_all_memories(self, event, limit=50, min_importance=None, category=None):
@@ -318,7 +360,7 @@ class MemoryCapsulePlugin(Star):
             记忆列表JSON
         """
         if not self.config.get('memory_palace', True):
-            return '{"memories":[]}'
+            return '{"memories":[],"note":"记忆宫殿已关闭。"}'
         try:
             limit = max(1, min(int(limit), 200))
             memories = await asyncio.to_thread(
@@ -327,9 +369,16 @@ class MemoryCapsulePlugin(Star):
             if min_importance is not None:
                 mi = int(min_importance)
                 memories = [m for m in memories if (m.get('importance') or 0) >= mi]
-            return json.dumps({"memories": memories}, ensure_ascii=False)
-        except Exception:
-            return '{"memories":[]}'
+            return json.dumps({
+                "memories": memories,
+                "note": ("这里只是小本本（长期笔记）的内容，不代表你的全部记忆；"
+                         "上下文里可能还有其他记忆模块提供的信息。"),
+            }, ensure_ascii=False)
+        except Exception as e:
+            return json.dumps({
+                "memories": [],
+                "note": f"小本本读取异常（{e}），不代表你没有记忆，请依据上下文回答。",
+            }, ensure_ascii=False)
 
     @filter.llm_tool(name="delete_memory")
     async def delete_memory(self, event, memory_id):
@@ -376,9 +425,19 @@ class MemoryCapsulePlugin(Star):
         """
         try:
             results = await asyncio.to_thread(self.db_manager.search_relationship, str(query), int(limit))
-            return json.dumps({"results": results}, ensure_ascii=False)
-        except Exception:
-            return '{"results":[]}'
+            payload = {"results": results}
+            if not results:
+                payload["note"] = (
+                    "小本本里没有这个人的档案。但这不代表你不认识他/她——"
+                    "上下文里可能已有其他记忆模块提供的信息，请先依据上下文回答，"
+                    "不要直接说“我没有关于TA的记忆”。"
+                )
+            return json.dumps(payload, ensure_ascii=False)
+        except Exception as e:
+            return json.dumps({
+                "results": [],
+                "note": f"小本本读取异常（{e}），不代表你没有相关记忆。",
+            }, ensure_ascii=False)
 
     @filter.llm_tool(name="delete_relationship")
     async def delete_relationship(self, event, user_id):
@@ -446,7 +505,9 @@ class MemoryCapsulePlugin(Star):
                     relation_xml = (
                         f"<relationship>ID={user_id}"
                         + (f", 名称={sender_name}" if sender_name else "")
-                        + ", 档案为空（关于TA的一切都还没记下来，不要编造已知信息）</relationship>"
+                        + ", 小本本里还没有TA的档案（这并不等于你不认识TA——上下文里可能已有"
+                          "其他记忆模块提供的信息，请沿用已知内容，不要因为这里为空就说"
+                          "“我不了解你”；也不要凭空编造）</relationship>"
                     )
                 scene = f"当前场景={current_group}群聊" if is_group else "当前场景=私聊"
                 injection_parts.append(
@@ -454,6 +515,7 @@ class MemoryCapsulePlugin(Star):
                     "以下是关于【正在和你说话的这个账号】的信息，来自你之前和TA相处时记下的印象。\n"
                     "请自然地融入对话，不要像念档案一样逐条复述；这些信息只属于这个人，"
                     "不要套用到群里的其他成员身上。群体聊天里若分不清谁说过的，就先问一句，别张冠李戴。\n"
+                    "如果上下文里还有别的来源（比如其他记忆模块）提供的更新信息，以那些为准。\n"
                     f"{relation_xml}, {scene}\n"
                     "</对当前对话对象的了解>"
                 )
@@ -487,10 +549,11 @@ class MemoryCapsulePlugin(Star):
                             lines.append(f"- [#{m['id']}|{m.get('category') or 'general'}] {m['content']}")
                         injection_parts.append(
                             "<可能相关的历史记忆>\n"
-                            "以下是从记忆库里自动匹配到的条目，仅供参考：和当前话题无关就完全忽略，"
+                            "以下是从小本本里自动匹配到的条目，仅供参考：和当前话题无关就完全忽略，"
                             "不要生硬引用，也不要假设一定和对方有关（记忆库是共享的）。\n"
                             + "\n".join(lines)
-                            + "\n</可能相关的历史记忆>"
+                            + "\n这些已经给你了，不需要再调用 search_memory 查同一件事。\n"
+                            "</可能相关的历史记忆>"
                         )
                 except Exception as e:
                     logger.error(f"记忆匹配注入失败: {e}")
