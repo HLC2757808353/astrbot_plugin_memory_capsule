@@ -77,7 +77,10 @@ class EmbeddedAPI:
                 data.get("content", ""),
                 data.get("category"),
                 data.get("importance", 5),
-                data.get("tags")
+                data.get("tags"),
+                "user",
+                data.get("visibility") or "public",
+                data.get("owner_id", ""),
             )
             return self._ok(result=result)
         except Exception as e:
@@ -105,7 +108,8 @@ class EmbeddedAPI:
                 content=data.get("content"),
                 category=data.get("category"),
                 importance=data.get("importance"),
-                tags=data.get("tags")
+                tags=data.get("tags"),
+                visibility=data.get("visibility")
             )
             return self._ok(result=result)
         except Exception as e:
@@ -114,6 +118,15 @@ class EmbeddedAPI:
     async def api_memories_delete(self, memory_id):
         try:
             result = await self._to_thread(self.db_manager.delete_memory, int(memory_id))
+            return self._ok(result=result)
+        except Exception as e:
+            return self._err(e)
+
+    async def api_memories_batch_delete(self):
+        data = await self._req.json() or {}
+        try:
+            result = await self._to_thread(
+                self.db_manager.delete_memories_many, data.get("ids") or [])
             return self._ok(result=result)
         except Exception as e:
             return self._err(e)
@@ -262,6 +275,36 @@ class EmbeddedAPI:
         except Exception as e:
             return self._err(e)
 
+    async def api_glossary_batch_delete(self):
+        data = await self._req.json() or {}
+        try:
+            result = await self._to_thread(
+                self.db_manager.delete_glossary_many, data.get("ids") or [])
+            return self._ok(result=result)
+        except Exception as e:
+            return self._err(e)
+
+    async def api_glossary_dedup(self):
+        """存量重复检测：dry_run=true 只报告，false 则删掉每组里多余的条目。"""
+        data = await self._req.json() or {}
+        dry_run = data.get("dry_run", True)
+        try:
+            report = await self._to_thread(self.db_manager.find_duplicate_glossary_groups)
+            if dry_run:
+                return self._ok(**report)
+            ids = []
+            for group in report.get("groups", []):
+                ids.extend(d["id"] for d in group.get("duplicates", []))
+            if not ids:
+                return self._ok(result={"deleted": 0}, groups=[], scanned=report.get("scanned", 0),
+                                truncated=report.get("truncated", False), duplicate_count=0)
+            result = await self._to_thread(self.db_manager.delete_glossary_many, ids)
+            return self._ok(result=result, groups=[], scanned=report.get("scanned", 0),
+                            truncated=report.get("truncated", False),
+                            duplicate_count=report.get("duplicate_count", 0))
+        except Exception as e:
+            return self._err(e)
+
     async def api_glossary_categories(self):
         try:
             cats = await self._to_thread(self.db_manager.get_glossary_categories)
@@ -371,6 +414,7 @@ def register_embedded_apis(context, db_manager, config=None):
         (f"/{PLUGIN_NAME}/api/memories/import", api.api_memories_import, ["POST"], "记忆批量导入"),
         (f"/{PLUGIN_NAME}/api/memories/<memory_id>/update", api.api_memories_update, ["POST"], "更新记忆"),
         (f"/{PLUGIN_NAME}/api/memories/<memory_id>/delete", api.api_memories_delete, ["POST"], "删除记忆"),
+        (f"/{PLUGIN_NAME}/api/memories/batch-delete", api.api_memories_batch_delete, ["POST"], "批量删除记忆"),
         (f"/{PLUGIN_NAME}/api/categories", api.api_categories, ["GET"], "记忆分类"),
         (f"/{PLUGIN_NAME}/api/relationships", api.api_relationships_list, ["GET"], "关系列表"),
         (f"/{PLUGIN_NAME}/api/relationships", api.api_relationships_add, ["POST"], "新增关系"),
@@ -386,6 +430,8 @@ def register_embedded_apis(context, db_manager, config=None):
         (f"/{PLUGIN_NAME}/api/glossary/<glossary_id>/update", api.api_glossary_update, ["POST"], "更新梗"),
         (f"/{PLUGIN_NAME}/api/glossary/<glossary_id>/delete", api.api_glossary_delete, ["POST"], "删除梗"),
         (f"/{PLUGIN_NAME}/api/glossary/delete-by-source", api.api_glossary_delete_by_source, ["POST"], "按来源删除梗"),
+        (f"/{PLUGIN_NAME}/api/glossary/batch-delete", api.api_glossary_batch_delete, ["POST"], "批量删除梗"),
+        (f"/{PLUGIN_NAME}/api/glossary/dedup", api.api_glossary_dedup, ["POST"], "存量重复检测/去重"),
         (f"/{PLUGIN_NAME}/api/providers", api.api_providers, ["GET"], "LLM提供商列表"),
         (f"/{PLUGIN_NAME}/api/settings", api.api_settings_get, ["GET"], "读取设置"),
         (f"/{PLUGIN_NAME}/api/settings", api.api_settings_save, ["POST"], "保存设置"),

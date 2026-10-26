@@ -1,5 +1,13 @@
 import re
 
+# 明显私密的内容关键词：记忆写入时若没有显式指定可见性，命中这些默认 private，
+# 老数据迁移时也用它把疑似隐私的记忆标成 private（只在私聊注入，不进群聊）。
+SENSITIVE_KEYWORDS = (
+    '密码', '口令', '账号', '账户', '身份证', '手机号', '住址', '地址', '银行卡',
+    '余额', '工资', '病历', '体检', '秘密', '私事', '约定', '生日', '家庭',
+    '恋爱', '暗恋', '前任', '存款', '欠款',
+)
+
 _INJECTION_PATTERNS = [
     r'(?i)ignore\s+(previous|all|above|your)\s+(instructions?|rules?|prompt)',
     r'(?i)you\s+are\s+(now|no\s+longer)\s+',

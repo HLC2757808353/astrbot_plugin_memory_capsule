@@ -13,6 +13,8 @@ except ImportError:
     import logging
     logger = logging.getLogger(__name__)
 
+from ..security import SENSITIVE_KEYWORDS
+
 
 def normalize_term(term):
     """归一化梗词用于去重比较：全角转半角、小写、去空格。"""
@@ -20,6 +22,35 @@ def normalize_term(term):
         return ""
     s = unicodedata.normalize("NFKC", str(term))
     return s.lower().replace(" ", "").strip()
+
+
+# 只影响语气、不影响语义的尾巴（整活 / 整活啊 / 整活啦 应视为同一个梗）
+_TERM_TAIL_PARTICLES = (
+    "啊", "呀", "吧", "呢", "哦", "噢", "喔", "啦", "嘛", "哒", "咯", "嘞", "惹", "诶",
+    "了", "的", "der",
+)
+_TERM_EDGE_CHARS = " \t　~～!！。.、,，…·-—_"
+
+
+def canonical_term(term):
+    """把梗词归一到"比较骨架"：NFKC、去标点空白、去掉纯语气尾巴。
+
+    用于判重，不用于展示。例如「栓Q了」「栓q」「栓Q~」都归一到「栓q」。
+    """
+    if not term:
+        return ""
+    s = unicodedata.normalize("NFKC", str(term)).lower().strip(_TERM_EDGE_CHARS)
+    s = re.sub(r"[\s　~～!！。.、,，…·\-—_]+", "", s)
+    changed = True
+    while changed and len(s) > 2:
+        changed = False
+        for p in _TERM_TAIL_PARTICLES:
+            if s.endswith(p) and len(s) - len(p) >= 2:
+                s = s[: -len(p)]
+                changed = True
+                break
+    return s
+
 
 _jieba_instance = None
 _pseg_instance = None
@@ -133,6 +164,7 @@ class DatabaseManager:
             logger.error(f"Failed to delete corrupted database: {e}")
         self._initialize_database_structure()
         self._migrate_relationship_fields()
+        self._migrate_memory_visibility()
         self._migrate_activities_fk()
         self._clean_dirty_categories()
         self._cleanup_blank_relationships()
@@ -165,6 +197,7 @@ class DatabaseManager:
         self._check_integrity()
         self._migrate_old_data()
         self._migrate_relationship_fields()
+        self._migrate_memory_visibility()
         self._migrate_activities_fk()
         self._clean_dirty_categories()
         self._cleanup_blank_relationships()
@@ -229,6 +262,32 @@ class DatabaseManager:
                     logger.info("Migrated: added relationships.last_interaction")
             except Exception: pass
         self._execute_write(_do_migrate)
+
+    def _migrate_memory_visibility(self):
+        """补充 memories 的可见性与归属字段，并把明显私密的老记忆标为 private。
+
+        可见性语义：public=任何场景（含群聊）都可被注入；private=只在和记忆归属人私聊时
+        才会被自动注入，群聊里永远不出现，但仍可被显式搜索到。
+        """
+        def _do_op(conn):
+            cursor = conn.cursor()
+            cursor.execute('PRAGMA table_info(memories)')
+            columns = {row[1] for row in cursor.fetchall()}
+            if 'visibility' not in columns:
+                cursor.execute("ALTER TABLE memories ADD COLUMN visibility TEXT DEFAULT 'public'")
+                logger.info("Migrated: added memories.visibility")
+            if 'owner_id' not in columns:
+                cursor.execute("ALTER TABLE memories ADD COLUMN owner_id TEXT DEFAULT ''")
+                logger.info("Migrated: added memories.owner_id")
+            keywords = self._SENSITIVE_KEYWORDS
+            conditions = ' OR '.join(['content LIKE ?'] * len(keywords))
+            cursor.execute(
+                f"UPDATE memories SET visibility = 'private' "
+                f"WHERE (visibility IS NULL OR visibility = 'public') AND ({conditions})",
+                [f'%{k}%' for k in keywords])
+            if cursor.rowcount > 0:
+                logger.info(f"Marked {cursor.rowcount} sensitive memories as private")
+        self._execute_write(_do_op)
 
     def _migrate_activities_fk(self):
         def _do_migrate(conn):
@@ -385,6 +444,23 @@ class DatabaseManager:
 
     _VALID_CATEGORIES = set(_CATEGORY_KEYWORDS.keys()) | {'general'}
 
+    _SENSITIVE_KEYWORDS = SENSITIVE_KEYWORDS
+
+    # 自动注入时忽略的口语高频词，避免"今天""觉得"这类词把无关记忆全捞出来。
+    # 只放"高频且几乎不携带信息"的词；具体名词/动词（冰美式、火锅、吉他）要留着当信号。
+    _MATCH_STOPWORDS = frozenset((
+        '我们', '你们', '他们', '她们', '什么', '怎么', '这个', '那个', '这些', '那些',
+        '就是', '还是', '但是', '因为', '所以', '如果', '可以', '不是', '没有', '一个',
+        '觉得', '感觉', '知道', '明白', '记得', '忘了', '打算', '准备', '好像', '可能',
+        '应该', '需要', '想要', '希望', '一起', '一点', '一下', '一直', '然后', '而且',
+        '不过', '其实', '只是', '已经', '还在', '时候', '现在', '今天', '昨天', '明天',
+        '最近', '上次', '下次', '这次', '自己', '别人', '东西', '事情', '这样', '那样',
+        '真的', '有点', '喜欢', '讨厌', '好玩', '好看', '好听', '好吃', '怎么办',
+        '为什么', '是不是', '有没有', '要不要', '能不能', '会不会', '怎么样',
+        '练得', '说了', '说是', '那种', '这种', '多少', '几个', '特别', '非常',
+        '几点', '多久', '几天', '什么时候', '哪里', '哪儿', '哪天', '刚才',
+    ))
+
     def _clean_dirty_categories(self):
         def _do_op(conn):
             cursor = conn.cursor()
@@ -410,7 +486,7 @@ class DatabaseManager:
 
     # ==================== Memory CRUD ====================
 
-    def write_memory(self, content, category=None, importance=5, tags=None, source='user'):
+    def write_memory(self, content, category=None, importance=5, tags=None, source='user', visibility='public', owner_id=''):
         _tags = tags
         _category = category
         _memory_id = [None]
@@ -423,8 +499,9 @@ class DatabaseManager:
             if _tags is None: _tags = self._extract_tags(content)
             if _category is None: _category = self._guess_category(content)
             cursor.execute(
-                'INSERT INTO memories (content, category, importance, tags, source, hash) VALUES (?, ?, ?, ?, ?, ?)',
-                (content, _category, importance, ','.join(_tags) if isinstance(_tags, list) else _tags, source, content_hash))
+                'INSERT INTO memories (content, category, importance, tags, source, hash, visibility, owner_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                (content, _category, importance, ','.join(_tags) if isinstance(_tags, list) else _tags, source, content_hash,
+                 'private' if str(visibility).lower() == 'private' else 'public', str(owner_id or '')))
             memory_id = cursor.lastrowid
             _memory_id[0] = memory_id
             cursor.execute('INSERT INTO activities (memory_id, activity_type, description) VALUES (?, ?, ?)',
@@ -480,7 +557,33 @@ class DatabaseManager:
         result = self._execute_write(_do_op)
         return result if result is not None else "Error: operation failed"
 
-    def update_memory(self, memory_id, content=None, category=None, importance=None, tags=None):
+    def delete_memories_many(self, ids):
+        """批量删除记忆（一次一条 SQL，比前端逐条删快且不会漏）。
+
+        Args:
+            ids: 记忆 ID 列表。
+
+        Returns:
+            {"deleted": 实际删除条数}。
+        """
+        clean = []
+        for i in ids or []:
+            try:
+                clean.append(int(i))
+            except (TypeError, ValueError):
+                continue
+        if not clean:
+            return {"deleted": 0}
+        def _do_op(conn):
+            cursor = conn.cursor()
+            placeholders = ','.join('?' * len(clean))
+            cursor.execute(f'DELETE FROM activities WHERE memory_id IN ({placeholders})', clean)
+            cursor.execute(f'DELETE FROM memories WHERE id IN ({placeholders})', clean)
+            return {"deleted": cursor.rowcount}
+        result = self._execute_write(_do_op)
+        return result if isinstance(result, dict) else {"deleted": 0}
+
+    def update_memory(self, memory_id, content=None, category=None, importance=None, tags=None, visibility=None):
         _tags = tags
         def _do_op(conn):
             nonlocal _tags
@@ -495,6 +598,9 @@ class DatabaseManager:
                 if _tags is None: _tags = self._extract_tags(content)
             if category is not None: updates.append("category = ?"); params.append(category)
             if importance is not None: updates.append("importance = ?"); params.append(importance)
+            if visibility is not None:
+                updates.append("visibility = ?")
+                params.append('private' if str(visibility).lower() == 'private' else 'public')
             if _tags is not None and _tags != '':
                 updates.append("tags = ?"); params.append(','.join(_tags) if isinstance(_tags, list) else _tags)
             updates.append("updated_at = ?"); params.append(datetime.now().isoformat())
@@ -510,9 +616,9 @@ class DatabaseManager:
         def _do_op(conn):
             cursor = conn.cursor()
             if category:
-                cursor.execute('SELECT id, content, category, importance, tags, access_count, created_at FROM memories WHERE category = ? ORDER BY created_at DESC LIMIT ? OFFSET ?', (category, limit, offset))
+                cursor.execute('SELECT id, content, category, importance, tags, visibility, access_count, created_at FROM memories WHERE category = ? ORDER BY created_at DESC LIMIT ? OFFSET ?', (category, limit, offset))
             else:
-                cursor.execute('SELECT id, content, category, importance, tags, access_count, created_at FROM memories ORDER BY created_at DESC LIMIT ? OFFSET ?', (limit, offset))
+                cursor.execute('SELECT id, content, category, importance, tags, visibility, access_count, created_at FROM memories ORDER BY created_at DESC LIMIT ? OFFSET ?', (limit, offset))
             return [dict(row) for row in cursor.fetchall()]
         result = self._execute_read(_do_op)
         return result if result is not None else []
@@ -580,7 +686,7 @@ class DatabaseManager:
                 fts_query = ' OR '.join(f'"{w}"' for w in re.findall(r'\w{2,}', query))
             if not fts_query: return []
             cursor.execute(
-                'SELECT m.id, m.content, m.category, m.importance, m.tags, m.created_at, m.access_count, '
+                'SELECT m.id, m.content, m.category, m.importance, m.tags, m.visibility, m.created_at, m.access_count, '
                 'bm25(memories_fts) as bm25_score FROM memories m JOIN memories_fts f ON m.id = f.rowid '
                 'WHERE memories_fts MATCH ? ORDER BY bm25_score LIMIT ?', (fts_query, limit))
             return [dict(row) for row in cursor.fetchall()]
@@ -598,7 +704,7 @@ class DatabaseManager:
                 params.extend([f'%{kw}%', f'%{kw}%', f'%{kw}%'])
             where = ' OR '.join(conditions)
             cursor.execute(
-                f'SELECT id, content, category, importance, tags, created_at, access_count FROM memories WHERE {where} ORDER BY importance DESC, created_at DESC LIMIT ?',
+                f'SELECT id, content, category, importance, tags, visibility, created_at, access_count FROM memories WHERE {where} ORDER BY importance DESC, created_at DESC LIMIT ?',
                 params + [limit])
             return [dict(row) for row in cursor.fetchall()]
         except Exception:
@@ -616,7 +722,7 @@ class DatabaseManager:
                 params.append(f'%{w}%')
             where = ' OR '.join(conditions)
             cursor.execute(
-                f'SELECT id, content, category, importance, tags, created_at, access_count FROM memories WHERE {where} ORDER BY importance DESC LIMIT ?',
+                f'SELECT id, content, category, importance, tags, visibility, created_at, access_count FROM memories WHERE {where} ORDER BY importance DESC LIMIT ?',
                 params + [limit])
             return [dict(row) for row in cursor.fetchall()]
         except Exception:
@@ -626,7 +732,7 @@ class DatabaseManager:
         if not self.config.get('tfidf_search_enabled', True): return []
         try:
             cursor = conn.cursor()
-            cursor.execute('SELECT id, content, category, importance, tags, created_at, access_count FROM memories LIMIT ?',
+            cursor.execute('SELECT id, content, category, importance, tags, visibility, created_at, access_count FROM memories LIMIT ?',
                            (self.config.get('tfidf_search_limit', 200),))
             all_memories = [dict(row) for row in cursor.fetchall()]
             if not all_memories: return []
@@ -740,6 +846,37 @@ class DatabaseManager:
             try: rel['identity_aliases'] = [a.strip() for a in aliases.split(',') if a.strip()]
             except Exception: rel['identity_aliases'] = []
         return rel
+
+    def get_relationship_checked(self, user_id):
+        """读取单个关系档案，读库异常时抛出异常而不是返回 None。
+
+        注入逻辑需要区分"这个人确实没有档案"和"数据库读失败"：后者绝不能当成
+        陌生人去对话，所以这里把异常交给调用方处理。
+
+        Args:
+            user_id: 目标用户 ID。
+
+        Returns:
+            关系字典；没有该用户时返回 None。
+
+        Raises:
+            Exception: 数据库读取失败时向上抛出。
+        """
+        def _do_op(conn):
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM relationships WHERE user_id = ?', (user_id,))
+            row = cursor.fetchone()
+            if not row: return None
+            rel = dict(row)
+            aliases = rel.get('identity_aliases') or ''
+            rel['identity_aliases'] = [a.strip() for a in str(aliases).split(',') if a.strip()]
+            return rel
+        conn = self._get_connection()
+        try:
+            return _do_op(conn)
+        finally:
+            try: conn.close()
+            except Exception: pass
 
     def get_all_relationships(self, limit=100, offset=0):
         def _do_op(conn):
@@ -885,9 +1022,11 @@ class DatabaseManager:
                 if tags is None: tags = self._extract_tags(content)
                 elif isinstance(tags, str): tags = tags.split(',')
                 source = item.get('source', 'import')
+                visibility = 'private' if str(item.get('visibility', '')).lower() == 'private' else 'public'
                 cursor.execute(
-                    'INSERT INTO memories (content, category, importance, tags, source, hash) VALUES (?, ?, ?, ?, ?, ?)',
-                    (content, category, importance, ','.join(tags) if isinstance(tags, list) else tags, source, content_hash))
+                    'INSERT INTO memories (content, category, importance, tags, source, hash, visibility, owner_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                    (content, category, importance, ','.join(tags) if isinstance(tags, list) else tags, source, content_hash,
+                     visibility, str(item.get('owner_id', '') or '')))
                 imported += 1
             return f"Imported: {imported}, Skipped (duplicate): {skipped}"
         result = self._execute_write(_do_op)
@@ -918,10 +1057,12 @@ class DatabaseManager:
             return "Error: term is empty"
         if isinstance(tags, list):
             tags = ','.join(tags)
-        # 模糊去重：与已有梗相似度超阈值则视为重复（采集/手动添加场景）
+        # 模糊去重：词面归一化 + 变体包含 + 释义近似的都算重复（采集/手动添加场景）
         if fuzzy_dedup:
-            similar = self.find_similar_glossary(term)
+            similar = self.find_similar_glossary(term, meaning)
             if similar:
+                logger.info(f"Glossary duplicate skipped: {term} ~ {similar[0]['term']} "
+                            f"({similar[0]['reason']})")
                 return "already_exists"
         def _do_op(conn):
             cursor = conn.cursor()
@@ -941,33 +1082,73 @@ class DatabaseManager:
             return "already_exists"
         return result if result is not None else "Error: database write failed"
 
-    def find_similar_glossary(self, term, threshold=0.85, limit=1):
-        """查找与 term 高度相似的已有梗（用于模糊去重）。
+    def find_similar_glossary(self, term, meaning=None, threshold=0.8, limit=1):
+        """查找与 term 语义重复的已有梗（用于模糊去重）。
 
-        先用长度粗筛缩小范围，再用 difflib 序列相似度比较。
-        千级梗库单次调用在毫秒级，仅用于新增/采集入库时。
+        判定顺序（命中任一即视为重复）：
+        1. 归一化后完全相同（yyds / YYDS / ｙｙｄｓ）
+        2. 去掉语气尾巴后相同（整活 / 整活啊 / 整活啦）
+        3. 变体包含：短的完整出现在长的里，且长度差不超过 4（栓Q / 栓Q了）
+        4. 归一化字符串相似度 >= threshold（整活 / 整烂活）
+        5. 释义高度相似（换了个词头但解释一模一样）
+
+        Args:
+            term: 待判重的词。
+            meaning: 待判重的释义，可为空；提供后额外做释义近似判重。
+            threshold: 字符串相似度阈值。
+            limit: 最多返回几条。
+
+        Returns:
+            相似条目列表，每项含 id / term / score / reason。
         """
         norm = normalize_term(term)
+        canon = canonical_term(term)
         if not norm:
             return []
         def _do_op(conn):
             cursor = conn.cursor()
-            cursor.execute('SELECT id, term FROM glossary')
+            cursor.execute('SELECT id, term, meaning FROM glossary')
             rows = cursor.fetchall()
-            # 长度粗筛：长度差超过 max(2, 词长/3) 的词不可能相似，跳过
-            max_diff = max(2, len(norm) // 3)
+            max_diff = max(2, len(canon) // 3)
+            new_meaning = str(meaning or '').strip()
             candidates = []
             for row in rows:
-                t = normalize_term(row['term'])
-                if not t or t == norm:
+                t_norm = normalize_term(row['term'])
+                if not t_norm:
                     continue
-                if abs(len(t) - len(norm)) > max_diff:
-                    continue
-                ratio = difflib.SequenceMatcher(None, norm, t).ratio()
-                if ratio >= threshold:
-                    candidates.append((ratio, row['id'], row['term']))
+                t_canon = canonical_term(row['term'])
+                reason = None
+                score = 1.0
+                if t_norm == norm:
+                    reason = "同词"
+                elif canon and t_canon == canon:
+                    reason = "语气变体"
+                elif (canon and t_canon and len(canon) >= 2 and len(t_canon) >= 2
+                      and abs(len(t_canon) - len(canon)) <= 4
+                      and (canon in t_canon or t_canon in canon)):
+                    reason = "包含变体"
+                    score = 0.9
+                if reason is None:
+                    # 词形相似度算一次，既用于判重，也用于决定要不要比释义
+                    t_ratio = difflib.SequenceMatcher(None, canon, t_canon).ratio()
+                    if abs(len(t_canon) - len(canon)) <= max_diff and t_ratio >= threshold:
+                        reason = "词形近似"
+                        score = t_ratio
+                    elif t_ratio >= 0.3 and len(new_meaning) >= 20:
+                        # 只在"词本身已经像"时才比释义，避免把互不相干的两个梗
+                        # 因为解释措辞相近而误判成重复（语义重复主要靠 LLM 判断）
+                        old_meaning = str(row['meaning'] or '').strip()
+                        if len(old_meaning) >= 20:
+                            m_ratio = difflib.SequenceMatcher(
+                                None, new_meaning[:100], old_meaning[:100]).ratio()
+                            if m_ratio >= 0.88:
+                                reason = "释义重复"
+                                score = m_ratio
+                if reason:
+                    candidates.append((score, row['id'], row['term'], reason))
             candidates.sort(key=lambda x: -x[0])
-            return [{'id': i, 'term': t, 'score': round(s, 3)} for s, i, t in candidates[:limit]]
+            return [{'id': i, 'term': t, 'score': round(s, 3), 'reason': r}
+                    for s, i, t, r in candidates[:limit]]
         result = self._execute_read(_do_op)
         return result if result is not None else []
 
@@ -1063,6 +1244,146 @@ class DatabaseManager:
             return cursor.fetchone()[0]
         result = self._execute_read(_do_op)
         return result if result is not None else 0
+
+    def delete_glossary_many(self, ids):
+        """批量删除梗库条目。
+
+        Args:
+            ids: 梗 ID 列表。
+
+        Returns:
+            {"deleted": 实际删除条数}。
+        """
+        clean = []
+        for i in ids or []:
+            try:
+                clean.append(int(i))
+            except (TypeError, ValueError):
+                continue
+        if not clean:
+            return {"deleted": 0}
+        def _do_op(conn):
+            cursor = conn.cursor()
+            placeholders = ','.join('?' * len(clean))
+            cursor.execute(f'DELETE FROM glossary WHERE id IN ({placeholders})', clean)
+            return {"deleted": cursor.rowcount}
+        result = self._execute_write(_do_op)
+        return result if isinstance(result, dict) else {"deleted": 0}
+
+    def find_duplicate_glossary_groups(self, threshold=0.8, max_terms=5000, max_pairs=300000):
+        """扫描整个梗库，找出重复/近似重复的条目并分组（用于"一键去重"）。
+
+        判定与入库去重同一套规则：去掉语气尾巴后完全相同 → 变体包含 → 词形相似度。
+        为避免 O(n^2)，先用「归一化词 + 二元组倒排」把候选对缩小到同源词上，
+        再对候选对算相似度并做并查集合并。组内保留释义最完整（其次 id 最小）的一条。
+
+        Args:
+            threshold: 词形相似度阈值。
+            max_terms: 单次最多扫描多少条（超出会截断并在结果里标记）。
+            max_pairs: 候选对上限，防止超大词库把按钮点成卡死。
+
+        Returns:
+            {"groups": [...], "scanned": n, "truncated": bool, "duplicate_count": n}
+        """
+        def _do_op(conn):
+            cursor = conn.cursor()
+            cursor.execute('SELECT id, term, meaning, category, source, hit_count, created_at '
+                           'FROM glossary ORDER BY id')
+            rows = [dict(r) for r in cursor.fetchall()]
+            truncated = len(rows) > max_terms
+            if truncated:
+                rows = rows[:max_terms]
+            if len(rows) < 2:
+                return {"groups": [], "scanned": len(rows), "truncated": truncated,
+                        "duplicate_count": 0}
+
+            def key_of(row):
+                return (canonical_term(row['term']) or normalize_term(row['term'])
+                        or str(row['term']))
+
+            canon = {r['id']: key_of(r) for r in rows}
+            parent = {r['id']: r['id'] for r in rows}
+
+            def find(x):
+                while parent[x] != x:
+                    parent[x] = parent[parent[x]]
+                    x = parent[x]
+                return x
+
+            def union(a, b):
+                ra, rb = find(a), find(b)
+                if ra != rb:
+                    parent[ra] = rb
+
+            # 1) 归一化后完全相同的先合并（栓Q / 栓Q了 / 栓q~）
+            by_key = {}
+            for r in rows:
+                by_key.setdefault(canon[r['id']], []).append(r['id'])
+            for ids_ in by_key.values():
+                for other in ids_[1:]:
+                    union(ids_[0], other)
+
+            # 2) 其余近似变体：先分桶缩小候选对，再按相似度合并。
+            #    中文变体常是中间插字（破防→破大防、整活→整烂活），二元组会完全错开，
+            #    所以同时用「首尾字」「前两字」和「二元组」三种桶，命中任一同桶即比较。
+            buckets = {}
+            for r in rows:
+                s = canon[r['id']]
+                keys = set()
+                if len(s) >= 2:
+                    keys.add("F" + s[0] + s[-1])
+                    keys.add("P" + s[:2])
+                for i in range(len(s) - 1):
+                    keys.add(s[i:i + 2])
+                for k in keys:
+                    buckets.setdefault(k, []).append(r['id'])
+
+            pairs = set()
+            for ids_ in buckets.values():
+                # 单个桶命中太多条（如常见字）说明没有区分度，跳过
+                if len(ids_) < 2 or len(ids_) > 40:
+                    continue
+                for i in range(len(ids_)):
+                    for j in range(i + 1, len(ids_)):
+                        a, b = ids_[i], ids_[j]
+                        pairs.add((a, b) if a < b else (b, a))
+                        if len(pairs) >= max_pairs:
+                            break
+                if len(pairs) >= max_pairs:
+                    break
+            for a, b in pairs:
+                sa, sb = canon[a], canon[b]
+                if abs(len(sa) - len(sb)) > 4:
+                    continue
+                if difflib.SequenceMatcher(None, sa, sb).ratio() >= threshold:
+                    union(a, b)
+
+            clusters = {}
+            for r in rows:
+                clusters.setdefault(find(r['id']), []).append(r)
+            groups = [items for items in clusters.values() if len(items) > 1]
+
+            # 组内选"保留项"：释义最完整优先，其次最早入库
+            out = []
+            duplicate_count = 0
+            for items in groups:
+                items = sorted(items, key=lambda x: (-len(str(x.get('meaning') or '')), x['id']))
+                keep = items[0]
+                dups = items[1:]
+                duplicate_count += len(dups)
+                out.append({
+                    "keep": {"id": keep['id'], "term": keep['term'],
+                             "meaning": str(keep.get('meaning') or '')[:120]},
+                    "duplicates": [{"id": d['id'], "term": d['term'],
+                                    "meaning": str(d.get('meaning') or '')[:120]}
+                                   for d in dups],
+                })
+            out.sort(key=lambda g: -len(g["duplicates"]))
+            return {"groups": out, "scanned": len(rows), "truncated": truncated,
+                    "duplicate_count": duplicate_count}
+        result = self._execute_read(_do_op)
+        return result if result is not None else {"groups": [], "scanned": 0,
+                                                  "truncated": False, "duplicate_count": 0}
 
     def get_glossary_categories(self):
         def _do_op(conn):
@@ -1187,5 +1508,67 @@ class DatabaseManager:
                 r['content'] = r['content'][:80] + ('...' if len(r['content']) > 80 else '')
                 r['associative'] = True
             return related[:limit]
+        result = self._execute_read(_do_op)
+        return result if result is not None else []
+
+    def match_memories(self, query, limit=3, min_score=2, include_private=False, owner_id=""):
+        """按词面重合度匹配与 query 相关的记忆，供对话中的自动记忆注入使用。
+
+        与 search_memory 的区别：要求多个有效词真的同时出现在同一条记忆里（默认
+        min_score=2），避免把无关记忆塞进上下文；并且不会累加 access_count。
+
+        Args:
+            query: 用户当前这句话。
+            limit: 最多返回几条。
+            min_score: 至少命中几个有效词才算相关；只有 1 个有效词的短句自动降为 1。
+            include_private: 是否允许返回 private 记忆（私聊场景传 True）。
+            owner_id: 当前对话者 ID，用于过滤 private 记忆的归属。
+
+        Returns:
+            记忆字典列表（content 截断到 120 字符）。
+        """
+        def _do_op(conn):
+            words = [w for w in self._tokenize(str(query))
+                     if len(w) >= 2 and w not in self._MATCH_STOPWORDS]
+            words = list(dict.fromkeys(words))[:8]
+            # 轻量模式（无 jieba）下中文会被正则切成一整串，退化为二元切片，否则永远匹配不上
+            if len(words) == 1 and len(words[0]) >= 4 and all(ord(c) > 127 for c in words[0]):
+                run = words[0]
+                words = list(dict.fromkeys(run[i:i + 2] for i in range(len(run) - 1)))
+            if not words: return []
+            need = 1 if len(words) == 1 else max(1, int(min_score))
+            conditions = []
+            params = []
+            for w in words:
+                conditions.append('(content LIKE ? OR tags LIKE ?)')
+                params.extend([f'%{w}%', f'%{w}%'])
+            sql = (f"SELECT id, content, category, importance, tags, visibility, owner_id FROM memories "
+                   f"WHERE ({' OR '.join(conditions)})")
+            if include_private:
+                # 私聊：公开记忆 + 归属自己的私有记忆（历史遗留的未归属私有记忆也放行）
+                sql += " AND (visibility = 'public' OR visibility IS NULL OR owner_id = '' OR owner_id = ?)"
+                params.append(str(owner_id or ''))
+            else:
+                sql += " AND (visibility = 'public' OR visibility IS NULL)"
+            sql += " LIMIT 200"
+            cursor = conn.cursor()
+            cursor.execute(sql, params)
+            scored = []
+            for row in cursor.fetchall():
+                blob = f"{row['content'] or ''} {row['tags'] or ''}"
+                score = sum(1 for w in words if w in blob)
+                if score < need: continue
+                scored.append((score, row['importance'] or 0, row))
+            scored.sort(key=lambda x: (-x[0], -x[1]))
+            matches = []
+            for _score, _importance, row in scored[:limit]:
+                item = {
+                    'id': row['id'],
+                    'content': (row['content'] or '')[:120] + ('...' if len(row['content'] or '') > 120 else ''),
+                    'category': row['category'],
+                    'importance': row['importance'],
+                }
+                matches.append(item)
+            return matches
         result = self._execute_read(_do_op)
         return result if result is not None else []

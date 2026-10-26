@@ -275,6 +275,12 @@
         }
         .memory-card:hover { transform: translateY(-3px); box-shadow: 0 10px 30px rgba(139,92,246,0.12); }
         .memory-card:hover::before { opacity: 1; }
+        .memory-card.batch-active { border-color: rgba(139,92,246,0.35); cursor: pointer; }
+        .memory-card.g-selected {
+            background: rgba(139,92,246,0.15);
+            border-color: #8b5cf6;
+            box-shadow: 0 0 0 2px rgba(139,92,246,0.4);
+        }
         .memory-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; gap: 6px; flex-wrap: wrap; }
         .memory-importance { font-size: 0.75rem; color: #8b5cf6; font-weight: 600; background: rgba(139,92,246,0.1); padding: 3px 9px; border-radius: 8px; }
         .memory-category { font-size: 0.75rem; color: #ec4899; font-weight: 600; background: rgba(236,72,153,0.08); padding: 3px 9px; border-radius: 8px; }
@@ -409,6 +415,7 @@
                 <input type="text" class="search-box" id="g-search" placeholder="搜索梗词 / 解释 / 标签 / 来源...">
                 <button class="btn btn-primary btn-sm" onclick="gAdd()">+ 添加梗</button>
                 <button class="btn btn-outline btn-sm" id="g-batch-btn" onclick="gEnterBatch()">&#128203; 批量编辑</button>
+                <button class="btn btn-outline btn-sm" onClick="gCheckDedup()" style="color:#8b5cf6;border-color:rgba(139,92,246,0.4);">&#129513; 检查重复</button>
                 <button class="btn btn-outline btn-sm" onclick="gShowImport()">&#8681; 批量导入</button>
                 <button class="btn btn-outline btn-sm" onclick="gExport()">&#8682; 导出</button>
                 <button class="btn btn-outline btn-sm" style="color:#f59e0b;border-color:rgba(245,158,11,0.4);" onclick="gClearAuto()">&#128465; 清理自动采集</button>
@@ -442,8 +449,14 @@
                     <option value="access_count_desc">调用次数 (多→少)</option>
                 </select>
                 <button class="btn btn-primary btn-sm" onclick="mAdd()">+ 添加记忆</button>
+                <button class="btn btn-outline btn-sm" id="m-batch-btn" onclick="mEnterBatch()">&#128203; 批量删除</button>
                 <button class="btn btn-outline btn-sm" onclick="mShowImport()">批量导入</button>
                 <button class="btn btn-outline btn-sm" onclick="mLoad(1)">刷新</button>
+            </div>
+            <div class="batch-bar" id="m-batch-bar" style="display:none;">
+                <span>已选 <b id="m-batch-count">0</b> 项</span>
+                <button class="btn btn-danger btn-sm" onclick="mBatchDelete()">删除选中</button>
+                <button class="btn btn-gray btn-sm" onclick="mExitBatch()">取消</button>
             </div>
             <div class="related-section" id="m-related" style="display:none;">
                 <div class="related-title">&#129504; 联想记忆（不完全相关但可能有用）</div>
@@ -489,7 +502,7 @@
                     <div class="setting-control"><label class="switch"><input type="checkbox" id="s-memory_palace"><span class="slider"></span></label></div>
                 </div>
                 <div class="setting-row">
-                    <div class="setting-info"><div class="setting-name">关系注入刷新间隔（秒）</div><div class="setting-hint">-1 表示每次都注入</div></div>
+                    <div class="setting-info"><div class="setting-name">关系注入刷新间隔（秒）</div><div class="setting-hint">档案每轮都会注入，这里只控制多久重读一次数据库；-1 表示每轮都重读</div></div>
                     <div class="setting-control"><input type="number" class="form-control" id="s-rel_refresh"></div>
                 </div>
                 <div class="setting-row">
@@ -501,6 +514,25 @@
                             <option value="insert_system_prompt">insert_system_prompt</option>
                         </select>
                     </div>
+                </div>
+            </div>
+            <div class="settings-card">
+                <div class="settings-title">记忆自动匹配注入</div>
+                <div class="setting-row">
+                    <div class="setting-info"><div class="setting-name">启用自动匹配</div><div class="setting-hint">按对方这句话自动从记忆库捞出相关记忆，省掉 AI 主动搜索这一步</div></div>
+                    <div class="setting-control"><label class="switch"><input type="checkbox" id="s-mem_auto_inject"><span class="slider"></span></label></div>
+                </div>
+                <div class="setting-row">
+                    <div class="setting-info"><div class="setting-name">最多注入条数</div><div class="setting-hint">建议 2-5 条，0 等于关闭自动匹配</div></div>
+                    <div class="setting-control"><input type="number" class="form-control" id="s-mem_limit"></div>
+                </div>
+                <div class="setting-row">
+                    <div class="setting-info"><div class="setting-name">匹配严格度</div><div class="setting-hint">至少命中几个关键词才算相关；越小越宽松，越容易塞进无关内容</div></div>
+                    <div class="setting-control"><input type="number" class="form-control" id="s-mem_min_score"></div>
+                </div>
+                <div class="setting-row">
+                    <div class="setting-info"><div class="setting-name">私有记忆只在私聊使用</div><div class="setting-hint">标为 private 的记忆（隐私/约定/关于某人的事）群聊里永不自动注入，但仍可被显式搜索</div></div>
+                    <div class="setting-control"><span style="font-size:0.8rem;color:#94a3b8;">固定策略</span></div>
                 </div>
             </div>
             <div class="settings-card">
@@ -519,6 +551,10 @@
                 <div class="setting-row">
                     <div class="setting-info"><div class="setting-name">采集间隔（小时）</div><div class="setting-hint">梗不是每天都有，默认 24h 一次，下次采集时生效</div></div>
                     <div class="setting-control"><input type="number" class="form-control" id="s-collect_interval"></div>
+                </div>
+                <div class="setting-row">
+                    <div class="setting-info"><div class="setting-name">单轮入库上限</div><div class="setting-hint">一轮采集最多收几条，按置信度排序；宁可少收也别乱收</div></div>
+                    <div class="setting-control"><input type="number" class="form-control" id="s-collect_max"></div>
                 </div>
                 <div class="setting-row">
                     <div class="setting-info"><div class="setting-name">提炼模型</div><div class="setting-hint">用于把热榜标题提炼成梗词的 LLM，留空自动使用第一个可用模型</div></div>
@@ -641,6 +677,23 @@
         </div>
     </div>
 
+    <!-- 梗库：存量重复检测 -->
+    <div id="g-dedup-modal" class="modal">
+        <div class="modal-content" style="max-width:720px;">
+            <div class="modal-header">
+                <h3 class="modal-title">&#129513; 重复梗检查</h3>
+                <button class="modal-close" onclick="closeModal('g-dedup-modal')">&times;</button>
+            </div>
+            <div id="g-dedup-summary" style="font-size:0.9rem;color:#94a3b8;margin-bottom:8px;"></div>
+            <div id="g-dedup-list" style="max-height:52vh;overflow:auto;"></div>
+            <div id="g-dedup-result" class="result-msg"></div>
+            <div class="modal-footer">
+                <button class="btn btn-gray btn-sm" onclick="closeModal('g-dedup-modal')">关闭</button>
+                <button class="btn btn-danger btn-sm" id="g-dedup-apply" onclick="gDedupApply()">删除多余重复项</button>
+            </div>
+        </div>
+    </div>
+
     <!-- 通用：记忆编辑 Modal -->
     <div id="m-edit-modal" class="modal">
         <div class="modal-content">
@@ -665,6 +718,14 @@
                 <label class="form-label">重要性 <span id="m-importance-display">5</span>/10</label>
                 <input type="range" class="importance-slider" id="m-importance" min="1" max="10" value="5" oninput="document.getElementById('m-importance-display').textContent=this.value">
                 <div class="importance-hint">1-3=闲聊 | 4-6=普通笔记 | 7-9=重要信息 | 10=核心身份/约定</div>
+            </div>
+            <div class="form-group">
+                <label class="form-label">可见性</label>
+                <select class="form-control" id="m-visibility">
+                    <option value="public">公开（群聊/私聊都可能被自动提起）</option>
+                    <option value="private">私有（只在私聊里用，群聊永不自动注入）</option>
+                </select>
+                <div class="importance-hint">隐私、约定、某个人的事都建议设为「私有」</div>
             </div>
             <div class="modal-footer">
                 <button class="btn btn-gray btn-sm" onclick="closeModal('m-edit-modal')">取消</button>
@@ -964,16 +1025,79 @@
                 showConfirm('请先勾选要删除的梗', function(){});
                 return;
             }
-            const count = gSelected.size;
-            showConfirm(`确定删除选中的 ${count} 个梗？此操作不可恢复。`, async function() {
+            const ids = [...gSelected];
+            showConfirm(`确定删除选中的 ${ids.length} 个梗？此操作不可恢复。`, async function() {
                 try {
-                    for (const id of [...gSelected]) {
-                        await apiPost(`api/glossary/${id}/delete`, {});
-                    }
+                    const resp = await apiPost('api/glossary/batch-delete', { ids });
+                    const n = (resp.result && resp.result.deleted !== undefined) ? resp.result.deleted : ids.length;
                     gSelected.clear();
+                    gUpdateBatchBar();
+                    if (typeof showToast === 'function') showToast(`已删除 ${n} 个梗`);
                     gLoadStats(); gLoad(1); gLoadCats();
                 } catch (e) {
                     showConfirm('删除失败: ' + e.message, function(){});
+                }
+            });
+        }
+
+        // ==================== 存量重复检查 ====================
+        let gDedupReport = null;
+
+        async function gCheckDedup() {
+            const btn = document.querySelector('button[onclick="gCheckDedup()"]');
+            if (btn) btn.disabled = true;
+            try {
+                const d = await apiPost('api/glossary/dedup', { dry_run: true });
+                gDedupReport = d;
+                const list = document.getElementById('g-dedup-list');
+                const summary = document.getElementById('g-dedup-summary');
+                const applyBtn = document.getElementById('g-dedup-apply');
+                const groups = d.groups || [];
+                document.getElementById('g-dedup-result').textContent = '';
+                if (!groups.length) {
+                    summary.textContent = `扫描 ${d.scanned || 0} 条，没有发现重复。`;
+                    list.innerHTML = '<div class="empty-state">很干净，没有重复条目</div>';
+                    applyBtn.style.display = 'none';
+                } else {
+                    const dupCount = d.duplicate_count || 0;
+                    summary.textContent = `扫描 ${d.scanned || 0} 条，发现 ${groups.length} 组重复，共 ${dupCount} 条多余`
+                        + (d.truncated ? '（词库过大已截断，建议多次执行）' : '');
+                    list.innerHTML = groups.map((g, gi) => `
+                        <div style="border:1px solid rgba(139,92,246,0.15);border-radius:8px;padding:10px;margin-bottom:8px;">
+                            <div style="font-size:0.85rem;color:#10b981;margin-bottom:4px;">
+                                &#10003; 保留：<b>${escapeHtml(g.keep.term)}</b>（ID ${g.keep.id}）
+                            </div>
+                            <div style="font-size:0.78rem;color:#94a3b8;margin-bottom:6px;">${escapeHtml(g.keep.meaning || '')}</div>
+                            ${g.duplicates.map(d2 => `
+                                <div style="font-size:0.85rem;color:#ef4444;">
+                                    &#10007; 删除：<b>${escapeHtml(d2.term)}</b>（ID ${d2.id}）
+                                    <span style="color:#94a3b8;font-size:0.78rem;">${escapeHtml(d2.meaning || '')}</span>
+                                </div>`).join('')}
+                        </div>`).join('');
+                    applyBtn.style.display = 'inline-flex';
+                }
+                document.getElementById('g-dedup-modal').classList.add('show');
+            } catch (e) {
+                showConfirm('检查失败: ' + e.message, function(){});
+            } finally {
+                if (btn) btn.disabled = false;
+            }
+        }
+
+        function gDedupApply() {
+            const d = gDedupReport;
+            if (!d || !(d.groups || []).length) return;
+            const n = d.duplicate_count || 0;
+            showConfirm(`确定删除这 ${n} 条重复的梗？每组会保留释义最完整的那条。`, async function() {
+                try {
+                    const resp = await apiPost('api/glossary/dedup', { dry_run: false });
+                    const deleted = (resp.result && resp.result.deleted !== undefined) ? resp.result.deleted : n;
+                    document.getElementById('g-dedup-list').innerHTML = '<div class="empty-state">已完成清理</div>';
+                    document.getElementById('g-dedup-summary').textContent = `已删除 ${deleted} 条重复梗`;
+                    document.getElementById('g-dedup-apply').style.display = 'none';
+                    gLoadStats(); gLoad(1); gLoadCats();
+                } catch (e) {
+                    showConfirm('清理失败: ' + e.message, function(){});
                 }
             });
         }
@@ -1162,20 +1286,74 @@
                 return;
             }
             grid.innerHTML = mems.map(m => `
-                <div class="memory-card">
+                <div class="memory-card${mBatchMode ? ' batch-active' : ''}${mSelected.has(m.id) ? ' g-selected' : ''}" data-id="${m.id}" onclick="mCardClick(${m.id})">
                     <div class="memory-header">
                         <span class="memory-importance">重要性: ${m.importance || 1}</span>
                         <span class="memory-category">${escapeHtml(m.category || 'general')}</span>
+                        ${m.visibility === 'private' ? '<span class="memory-category" title="只在私聊自动注入">私有</span>' : ''}
                     </div>
                     <div class="memory-content">${escapeHtml(m.content)}</div>
                     ${m.tags ? `<div class="memory-tags">${m.tags.split(',').filter(Boolean).map(t => `<span class="tag">${escapeHtml(t.trim())}</span>`).join('')}</div>` : ''}
                     <div class="memory-actions">
                         <span class="memory-date">${formatDate(m.created_at)}</span>
-                        <button class="btn btn-outline btn-sm" onclick="mEdit(${m.id})">编辑</button>
-                        <button class="btn btn-danger btn-sm" onclick="mDelete(${m.id})">删除</button>
+                        <button class="btn btn-outline btn-sm" onclick="event.stopPropagation();mEdit(${m.id})">编辑</button>
+                        <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();mDelete(${m.id})">删除</button>
                     </div>
                 </div>
             `).join('');
+        }
+
+        // ==================== 记忆批量删除 ====================
+        let mBatchMode = false;
+        const mSelected = new Set();
+
+        function mCardClick(id) {
+            if (!mBatchMode) return;
+            if (mSelected.has(id)) mSelected.delete(id);
+            else mSelected.add(id);
+            mUpdateBatchBar();
+            const card = document.querySelector(`.memory-card[data-id="${id}"]`);
+            if (card) card.classList.toggle('g-selected', mSelected.has(id));
+        }
+
+        function mEnterBatch() {
+            mBatchMode = true;
+            mSelected.clear();
+            document.getElementById('m-batch-bar').style.display = 'flex';
+            document.getElementById('m-batch-btn').textContent = '\u2705 选择中';
+            mUpdateBatchBar();
+            mRender(mMemories);
+        }
+
+        function mExitBatch() {
+            mBatchMode = false;
+            mSelected.clear();
+            document.getElementById('m-batch-bar').style.display = 'none';
+            document.getElementById('m-batch-btn').textContent = '\uD83D\uDCCB 批量删除';
+            mRender(mMemories);
+        }
+
+        function mUpdateBatchBar() {
+            const el = document.getElementById('m-batch-count');
+            if (el) el.textContent = mSelected.size;
+        }
+
+        function mBatchDelete() {
+            if (mSelected.size === 0) {
+                showConfirm('请先勾选要删除的记忆', function(){});
+                return;
+            }
+            const ids = [...mSelected];
+            showConfirm(`确定删除选中的 ${ids.length} 条记忆？此操作不可恢复。`, async function() {
+                try {
+                    const resp = await apiPost('api/memories/batch-delete', { ids });
+                    const n = (resp.result && resp.result.deleted !== undefined) ? resp.result.deleted : ids.length;
+                    mSelected.clear();
+                    mUpdateBatchBar();
+                    if (typeof showToast === 'function') showToast(`已删除 ${n} 条记忆`);
+                    mLoad(1);
+                } catch (e) { showConfirm('删除失败: ' + e.message, function(){}); }
+            });
         }
 
         function mRenderPagination(total, totalPages) {
@@ -1209,6 +1387,7 @@
             document.getElementById('m-tags').value = '';
             document.getElementById('m-importance').value = 5;
             document.getElementById('m-importance-display').textContent = 5;
+            document.getElementById('m-visibility').value = 'public';
             document.getElementById('m-edit-title').textContent = '添加记忆';
             document.getElementById('m-edit-modal').classList.add('show');
         }
@@ -1222,6 +1401,7 @@
             document.getElementById('m-tags').value = m.tags || '';
             document.getElementById('m-importance').value = m.importance || 5;
             document.getElementById('m-importance-display').textContent = m.importance || 5;
+            document.getElementById('m-visibility').value = m.visibility === 'private' ? 'private' : 'public';
             document.getElementById('m-edit-title').textContent = '编辑记忆';
             document.getElementById('m-edit-modal').classList.add('show');
         }
@@ -1234,7 +1414,8 @@
                 content,
                 category: document.getElementById('m-category').value,
                 tags: document.getElementById('m-tags').value,
-                importance: parseInt(document.getElementById('m-importance').value)
+                importance: parseInt(document.getElementById('m-importance').value),
+                visibility: document.getElementById('m-visibility').value
             };
             try {
                 if (id) {
@@ -1467,11 +1648,15 @@
                 setBool('s-memory_palace', cfg.memory_palace, true);
                 setBool('s-webui_enabled', cfg.webui_enabled, false);
                 setNum('s-rel_refresh', cfg.relation_injection_refresh_time, 3600);
+                setBool('s-mem_auto_inject', cfg.memory_auto_inject_enabled, true);
+                setNum('s-mem_limit', cfg.memory_auto_inject_limit, 3);
+                setNum('s-mem_min_score', cfg.memory_auto_inject_min_score, 2);
                 setNum('s-related_limit', cfg.search_related_limit, 3);
                 setNum('s-webui_port', cfg.webui_port, 5000);
                 document.getElementById('s-inject_pos').value = cfg.context_inject_position || 'system_prompt';
                 setBool('s-collect_enabled', cfg.glossary_collect_enabled, true);
                 setNum('s-collect_interval', cfg.glossary_collect_interval_hours, 24);
+                setNum('s-collect_max', cfg.glossary_collect_max_per_run, 8);
                 await sLoadProviders();
                 document.getElementById('s-collect_llm').value = cfg.glossary_collect_llm_model || '';
             } catch (e) { console.error('设置加载失败:', e); }
@@ -1493,11 +1678,15 @@
                 ['s-memory_palace', 'memory_palace', 'bool'],
                 ['s-webui_enabled', 'webui_enabled', 'bool'],
                 ['s-rel_refresh', 'relation_injection_refresh_time', 'int'],
+                ['s-mem_auto_inject', 'memory_auto_inject_enabled', 'bool'],
+                ['s-mem_limit', 'memory_auto_inject_limit', 'int'],
+                ['s-mem_min_score', 'memory_auto_inject_min_score', 'int'],
                 ['s-related_limit', 'search_related_limit', 'int'],
                 ['s-webui_port', 'webui_port', 'int'],
                 ['s-inject_pos', 'context_inject_position', 'str'],
                 ['s-collect_enabled', 'glossary_collect_enabled', 'bool'],
                 ['s-collect_interval', 'glossary_collect_interval_hours', 'int'],
+                ['s-collect_max', 'glossary_collect_max_per_run', 'int'],
                 ['s-collect_llm', 'glossary_collect_llm_model', 'str']
             ];
             for (const [elId, key, type] of fields) {
@@ -1548,11 +1737,17 @@
         window.gDoImport = gDoImport;
         window.gExport = gExport;
         window.gClearAuto = gClearAuto;
+        window.gCheckDedup = gCheckDedup;
+        window.gDedupApply = gDedupApply;
         window.gLoad = gLoad;
         window.mAdd = mAdd;
         window.mEdit = mEdit;
         window.mSave = mSave;
         window.mDelete = mDelete;
+        window.mCardClick = mCardClick;
+        window.mEnterBatch = mEnterBatch;
+        window.mExitBatch = mExitBatch;
+        window.mBatchDelete = mBatchDelete;
         window.mLoad = mLoad;
         window.mChangeSort = mChangeSort;
         window.mShowImport = mShowImport;

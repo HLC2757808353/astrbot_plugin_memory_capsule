@@ -41,26 +41,50 @@
     "display_name": "注入位置"
   },
   "relation_injection_refresh_time": {
-    "description": "关系信息注入刷新间隔（秒）",
+    "description": "关系信息重新查库的间隔（秒）",
     "type": "int",
     "default": 3600,
-    "hint": "同一用户多久重新检索一次关系。-1=每次对话都注入",
+    "hint": "关系档案现在每轮对话都会注入，这个值只控制多久重新读一次数据库。-1=每轮都重读",
     "editable": true,
     "display_name": "关系刷新间隔"
   },
+  "memory_auto_inject_enabled": {
+    "description": "记忆自动匹配注入（按用户这句话自动捞出相关记忆，省掉AI主动搜索）",
+    "type": "bool",
+    "default": true,
+    "hint": "开启后每轮对话自动匹配记忆库；命中率低的消息不会注入任何东西",
+    "editable": true,
+    "display_name": "记忆自动匹配注入"
+  },
+  "memory_auto_inject_limit": {
+    "description": "自动匹配注入的最大条数",
+    "type": "int",
+    "default": 3,
+    "hint": "建议2-5条，0=关闭自动匹配注入",
+    "editable": true,
+    "display_name": "自动注入条数"
+  },
+  "memory_auto_inject_min_score": {
+    "description": "自动匹配的严格程度（至少命中几个关键词才算相关）",
+    "type": "int",
+    "default": 2,
+    "hint": "越小越容易注入但容易塞无关内容；只有1个关键词的短句会自动放宽为1",
+    "editable": true,
+    "display_name": "匹配严格度"
+  },
   "time_offset": {
-    "description": "时区偏移（小时）",
+    "description": "（已废弃，不再生效）时区偏移（小时）",
     "type": "int",
     "default": 8,
-    "hint": "根据你的所在时区调整。中国=8, 日本=9, 美东=-5。影响上述互动时间的显示",
+    "hint": "互动时间改用本机时间直接计算相对值，此项不再影响显示；保留仅为兼容旧配置",
     "editable": true,
-    "display_name": "时区偏移"
+    "display_name": "时区偏移(废弃)"
   },
   "relation_cache_ttl": {
     "description": "关系信息缓存时间（秒）",
     "type": "int",
     "default": 300,
-    "hint": "同一用户缓存期内不重复查询。0=禁用缓存",
+    "hint": "同一用户档案在内存里缓存多久；实际刷新间隔取它与「关系刷新间隔」中较小的一个。0=禁用缓存（每轮都查库）",
     "editable": true,
     "display_name": "关系缓存"
   },
@@ -217,6 +241,14 @@
     "hint": "留空则使用第一个可用模型。每次采集只调用1-2次LLM",
     "editable": true,
     "display_name": "提炼模型"
+  },
+  "glossary_collect_max_per_run": {
+    "description": "单轮自动采集最多入库几条",
+    "type": "int",
+    "default": 8,
+    "hint": "宁可少收也别乱收：一轮筛出的词按置信度排序只保留前 N 条，0=按默认 8 条",
+    "editable": true,
+    "display_name": "单轮入库上限"
   },
   "max_aliases_per_user": {
     "description": "每个用户最多允许的别名数量",

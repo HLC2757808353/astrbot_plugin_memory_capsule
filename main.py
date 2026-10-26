@@ -7,13 +7,19 @@ import threading
 import asyncio
 import json
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 
-from .security import validate_content, sanitize_content, filter_relationship_content, sanitize_injection_text
+from .security import (
+    validate_content,
+    sanitize_content,
+    filter_relationship_content,
+    sanitize_injection_text,
+    SENSITIVE_KEYWORDS,
+)
 
 _IMPORTANT_KEYWORDS = frozenset(['约定','承诺','重要','记得','提醒','待办'])
 
-@register("memory_capsule", "引灯续昼", "记忆胶囊插件", "v0.24.0", "https://github.com/HLC2757808353/astrbot_plugin_memory_capsule")
+@register("memory_capsule", "引灯续昼", "记忆胶囊插件", "v0.27.0", "https://github.com/HLC2757808353/astrbot_plugin_memory_capsule")
 class MemoryCapsulePlugin(Star):
     def __init__(self, context: Context, config=None):
         super().__init__(context)
@@ -22,13 +28,8 @@ class MemoryCapsulePlugin(Star):
         self.config = config or {}
         self.webui_host = self.config.get('webui_host', '0.0.0.0')
         self.webui_port = self.config.get('webui_port', 5000)
-        self.last_relation_user_id = None
         self.relation_injection_refresh_time = self.config.get('relation_injection_refresh_time', 3600)
-        self._relation_cache = None
-        self._relation_cache_user_id = None
-        self._relation_cache_time = 0
-        self._relation_cache_ttl = self.config.get('relation_cache_ttl', 300)
-        self._relation_injection_last_time = 0
+        self._relation_cache = {}
         self._glossary_cache = None
         self._glossary_cache_time = 0
         self._glossary_cache_ttl = self.config.get('glossary_cache_ttl', 120)
@@ -123,18 +124,18 @@ class MemoryCapsulePlugin(Star):
             try: self.db_manager.close()
             except Exception: pass
             self.db_manager = None
-        self.last_relation_user_id = None
+        self._relation_cache.clear()
 
     # ==================== AI 可用工具 ====================
 
     @filter.llm_tool(name="update_relationship")
-    async def update_relationship(self, event, user_id, relation_type=None, summary=None, nickname=None, first_met_location=None, notes=None):
+    async def update_relationship(self, event, user_id=None, relation_type=None, summary=None, nickname=None, first_met_location=None, notes=None):
         """
         记录或更新对方的档案。当用户透露了任何关于人的信息（称呼、关系、印象、约定）时调用。
-        至少要填 user_id。其他有就填，没有就不用填。
+        正在和你说话的这个账号直接省略 user_id 即可；只有替别人建档时才需要显式填 ID。
 
         Args:
-            user_id(str): 对方ID，必填
+            user_id(str): 对方ID；省略=当前对话者本人（推荐省略，别把昵称当ID填）
             nickname(str): 对方的称呼或名字
             relation_type(str): 关系，如：朋友、同事、家人、同学
             summary(str): 印象总结，如：性格开朗、喜欢猫咪
@@ -144,6 +145,12 @@ class MemoryCapsulePlugin(Star):
             操作结果
         """
         try:
+            # 没给 ID 就记当前对话者：让 AI 自己填 ID 时很容易把昵称当 ID 存进去，
+            # 之后按真实 ID 查档案就查不到，于是出现"认错人/像不认识一样"。
+            if not user_id:
+                user_id = event.get_sender_id()
+            user_id = str(user_id)
+
             relation_type, summary, nickname, warnings = filter_relationship_content(
                 str(relation_type) if relation_type else None,
                 str(summary) if summary else None,
@@ -160,31 +167,35 @@ class MemoryCapsulePlugin(Star):
 
             if not first_met_location and current_group:
                 existing = await asyncio.to_thread(
-                    self.db_manager.get_relationship_by_user_id, str(user_id)
+                    self.db_manager.get_relationship_by_user_id, user_id
                 )
                 if not existing:
                     first_met_location = current_group
 
-            return await asyncio.to_thread(
+            result = await asyncio.to_thread(
                 self.db_manager.update_relationship_enhanced,
-                str(user_id),
+                user_id,
                 relation_type,
                 summary,
                 nickname,
                 str(first_met_location) if first_met_location else None,
                 str(notes) if notes else None
             )
+            # 档案变了，立刻让缓存失效，否则接下来几分钟还会读到旧档案
+            self._relation_cache.pop(user_id, None)
+            return result
         except Exception as e:
             return f"失败: {e}"
 
     @filter.llm_tool(name="write_memory")
-    async def write_memory(self, event, content, importance=None):
+    async def write_memory(self, event, content, importance=None, visibility=None):
         """
         记录一条信息到长期记忆。当用户提到重要内容、知识、约定、待办时调用。
 
         Args:
             content(str): 要记住的内容
             importance(int): 重要性 1-10，不填自动判断。10=极重要如密码/核心约定，5=普通笔记，1=闲聊
+            visibility(str): private=只能私下说（隐私、约定、某人的事），public=群里说也没关系。不填由内容自动判断
         Returns:
             操作结果
         """
@@ -208,6 +219,17 @@ class MemoryCapsulePlugin(Star):
                     importance = 7
                     break
 
+        # 可见性：AI 没明确指定时，命中隐私关键词就默认 private，免得在群里被念出来
+        visibility = str(visibility).lower().strip() if visibility else ""
+        if visibility not in ('public', 'private'):
+            visibility = 'private' if any(kw in content for kw in SENSITIVE_KEYWORDS) else 'public'
+
+        owner_id = ""
+        try:
+            owner_id = str(event.get_sender_id() or "")
+        except Exception:
+            pass
+
         category = None
         category_model = self.config.get('category_model', '')
         if category_model and self.context:
@@ -227,7 +249,10 @@ class MemoryCapsulePlugin(Star):
             except Exception:
                 pass
         try:
-            return await asyncio.to_thread(self.db_manager.write_memory, content, category, importance=importance)
+            return await asyncio.to_thread(
+                self.db_manager.write_memory, content, category,
+                importance=importance, visibility=visibility, owner_id=owner_id
+            )
         except Exception as e:
             return f"失败: {e}"
 
@@ -236,6 +261,7 @@ class MemoryCapsulePlugin(Star):
         """
         搜索记忆。用多个相关词一起搜效果更好。例如搜"吃饭口味"不如搜"吃饭 口味 喜欢 爱吃的"。
         除了精确匹配的结果，还会额外返回几条不完全相关但可能有用的"联想记忆"（associative=true）。
+        结果里的 visibility 表示能不能当众说：private=只能在私下提，别在群里讲；public=群里说也没关系。
 
         Args:
             query(str): 搜索关键词，多个词用空格隔开，越多越准
@@ -376,17 +402,23 @@ class MemoryCapsulePlugin(Star):
         if not self.config.get('auto_inject_enabled', True):
             return req
         try:
-            user_id = event.get_sender_id()
-            current_time = time.time()
-
-            await asyncio.to_thread(self.db_manager.auto_update_last_interaction, user_id)
+            user_id = str(event.get_sender_id() or "")
+            try:
+                sender_name = event.get_sender_name() or ""
+            except Exception:
+                sender_name = ""
+            try:
+                current_group = event.get_group_id() or ""
+            except Exception:
+                current_group = ""
+            is_group = bool(current_group)
+            user_message = (event.message_str or "").strip()
 
             injection_parts = []
 
-            # ---------- 梗库匹配注入（每次消息独立检查，不受关系注入节流影响） ----------
-            try:
-                user_message = event.message_str or ""
-                if user_message.strip():
+            # ---------- 梗库匹配注入（每次消息独立检查） ----------
+            if user_message:
+                try:
                     glossary_hits = await asyncio.to_thread(self._match_glossary, user_message)
                     if glossary_hits:
                         hit_lines = []
@@ -400,53 +432,68 @@ class MemoryCapsulePlugin(Star):
                             + "\n".join(hit_lines)
                             + "\n</梗/黑话释义>"
                         )
-            except Exception as e:
-                logger.error(f"梗匹配注入失败: {e}")
+                except Exception as e:
+                    logger.error(f"梗匹配注入失败: {e}")
 
-            # ---------- 关系注入（按原有节流逻辑） ----------
-            should_inject = False
-            if self.relation_injection_refresh_time == -1:
-                should_inject = True
-            elif user_id != self.last_relation_user_id:
-                should_inject = True
-            elif current_time - self._relation_injection_last_time >= self.relation_injection_refresh_time:
-                should_inject = True
-
-            if should_inject:
-                if (self._relation_cache is not None and
-                    self._relation_cache_user_id == user_id and
-                    current_time - self._relation_cache_time < self._relation_cache_ttl):
-                    user_relation = self._relation_cache
+            # ---------- 关系注入：每轮都注入，只有"查库"受刷新间隔限制 ----------
+            # 系统提示词每轮都会重建，注入只对当前这一轮生效；所以这里绝不能节流，
+            # 否则同一用户连续说话时，第二轮之后就完全没有对方档案了（表现为"失忆"）。
+            relation, db_ok = await asyncio.to_thread(self._load_relation_cached, user_id)
+            if db_ok:
+                if relation:
+                    relation_xml = self._build_relation_xml(relation, current_group, sender_name)
                 else:
-                    user_relation = await asyncio.to_thread(self.db_manager.get_relationship_with_identity, user_id)
-                    self._relation_cache = user_relation
-                    self._relation_cache_user_id = user_id
-                    self._relation_cache_time = current_time
-
-                current_group = ""
-                try: current_group = event.get_group_id() or ""
-                except Exception: pass
-
-                if user_relation:
-                    relation_xml = self._build_relation_xml(user_relation, current_group)
-                else:
-                    sender_name = ""
-                    try: sender_name = event.get_sender_name() or ""
-                    except Exception: pass
-                    if sender_name:
-                        relation_xml = f"<relationship>ID={user_id}, 名称={sender_name}, 该对象暂未存入档案</relationship>"
-                    else:
-                        relation_xml = f"<relationship>ID={user_id}, 该对象暂未存入档案</relationship>"
-
-                self._relation_injection_last_time = current_time
-                self.last_relation_user_id = user_id
-
+                    relation_xml = (
+                        f"<relationship>ID={user_id}"
+                        + (f", 名称={sender_name}" if sender_name else "")
+                        + ", 档案为空（关于TA的一切都还没记下来，不要编造已知信息）</relationship>"
+                    )
+                scene = f"当前场景={current_group}群聊" if is_group else "当前场景=私聊"
                 injection_parts.append(
                     "<对当前对话对象的了解>\n"
-                    "以下是关于正在和你聊天的这个人的信息，是你之前和TA相处时记下的印象。请自然地融入对话中，不要像报档案一样逐条念出来。\n"
-                    f"{relation_xml}\n"
+                    "以下是关于【正在和你说话的这个账号】的信息，来自你之前和TA相处时记下的印象。\n"
+                    "请自然地融入对话，不要像念档案一样逐条复述；这些信息只属于这个人，"
+                    "不要套用到群里的其他成员身上。群体聊天里若分不清谁说过的，就先问一句，别张冠李戴。\n"
+                    f"{relation_xml}, {scene}\n"
                     "</对当前对话对象的了解>"
                 )
+            else:
+                logger.warning(f"关系档案读取失败，本轮跳过关系注入: {user_id}")
+
+            # 更新时间放在取档案之后：先记一次互动再去读，会让"上次互动"永远显示"刚刚"
+            try:
+                await asyncio.to_thread(self.db_manager.auto_update_last_interaction, user_id)
+            except Exception as e:
+                logger.error(f"更新最近互动时间失败: {e}")
+
+            # ---------- 记忆自动匹配注入 ----------
+            # 私聊里连私有记忆一起匹配；群聊只匹配 public（大家的记忆），
+            # 免得把只该私下说的内容当众念出来。缺失的词面重合度不足就不注入。
+            memory_limit = int(self.config.get('memory_auto_inject_limit', 3) or 0)
+            if memory_limit > 0 and len(user_message) >= 3:
+                try:
+                    min_score = int(self.config.get('memory_auto_inject_min_score', 2) or 1)
+                    matches = await asyncio.to_thread(
+                        self.db_manager.match_memories,
+                        user_message,
+                        memory_limit,
+                        min_score,
+                        not is_group,
+                        user_id,
+                    )
+                    if matches:
+                        lines = []
+                        for m in matches:
+                            lines.append(f"- [#{m['id']}|{m.get('category') or 'general'}] {m['content']}")
+                        injection_parts.append(
+                            "<可能相关的历史记忆>\n"
+                            "以下是从记忆库里自动匹配到的条目，仅供参考：和当前话题无关就完全忽略，"
+                            "不要生硬引用，也不要假设一定和对方有关（记忆库是共享的）。\n"
+                            + "\n".join(lines)
+                            + "\n</可能相关的历史记忆>"
+                        )
+                except Exception as e:
+                    logger.error(f"记忆匹配注入失败: {e}")
 
             if not injection_parts:
                 return req
@@ -468,6 +515,47 @@ class MemoryCapsulePlugin(Star):
         except Exception as e:
             logger.error(f"注入失败: {e}")
         return req
+
+    def _load_relation_cached(self, user_id):
+        """读取当前对话者的关系档案（带 TTL 缓存）。
+
+        关系注入现在是"每轮都注入、查库按间隔刷新"，缓存时长取「关系刷新间隔」与
+        「关系缓存」中较小的正值；relation_injection_refresh_time=-1 表示每轮重查。
+        （原先一个是"注不注入"一个是"缓存多久"，注入被节流后同一用户一小时内的
+        后续消息就彻底没有档案了，这就是"像是失忆"的根因。）
+
+        Args:
+            user_id: 当前对话者 ID。
+
+        Returns:
+            (relation, ok)。ok=False 表示数据库读失败——此时不能当成"没有档案"，
+            调用方应当跳过注入，而不是去扮演一个陌生人的角色。
+        """
+        refresh = self.config.get('relation_injection_refresh_time', 3600)
+        cache_ttl = self.config.get('relation_cache_ttl', 300)
+        if refresh == -1:
+            ttl = 0
+        elif not cache_ttl or cache_ttl <= 0:
+            ttl = max(0, refresh)
+        elif not refresh or refresh <= 0:
+            ttl = max(0, cache_ttl)
+        else:
+            ttl = min(cache_ttl, refresh)
+
+        now = time.time()
+        entry = self._relation_cache.get(user_id)
+        if entry is not None and now - entry['ts'] < ttl:
+            return entry['rel'], True
+        try:
+            relation = self.db_manager.get_relationship_checked(user_id)
+        except Exception as e:
+            logger.error(f"关系档案查询失败 {user_id}: {e}")
+            return (entry['rel'] if entry else None), entry is not None
+        self._relation_cache[user_id] = {'ts': now, 'rel': relation}
+        if len(self._relation_cache) > 500:
+            for key in list(self._relation_cache)[:100]:
+                self._relation_cache.pop(key, None)
+        return relation, True
 
     def _match_glossary(self, text):
         """匹配用户消息中出现的梗词，返回命中的梗列表。"""
@@ -514,16 +602,14 @@ class MemoryCapsulePlugin(Star):
             years = int(seconds / 31536000)
             return f"{years}年前"
 
-    def _build_relation_xml(self, relation, current_group=""):
+    def _build_relation_xml(self, relation, current_group="", sender_name=""):
         user_id = relation.get('user_id') or ''
-        nickname = relation.get('nickname') or ''
+        nickname = relation.get('nickname') or sender_name or ''
         relation_type = relation.get('relation_type') or ''
         summary = relation.get('summary') or ''
         notes = relation.get('notes') or ''
         first_met = relation.get('first_met_location') or ''
         last_interaction = relation.get('last_interaction') or ''
-
-        time_offset = self.config.get('time_offset', 8)
 
         parts = []
         if user_id:
@@ -545,10 +631,10 @@ class MemoryCapsulePlugin(Star):
                 iso_time = str(last_interaction)
                 if len(iso_time) > 19:
                     iso_time = iso_time[:19]
+                # 库里存的就是本机本地时间，不能再叠加 time_offset，否则时间会跑到未来，
+                # 相对时间算出来永远是"刚刚"。
                 dt = datetime.fromisoformat(iso_time)
-                dt = dt + timedelta(hours=time_offset)
-                relative = self._format_relative_time(dt)
-                parts.append(f'上次互动={relative}')
+                parts.append(f'上次互动={self._format_relative_time(dt)}')
             except Exception:
                 pass
         if parts:
