@@ -340,6 +340,28 @@ class DatabaseManager:
                 hit_count INTEGER DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
+            # 对话缓存：供"放养式自学"回看，定期清理
+            cursor.execute('''CREATE TABLE IF NOT EXISTS learn_turns (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT DEFAULT '', group_id TEXT DEFAULT '',
+                user_msg TEXT DEFAULT '', bot_reply TEXT DEFAULT '',
+                corrected INTEGER DEFAULT 0, correction TEXT DEFAULT '',
+                processed INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
+            # 学到的"说话方式"：rule=硬规则；example=场景示范对
+            cursor.execute('''CREATE TABLE IF NOT EXISTS style_rules (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                kind TEXT DEFAULT 'rule',
+                category TEXT DEFAULT '表达方式',
+                rule TEXT DEFAULT '',
+                scene TEXT DEFAULT '', bad TEXT DEFAULT '', good TEXT DEFAULT '',
+                evidence INTEGER DEFAULT 1, hits INTEGER DEFAULT 0,
+                active INTEGER DEFAULT 1, source TEXT DEFAULT 'auto',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_learn_turns_uid ON learn_turns(user_id)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_learn_turns_proc ON learn_turns(processed)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_style_rules_active ON style_rules(active)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_memories_category ON memories(category)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_memories_importance ON memories(importance)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_memories_created ON memories(created_at)')
@@ -1572,3 +1594,283 @@ class DatabaseManager:
             return matches
         result = self._execute_read(_do_op)
         return result if result is not None else []
+
+    # ==================== 自动学习（说话方式） ====================
+
+    def push_learn_turn(self, user_id, group_id, user_msg, bot_reply):
+        """缓存一轮对话（用户说了什么 + 她怎么回的），供之后回看学习。
+
+        Args:
+            user_id: 用户 ID。
+            group_id: 群 ID，私聊传空串。
+            user_msg: 用户这轮说的话。
+            bot_reply: 她这轮的回复。
+
+        Returns:
+            新记录 ID；内容为空时返回 None。
+        """
+        user_msg = str(user_msg or '').strip()[:1000]
+        bot_reply = str(bot_reply or '').strip()[:1500]
+        if not user_msg or not bot_reply:
+            return None
+        def _do_op(conn):
+            cursor = conn.cursor()
+            cursor.execute(
+                'INSERT INTO learn_turns (user_id, group_id, user_msg, bot_reply) VALUES (?, ?, ?, ?)',
+                (str(user_id or ''), str(group_id or ''), user_msg, bot_reply))
+            return cursor.lastrowid
+        return self._execute_write(_do_op)
+
+    def mark_last_turn_corrected(self, user_id, correction):
+        """把该用户最近一轮标记为"被纠正"，并记下纠正原话。
+
+        Args:
+            user_id: 用户 ID。
+            correction: 用户随后说的纠正内容。
+
+        Returns:
+            被标记的记录 ID；没有可标记的轮次时返回 None。
+        """
+        def _do_op(conn):
+            cursor = conn.cursor()
+            cursor.execute(
+                'SELECT id FROM learn_turns WHERE user_id = ? ORDER BY id DESC LIMIT 1',
+                (str(user_id or ''),))
+            row = cursor.fetchone()
+            if not row:
+                return None
+            cursor.execute(
+                'UPDATE learn_turns SET corrected = 1, correction = ? WHERE id = ?',
+                (str(correction or '')[:500], row[0]))
+            return row[0]
+        return self._execute_write(_do_op)
+
+    def get_unprocessed_turns(self, limit=40, max_age_hours=48):
+        """取最近尚未学习过的对话轮次（含被纠正标记）。"""
+        since = (datetime.now() - timedelta(hours=max_age_hours)).strftime('%Y-%m-%d %H:%M:%S')
+        def _do_op(conn):
+            cursor = conn.cursor()
+            cursor.execute(
+                'SELECT id, user_id, group_id, user_msg, bot_reply, corrected, correction '
+                'FROM learn_turns WHERE processed = 0 AND created_at >= ? ORDER BY id ASC LIMIT ?',
+                (since, limit))
+            return [dict(r) for r in cursor.fetchall()]
+        result = self._execute_read(_do_op)
+        return result or []
+
+    def mark_turns_processed(self, ids):
+        """标记这些轮次已学习过，避免重复喂给模型。"""
+        clean = []
+        for i in ids or []:
+            try:
+                clean.append(int(i))
+            except (TypeError, ValueError):
+                continue
+        if not clean:
+            return 0
+        def _do_op(conn):
+            cursor = conn.cursor()
+            placeholders = ','.join('?' * len(clean))
+            cursor.execute(f'UPDATE learn_turns SET processed = 1 WHERE id IN ({placeholders})', clean)
+            return cursor.rowcount
+        return self._execute_write(_do_op) or 0
+
+    def prune_learn_turns(self, days=7):
+        """清理过期的对话缓存（默认保留 7 天）。"""
+        cutoff = (datetime.now() - timedelta(days=max(1, int(days)))).strftime('%Y-%m-%d %H:%M:%S')
+        def _do_op(conn):
+            cursor = conn.cursor()
+            cursor.execute('DELETE FROM learn_turns WHERE created_at < ?', (cutoff,))
+            return cursor.rowcount
+        return self._execute_write(_do_op) or 0
+
+    @staticmethod
+    def _style_text(row):
+        """把一条 style_rules 记录拼成用于判重的文本。"""
+        if (row.get('kind') or 'rule') == 'example':
+            return f"{row.get('scene') or ''}{row.get('bad') or ''}{row.get('good') or ''}"
+        return row.get('rule') or ''
+
+    def add_style_rule(self, kind='rule', rule='', category='表达方式',
+                       scene='', bad='', good='', source='auto'):
+        """写入一条学到的表达要求或场景示范，自动处理重复与冲突。
+
+        重复（相似度 >= 0.75）：只把 evidence +1，不重复存。
+        冲突（新旧一条含否定、另一条不含，且文字高度重合）：下线旧的那条，
+        避免"说话短一点"和"多解释些"两条并存把人搞精分。
+
+        Args:
+            kind: rule=硬性要求；example=场景示范对。
+            rule: kind=rule 时的规则正文。
+            category: 表达方式 / 长度 / 语气 / 称呼 / 禁忌。
+            scene / bad / good: kind=example 时的场景、错误回法、更好回法。
+            source: auto=自学；manual=手动。
+
+        Returns:
+            "added:<id>" 或 "updated:<id>"，失败返回 None。
+        """
+        kind = 'example' if str(kind).lower() == 'example' else 'rule'
+        payload = {
+            'kind': kind, 'category': str(category or '表达方式')[:20],
+            'rule': str(rule or '').strip()[:300],
+            'scene': str(scene or '').strip()[:200],
+            'bad': str(bad or '').strip()[:300],
+            'good': str(good or '').strip()[:300],
+            'source': str(source or 'auto')[:20],
+        }
+        if kind == 'rule' and len(payload['rule']) < 4:
+            return None
+        if kind == 'example' and len(payload['good']) < 4:
+            return None
+        new_text = self._style_text(payload)
+        new_canon = canonical_term(new_text) or normalize_term(new_text)
+        negations = ('别', '不要', '禁止', '不能', '不许', '少用', '避免')
+
+        def _do_op(conn):
+            cursor = conn.cursor()
+            cursor.execute('SELECT id, kind, rule, scene, bad, good, evidence FROM style_rules '
+                           'WHERE active = 1')
+            for row in cursor.fetchall():
+                old = dict(row)
+                if (old.get('kind') or 'rule') != kind:
+                    continue
+                old_text = self._style_text(old)
+                old_canon = canonical_term(old_text) or normalize_term(old_text)
+                if not old_canon or not new_canon:
+                    continue
+                ratio = difflib.SequenceMatcher(None, new_canon, old_canon).ratio()
+                # 先判冲突：讲同一件事但一条禁止、一条鼓励——新的覆盖旧的，
+                # 否则两条并存在提示词里互相打架（"说话短一点" vs "多解释些"）
+                polarity_differs = (any(n in new_text for n in negations)
+                                    != any(n in old_text for n in negations))
+                if ratio >= 0.5 and polarity_differs:
+                    cursor.execute('UPDATE style_rules SET active = 0, updated_at = ? WHERE id = ?',
+                                   (datetime.now().strftime('%Y-%m-%d %H:%M:%S'), old['id']))
+                    logger.info(f"风格规则冲突，旧规则已下线: {old_text[:30]}")
+                    continue
+                if ratio >= 0.75:
+                    cursor.execute(
+                        'UPDATE style_rules SET evidence = evidence + 1, updated_at = ? WHERE id = ?',
+                        (datetime.now().strftime('%Y-%m-%d %H:%M:%S'), old['id']))
+                    return f"updated:{old['id']}"
+            cursor.execute(
+                'INSERT INTO style_rules (kind, category, rule, scene, bad, good, source) '
+                'VALUES (?, ?, ?, ?, ?, ?, ?)',
+                (payload['kind'], payload['category'], payload['rule'],
+                 payload['scene'], payload['bad'], payload['good'], payload['source']))
+            return f"added:{cursor.lastrowid}"
+        result = self._execute_write(_do_op)
+        return result if isinstance(result, str) else None
+
+    def list_style_rules(self, limit=200, active_only=True, kind=None):
+        """列出学到的规则/示范，用于面板查看与管理。"""
+        def _do_op(conn):
+            cursor = conn.cursor()
+            conditions = []
+            params = []
+            if active_only:
+                conditions.append('active = 1')
+            if kind:
+                conditions.append('kind = ?')
+                params.append(kind)
+            where = (' WHERE ' + ' AND '.join(conditions)) if conditions else ''
+            cursor.execute(
+                f'SELECT * FROM style_rules{where} ORDER BY evidence DESC, id DESC LIMIT ?',
+                params + [limit])
+            return [dict(r) for r in cursor.fetchall()]
+        result = self._execute_read(_do_op)
+        return result or []
+
+    def delete_style_rule(self, rule_id):
+        def _do_op(conn):
+            cursor = conn.cursor()
+            cursor.execute('DELETE FROM style_rules WHERE id = ?', (int(rule_id),))
+            return {"deleted": cursor.rowcount}
+        result = self._execute_write(_do_op)
+        return result if isinstance(result, dict) else {"deleted": 0}
+
+    def deactivate_style_rule(self, rule_id):
+        """下线一条规则（不是删除，保留痕迹便于排查）。"""
+        def _do_op(conn):
+            cursor = conn.cursor()
+            cursor.execute('UPDATE style_rules SET active = 0, updated_at = ? WHERE id = ?',
+                           (datetime.now().strftime('%Y-%m-%d %H:%M:%S'), int(rule_id)))
+            return {"deactivated": cursor.rowcount}
+        result = self._execute_write(_do_op)
+        return result if isinstance(result, dict) else {"deactivated": 0}
+
+    def find_style_rule(self, text, threshold=0.4):
+        """按文字相似度为一句"要替换的旧要求"找到对应的已有规则。"""
+        target = canonical_term(str(text or '')) or normalize_term(str(text or ''))
+        if not target:
+            return None
+        def _do_op(conn):
+            cursor = conn.cursor()
+            cursor.execute('SELECT id, rule FROM style_rules WHERE active = 1 AND kind = ?', ('rule',))
+            best = None
+            best_ratio = 0.0
+            for row in cursor.fetchall():
+                cand = canonical_term(row['rule']) or normalize_term(row['rule'])
+                if not cand:
+                    continue
+                ratio = difflib.SequenceMatcher(None, target, cand).ratio()
+                if ratio > best_ratio:
+                    best, best_ratio = row['id'], ratio
+            return {"id": best, "ratio": round(best_ratio, 3)} if best and best_ratio >= threshold else None
+        result = self._execute_read(_do_op)
+        return result
+
+    def get_rules_for_injection(self, limit=6):
+        """取要常驻注入的硬性要求（证据多的优先）。"""
+        def _do_op(conn):
+            cursor = conn.cursor()
+            cursor.execute(
+                'SELECT id, rule, category FROM style_rules WHERE active = 1 AND kind = ? '
+                'ORDER BY evidence DESC, id DESC LIMIT ?', ('rule', max(1, int(limit))))
+            return [dict(r) for r in cursor.fetchall()]
+        result = self._execute_read(_do_op)
+        return result or []
+
+    def match_style_examples(self, query, limit=2):
+        """按当前话题挑出最相似的场景示范对（词面重合，命中不足就不给）。"""
+        def _do_op(conn):
+            cursor = conn.cursor()
+            cursor.execute(
+                'SELECT id, scene, bad, good FROM style_rules WHERE active = 1 AND kind = ? '
+                'ORDER BY evidence DESC, id DESC LIMIT 200', ('example',))
+            rows = [dict(r) for r in cursor.fetchall()]
+            if not rows:
+                return []
+            words = [w for w in self._tokenize(str(query))
+                     if len(w) >= 2 and w not in self._MATCH_STOPWORDS]
+            words = list(dict.fromkeys(words))[:8]
+            if not words:
+                return []
+            scored = []
+            for row in rows:
+                blob = f"{row.get('scene') or ''}{row.get('good') or ''}"
+                score = sum(1 for w in words if w in blob)
+                if score >= 1:
+                    scored.append((score, row))
+            scored.sort(key=lambda x: -x[0])
+            return [row for _s, row in scored[:max(1, int(limit))]]
+        result = self._execute_read(_do_op)
+        return result or []
+
+    def bump_style_hits(self, ids):
+        """记录这些规则/示范被注入过，用于观察效果。"""
+        clean = []
+        for i in ids or []:
+            try:
+                clean.append(int(i))
+            except (TypeError, ValueError):
+                continue
+        if not clean:
+            return 0
+        def _do_op(conn):
+            cursor = conn.cursor()
+            placeholders = ','.join('?' * len(clean))
+            cursor.execute(f'UPDATE style_rules SET hits = hits + 1 WHERE id IN ({placeholders})', clean)
+            return cursor.rowcount
+        return self._execute_write(_do_op) or 0
+

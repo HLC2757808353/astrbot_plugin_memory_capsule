@@ -305,6 +305,22 @@ class EmbeddedAPI:
         except Exception as e:
             return self._err(e)
 
+    # ==================== 自动学习（说话方式） ====================
+
+    async def api_style_rules_list(self):
+        try:
+            rules = await self._to_thread(self.db_manager.list_style_rules, 200, True, None)
+            return self._ok(rules=rules)
+        except Exception as e:
+            return self._err(e)
+
+    async def api_style_rule_delete(self, rule_id):
+        try:
+            result = await self._to_thread(self.db_manager.delete_style_rule, int(rule_id))
+            return self._ok(result=result)
+        except Exception as e:
+            return self._err(e)
+
     async def api_glossary_categories(self):
         try:
             cats = await self._to_thread(self.db_manager.get_glossary_categories)
@@ -433,6 +449,8 @@ def register_embedded_apis(context, db_manager, config=None):
         (f"/{PLUGIN_NAME}/api/glossary/batch-delete", api.api_glossary_batch_delete, ["POST"], "批量删除梗"),
         (f"/{PLUGIN_NAME}/api/glossary/dedup", api.api_glossary_dedup, ["POST"], "存量重复检测/去重"),
         (f"/{PLUGIN_NAME}/api/providers", api.api_providers, ["GET"], "LLM提供商列表"),
+        (f"/{PLUGIN_NAME}/api/style-rules", api.api_style_rules_list, ["GET"], "已学到的说话规则"),
+        (f"/{PLUGIN_NAME}/api/style-rules/<rule_id>/delete", api.api_style_rule_delete, ["POST"], "删除学到规则"),
         (f"/{PLUGIN_NAME}/api/settings", api.api_settings_get, ["GET"], "读取设置"),
         (f"/{PLUGIN_NAME}/api/settings", api.api_settings_save, ["POST"], "保存设置"),
     ]

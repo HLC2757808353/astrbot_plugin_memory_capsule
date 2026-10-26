@@ -567,6 +567,39 @@
                 <div style="margin-top:10px;"><span class="save-status" id="s-collect-result" style="font-size:0.85rem;color:#10b981;"></span></div>
             </div>
             <div class="settings-card">
+                <div class="settings-title">自动学习（放养模式）</div>
+                <div class="setting-row">
+                    <div class="setting-info"><div class="setting-name">启用自动学习</div><div class="setting-hint">定期回看最近的对话，自己总结"该怎么说话"；你哪句纠正了她，会被当成重点样本</div></div>
+                    <div class="setting-control"><label class="switch"><input type="checkbox" id="s-learn_enabled"><span class="slider"></span></label></div>
+                </div>
+                <div class="setting-row">
+                    <div class="setting-info"><div class="setting-name">回看间隔（小时）</div><div class="setting-hint">平时只缓存不花钱，回看时才调用一次模型</div></div>
+                    <div class="setting-control"><input type="number" class="form-control" id="s-learn_hours"></div>
+                </div>
+                <div class="setting-row">
+                    <div class="setting-info"><div class="setting-name">注入规则条数</div><div class="setting-hint">每轮最多注入几条学到的说话要求，按证据次数排序</div></div>
+                    <div class="setting-control"><input type="number" class="form-control" id="s-learn_rules"></div>
+                </div>
+                <div class="setting-row">
+                    <div class="setting-info"><div class="setting-name">注入示范条数</div><div class="setting-hint">每轮最多注入几条"场景→更好回法"的示范</div></div>
+                    <div class="setting-control"><input type="number" class="form-control" id="s-learn_examples"></div>
+                </div>
+                <div class="setting-row">
+                    <div class="setting-info"><div class="setting-name">每日调用上限</div><div class="setting-hint">被频繁纠正时，一天最多学几次（定时回看不计入）</div></div>
+                    <div class="setting-control"><input type="number" class="form-control" id="s-learn_calls"></div>
+                </div>
+                <div class="setting-row">
+                    <div class="setting-info"><div class="setting-name">学习模型</div><div class="setting-hint">只做"从对话里提炼规则"，便宜快的模型就够</div></div>
+                    <div class="setting-control"><select class="form-control" id="s-learn_model"><option value="">自动（第一个可用模型）</option></select></div>
+                </div>
+                <div class="setting-row">
+                    <div class="setting-info"><div class="setting-name">已学到的规则</div><div class="setting-hint">不合适的可以直接删掉，删了就不再注入</div></div>
+                    <div class="setting-control"><button class="btn btn-outline btn-sm" onclick="lLoad()">刷新</button></div>
+                </div>
+                <div id="l-list" style="max-height:300px;overflow:auto;margin-top:8px;"></div>
+                <div id="l-status" class="save-status" style="font-size:0.85rem;color:#10b981;margin-top:6px;"></div>
+            </div>
+            <div class="settings-card">
                 <div class="settings-title">独立 WebUI（嵌入式已启用，通常无需开启）</div>
                 <div class="setting-row">
                     <div class="setting-info"><div class="setting-name">启用独立 WebUI</div><div class="setting-hint">默认关闭；开启后需开放对应端口</div></div>
@@ -1633,10 +1666,12 @@
         async function sLoadProviders() {
             try {
                 const d = await apiGet('api/providers');
-                const sel = document.getElementById('s-collect_llm');
-                sel.innerHTML = '<option value="">自动（第一个可用模型）</option>' +
+                const options = '<option value="">自动（第一个可用模型）</option>' +
                     (d.providers || []).map(p =>
                         `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}</option>`).join('');
+                document.getElementById('s-collect_llm').innerHTML = options;
+                const learnSel = document.getElementById('s-learn_model');
+                if (learnSel) learnSel.innerHTML = options;
             } catch (e) { console.error('加载 LLM 列表失败:', e); }
         }
 
@@ -1657,8 +1692,16 @@
                 setBool('s-collect_enabled', cfg.glossary_collect_enabled, true);
                 setNum('s-collect_interval', cfg.glossary_collect_interval_hours, 24);
                 setNum('s-collect_max', cfg.glossary_collect_max_per_run, 8);
+                setBool('s-learn_enabled', cfg.learn_enabled, true);
+                setNum('s-learn_hours', cfg.learn_review_hours, 12);
+                setNum('s-learn_rules', cfg.learn_max_rules, 6);
+                setNum('s-learn_examples', cfg.learn_max_examples, 2);
+                setNum('s-learn_calls', cfg.learn_max_calls_per_day, 30);
                 await sLoadProviders();
                 document.getElementById('s-collect_llm').value = cfg.glossary_collect_llm_model || '';
+                const learnSel = document.getElementById('s-learn_model');
+                if (learnSel) learnSel.value = cfg.learn_model || '';
+                lLoad();
             } catch (e) { console.error('设置加载失败:', e); }
         }
 
@@ -1687,7 +1730,13 @@
                 ['s-collect_enabled', 'glossary_collect_enabled', 'bool'],
                 ['s-collect_interval', 'glossary_collect_interval_hours', 'int'],
                 ['s-collect_max', 'glossary_collect_max_per_run', 'int'],
-                ['s-collect_llm', 'glossary_collect_llm_model', 'str']
+                ['s-collect_llm', 'glossary_collect_llm_model', 'str'],
+                ['s-learn_enabled', 'learn_enabled', 'bool'],
+                ['s-learn_hours', 'learn_review_hours', 'int'],
+                ['s-learn_rules', 'learn_max_rules', 'int'],
+                ['s-learn_examples', 'learn_max_examples', 'int'],
+                ['s-learn_calls', 'learn_max_calls_per_day', 'int'],
+                ['s-learn_model', 'learn_model', 'str']
             ];
             for (const [elId, key, type] of fields) {
                 const el = document.getElementById(elId);
@@ -1704,6 +1753,46 @@
             } catch (e) {
                 document.getElementById('s-status').textContent = '保存失败: ' + e.message;
             }
+        }
+
+        // ==================== 已学到的说话规则 ====================
+        async function lLoad() {
+            const box = document.getElementById('l-list');
+            if (!box) return;
+            try {
+                const d = await apiGet('api/style-rules');
+                const rules = d.rules || [];
+                if (!rules.length) {
+                    box.innerHTML = '<div class="empty-state">还没学到东西。让她多聊几天，或在你纠正她之后过一会儿再看。</div>';
+                    return;
+                }
+                box.innerHTML = rules.map(r => {
+                    const isEx = (r.kind === 'example');
+                    const main = isEx
+                        ? `场景：${escapeHtml(r.scene || '')}<br><span style="color:#94a3b8;">更好：${escapeHtml(r.good || '')}</span>`
+                        : escapeHtml(r.rule || '');
+                    return `<div style="display:flex;gap:8px;align-items:flex-start;border:1px solid rgba(139,92,246,0.15);border-radius:8px;padding:8px;margin-bottom:6px;">
+                        <div style="flex:1;font-size:0.85rem;">
+                            <span style="font-size:0.72rem;color:#8b5cf6;">${escapeHtml(r.category || '')}${isEx ? '·示范' : ''} · 证据${r.evidence || 1} · 用${r.hits || 0}次</span>
+                            <div style="margin-top:3px;">${main}</div>
+                        </div>
+                        <button class="btn btn-danger btn-sm" onclick="lDelete(${r.id})">删</button>
+                    </div>`;
+                }).join('');
+            } catch (e) {
+                box.innerHTML = `<div class="empty-state">读取失败: ${escapeHtml(e.message || '')}</div>`;
+            }
+        }
+
+        function lDelete(id) {
+            showConfirm('删掉这条学到的规则？之后不再注入。', async function() {
+                try {
+                    await apiPost(`api/style-rules/${id}/delete`, {});
+                    const st = document.getElementById('l-status');
+                    if (st) { st.textContent = '已删除'; setTimeout(() => st.textContent = '', 2000); }
+                    lLoad();
+                } catch (e) { showConfirm('删除失败: ' + e.message, function(){}); }
+            });
         }
 
         // 立即采集一次
@@ -1761,6 +1850,8 @@
         window.sLoad = sLoad;
         window.sSave = sSave;
         window.sCollectNow = sCollectNow;
+        window.lLoad = lLoad;
+        window.lDelete = lDelete;
         window.loadDashboard = loadDashboard;
 
         // Modal 点击遮罩关闭

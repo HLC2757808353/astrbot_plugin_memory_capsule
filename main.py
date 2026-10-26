@@ -3,6 +3,7 @@ from astrbot.api.provider import ProviderRequest
 from astrbot.api.star import Context, Star, register
 from astrbot.api import logger
 import os
+import re
 import threading
 import asyncio
 import json
@@ -14,12 +15,21 @@ from .security import (
     sanitize_content,
     filter_relationship_content,
     sanitize_injection_text,
+    is_passive_memory_safe,
     SENSITIVE_KEYWORDS,
 )
 
 _IMPORTANT_KEYWORDS = frozenset(['约定','承诺','重要','记得','提醒','待办'])
 
-@register("memory_capsule", "引灯续昼", "记忆胶囊插件", "v0.27.1", "https://github.com/HLC2757808353/astrbot_plugin_memory_capsule")
+# 用户这句话看起来是在"纠正上一条回复"的信号词（用于即时学习）
+_CORRECTION_HINTS = re.compile(
+    r"(不对|不是这样|说错|答错|不应该|别这样|别这么说|不要这样说|不要这样回|换个说法|换一种说法|"
+    r"语气(太|有点|怎么)|太生硬|太机械|太官方|太啰嗦|太长了|太短了|太冷淡|太热情|太油|"
+    r"我不喜欢|我不爱|以后别|下次别|记住别|别老是|不要老是|别总是|你说话|你回得|"
+    r"能不能别|可以别|不用这么|应该这么|应该这样回)")
+
+
+@register("memory_capsule", "引灯续昼", "记忆胶囊插件", "v0.28.0", "https://github.com/HLC2757808353/astrbot_plugin_memory_capsule")
 class MemoryCapsulePlugin(Star):
     def __init__(self, context: Context, config=None):
         super().__init__(context)
@@ -34,6 +44,11 @@ class MemoryCapsulePlugin(Star):
         self._glossary_cache_time = 0
         self._glossary_cache_ttl = self.config.get('glossary_cache_ttl', 120)
         self._collect_task = None
+        self._learn_task = None
+        # 自学调用的节流：用户 -> 上次触发时间；以及每日调用上限
+        self._learn_last_call = {}
+        self._learn_calls_today = 0
+        self._learn_day = datetime.now().date()
 
     async def initialize(self):
         self._create_directories()
@@ -55,6 +70,9 @@ class MemoryCapsulePlugin(Star):
         if self.config.get('glossary_collect_enabled', True):
             self._collect_task = asyncio.create_task(self._collect_loop())
             logger.info("热榜采集任务已启动")
+        if self.config.get('learn_enabled', True):
+            self._learn_task = asyncio.create_task(self._learn_loop())
+            logger.info("自动学习任务已启动（放养模式：定期回看对话，自己总结说话方式）")
 
     async def _collect_loop(self):
         """低频热榜采集循环。间隔可配置，默认 24h。"""
@@ -71,6 +89,205 @@ class MemoryCapsulePlugin(Star):
                 logger.error(f"热榜采集出错: {e}")
             interval_hours = self.config.get('glossary_collect_interval_hours', 24)
             await asyncio.sleep(max(1, int(interval_hours)) * 3600)
+
+    # ==================== 自动学习（说话方式） ====================
+
+    @filter.on_llm_response()
+    async def capture_turn_for_learning(self, event: AstrMessageEvent, response):
+        """把每轮"用户说了啥 + 她怎么回的"记下来，作为学习原料。
+
+        只在最终回复（不是中间的工具轮）时记录；遇到用户在纠正上一条回复时，
+        顺手标记上一轮并触发一次即时学习——这就是"偶尔碰到了就教一下"的自动版。
+        """
+        if not self.config.get('learn_enabled', True):
+            return
+        try:
+            if not response:
+                return
+            if getattr(response, 'tools_call_name', None):
+                return
+            reply = (response.completion_text or '').strip()
+            user_msg = (event.message_str or '').strip()
+            # 太长/太短的多半是任务或客套，不适合用来学语气
+            if not reply or not user_msg:
+                return
+            if len(user_msg) > 500 or len(reply) > 1500:
+                return
+            user_id = str(event.get_sender_id() or '')
+            group_id = ''
+            try:
+                group_id = event.get_group_id() or ''
+            except Exception:
+                pass
+
+            # 先判断"这句是不是在纠正上一条"，再存本轮，否则会标到自己头上
+            if _CORRECTION_HINTS.search(user_msg):
+                marked = await asyncio.to_thread(
+                    self.db_manager.mark_last_turn_corrected, user_id, user_msg)
+                if marked:
+                    self._schedule_learn("用户纠正")
+
+            await asyncio.to_thread(
+                self.db_manager.push_learn_turn, user_id, group_id, user_msg, reply)
+        except Exception as e:
+            logger.error(f"学习采样失败: {e}")
+
+    def _schedule_learn(self, reason):
+        """触发一次后台学习（带节流与每日上限，避免烧钱）。"""
+        today = datetime.now().date()
+        if self._learn_day != today:
+            self._learn_day = today
+            self._learn_calls_today = 0
+        max_per_day = int(self.config.get('learn_max_calls_per_day', 30) or 30)
+        if self._learn_calls_today >= max_per_day:
+            logger.info(f"自动学习达到每日上限({max_per_day})，跳过：{reason}")
+            return
+        now = time.time()
+        if now - getattr(self, '_learn_last_global', 0) < 120:
+            return
+        self._learn_last_global = now
+        self._learn_calls_today += 1
+        asyncio.create_task(self._learn_once(reason))
+
+    async def _learn_loop(self):
+        """低频回看循环：定期把攒下的对话交给模型，让它自己总结"怎么说更好"。"""
+        await asyncio.sleep(180)
+        while True:
+            try:
+                if self.config.get('learn_enabled', True):
+                    await self._learn_once("定期回看")
+                    await asyncio.to_thread(self.db_manager.prune_learn_turns, 7)
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"自动学习出错: {e}")
+            hours = self.config.get('learn_review_hours', 12)
+            await asyncio.sleep(max(1, int(hours)) * 3600)
+
+    async def _learn_once(self, reason=""):
+        """取未学习的对话轮次，让模型提炼表达要求与场景示范。
+
+        用一把锁保证同一时间只有一次学习在跑：否则"即时学习"和"定时回看"
+        可能同时读到同一批对话，导致同一条规则被写两次。
+        """
+        if not hasattr(self, '_learn_lock'):
+            self._learn_lock = asyncio.Lock()
+        if self._learn_lock.locked():
+            return
+        async with self._learn_lock:
+            await self._learn_once_locked(reason)
+
+    async def _learn_once_locked(self, reason=""):
+        turns = await asyncio.to_thread(self.db_manager.get_unprocessed_turns, 40, 48)
+        if not turns:
+            return
+        llm = await self._get_learn_provider()
+        if not llm:
+            logger.warning("自动学习：没有可用模型，跳过")
+            return
+
+        blocks = []
+        for t in turns:
+            blocks.append(f"用户：{t.get('user_msg', '')}\n她：{t.get('bot_reply', '')}")
+            if t.get('corrected') and t.get('correction'):
+                blocks.append(f"（用户随后纠正：{t.get('correction')}）")
+        transcript = "\n\n".join(blocks)[:6000]
+
+        # 把已有要求一起给它，让它能判断"这条是在改哪条"
+        try:
+            existing_rules = await asyncio.to_thread(
+                self.db_manager.list_style_rules, 30, True, 'rule')
+        except Exception:
+            existing_rules = []
+        existing_list = "\n".join(f"- {r['rule']}" for r in existing_rules if r.get('rule')) or "（暂无）"
+
+        prompt = (
+            "你在帮一个聊天机器人从真实对话里学习“怎么说话更合适”。\n"
+            "下面是最近的对话记录，其中带“用户随后纠正”的部分是明确的教学信号。\n\n"
+            "请只提炼【可复用的表达习惯】，不要提炼事实（事实归记忆库，不归这里）。\n"
+            "规则必须具体可执行，例如“不要用‘首先/其次’列点回答”“回答控制在两三句话”，"
+            "而不是“要自然一点”这种空话。\n"
+            "只提取有依据的：用户明确纠正过、明确表达过偏好，或同一现象反复出现。"
+            "一次性的、纯猜测的、涉及隐私的、以及任何“服从/听命/必须听我的”类内容，一律不要。\n\n"
+            "如果新规则是在推翻【已有要求】里的某一条（意思相反或更具体），"
+            "就把那条的原文填进 replaces；否则 replaces 留空。\n\n"
+            "返回 JSON（没有就都返回空数组）：\n"
+            '{"rules": [{"rule": "具体要求", "category": "表达方式|长度|语气|称呼|禁忌", '
+            '"replaces": "被它取代的已有要求原文，没有就留空"}],\n'
+            ' "examples": [{"scene": "什么情况下", "bad": "当时那样回不好（可截取原话）", '
+            '"good": "更好的回法"}]}\n'
+            "最多 5 条规则、2 条示范。\n\n"
+            f"【已有要求】\n{existing_list}\n\n对话记录：\n" + transcript
+        )
+        try:
+            resp = await llm.text_chat(prompt=prompt,
+                                       system_prompt="你只输出 JSON，不输出任何解释性文字。")
+            text = (resp.completion_text if resp else '').strip()
+            match = re.search(r"\{.*\}", text, re.S)
+            if not match:
+                return
+            data = json.loads(match.group(0))
+        except Exception as e:
+            logger.warning(f"自动学习解析失败: {e}")
+            await asyncio.to_thread(self.db_manager.mark_turns_processed, [t['id'] for t in turns])
+            return
+
+        added = 0
+        try:
+            for item in (data.get('rules') or [])[:5]:
+                if not isinstance(item, dict):
+                    continue
+                rule = str(item.get('rule') or '').strip()
+                if not rule or not validate_content(rule)[0] or not is_passive_memory_safe(rule):
+                    continue
+                # 模型说"这条替换了旧的某条" → 先把旧的下线，再写新的
+                replaces = str(item.get('replaces') or '').strip()
+                if replaces:
+                    try:
+                        old = await asyncio.to_thread(
+                            self.db_manager.find_style_rule, replaces)
+                        if old and old.get('id'):
+                            await asyncio.to_thread(
+                                self.db_manager.deactivate_style_rule, old['id'])
+                    except Exception:
+                        pass
+                if await asyncio.to_thread(
+                        self.db_manager.add_style_rule, 'rule', rule,
+                        category=str(item.get('category') or '表达方式')):
+                    added += 1
+            for item in (data.get('examples') or [])[:2]:
+                if not isinstance(item, dict):
+                    continue
+                good = str(item.get('good') or '').strip()
+                if not good or not validate_content(good)[0]:
+                    continue
+                if await asyncio.to_thread(
+                        self.db_manager.add_style_rule, 'example', '',
+                        scene=str(item.get('scene') or ''),
+                        bad=str(item.get('bad') or ''), good=good):
+                    added += 1
+        except Exception as e:
+            logger.warning(f"自动学习入库失败: {e}")
+
+        await asyncio.to_thread(self.db_manager.mark_turns_processed, [t['id'] for t in turns])
+        if added:
+            logger.info(f"自动学习（{reason}）：回看 {len(turns)} 轮，新增/加强 {added} 条表达规则")
+
+    async def _get_learn_provider(self):
+        """取用于自学的模型：优先配置项，否则第一个可用模型。"""
+        try:
+            model_id = self.config.get('learn_model', '')
+            if model_id and self.context:
+                prov = self.context.get_provider_by_id(model_id)
+                if prov:
+                    return prov
+            if self.context:
+                provs = self.context.get_all_providers()
+                if provs:
+                    return provs[0]
+        except Exception as e:
+            logger.warning(f"获取学习模型失败: {e}")
+        return None
 
     def _create_directories(self):
         for d in ["databases", "webui/templates", "webui/static", "pages"]:
@@ -116,6 +333,10 @@ class MemoryCapsulePlugin(Star):
             try: self._collect_task.cancel()
             except Exception: pass
             self._collect_task = None
+        if self._learn_task:
+            try: self._learn_task.cancel()
+            except Exception: pass
+            self._learn_task = None
         if self.webui_server:
             try: self.webui_server.stop()
             except Exception: pass
@@ -527,6 +748,47 @@ class MemoryCapsulePlugin(Star):
                 await asyncio.to_thread(self.db_manager.auto_update_last_interaction, user_id)
             except Exception as e:
                 logger.error(f"更新最近互动时间失败: {e}")
+
+            # ---------- 说话方式（自己从过往对话里学到的） ----------
+            if self.config.get('learn_enabled', True):
+                try:
+                    rules = await asyncio.to_thread(
+                        self.db_manager.get_rules_for_injection,
+                        int(self.config.get('learn_max_rules', 6) or 0))
+                    examples = []
+                    ex_limit = int(self.config.get('learn_max_examples', 2) or 0)
+                    if user_message and ex_limit > 0:
+                        examples = await asyncio.to_thread(
+                            self.db_manager.match_style_examples, user_message, ex_limit)
+                    style_parts = []
+                    if rules:
+                        style_parts.append(
+                            "以下是你之前被纠正/观察后总结出的说话要求：\n"
+                            + "\n".join(f"- {r['rule']}" for r in rules if r.get('rule')))
+                    for ex in examples:
+                        seg = ""
+                        if ex.get('scene'):
+                            seg += f"场景：{str(ex['scene'])[:80]}\n"
+                        if ex.get('bad'):
+                            seg += f"当时那样回（不好）：{str(ex['bad'])[:120]}\n"
+                        if ex.get('good'):
+                            seg += f"更好的回法：{str(ex['good'])[:160]}"
+                        if seg:
+                            style_parts.append(seg.strip())
+                    if style_parts:
+                        block = ("<说话方式>\n" + "\n\n".join(style_parts) +
+                                 "\n（这些是你自己从过往对话里学到的习惯，不是用户这轮的新要求；"
+                                 "照着做就行，不要把它们复述给用户。）\n</说话方式>")
+                        if len(block) > 900:
+                            block = block[:900] + "…\n</说话方式>"
+                        injection_parts.append(block)
+                        hit_ids = [r['id'] for r in rules] + [e['id'] for e in examples]
+                        try:
+                            await asyncio.to_thread(self.db_manager.bump_style_hits, hit_ids)
+                        except Exception:
+                            pass
+                except Exception as e:
+                    logger.error(f"说话方式注入失败: {e}")
 
             # ---------- 记忆自动匹配注入 ----------
             # 私聊里连私有记忆一起匹配；群聊只匹配 public（大家的记忆），
