@@ -262,6 +262,11 @@
             background: rgba(245,158,11,0.14); color: #f59e0b;
             white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 55%;
         }
+        .g-hit {
+            position: absolute; right: 6px; bottom: 5px;
+            font-size: 0.6rem; line-height: 1; padding: 2px 6px; border-radius: 6px;
+            background: rgba(16,185,129,0.12); color: #10b981; white-space: nowrap;
+        }
 
         .batch-bar {
             display: flex; align-items: center; gap: 12px;
@@ -489,7 +494,7 @@
                         <div class="stat-card"><div class="stat-value" id="gstat-total">0</div><div class="stat-label">梗总数</div></div>
                         <div class="stat-card"><div class="stat-value" id="gstat-cats">0</div><div class="stat-label">分类数</div></div>
                         <div class="stat-card"><div class="stat-value" id="gstat-today">0</div><div class="stat-label">今日新增</div></div>
-                        <div class="stat-card"><div class="stat-value" id="gstat-used">0</div><div class="stat-label">已被使用</div></div>
+                        <div class="stat-card"><div class="stat-value" id="gstat-used">0</div><div class="stat-label">命中总次数</div></div>
                     </div>
                     <div class="toolbar">
                         <input type="text" class="search-box" id="g-search" placeholder="搜索梗词 / 解释 / 标签 / 来源...">
@@ -1006,7 +1011,7 @@
                 document.getElementById('gstat-total').textContent = s.total || 0;
                 document.getElementById('gstat-cats').textContent = s.categories || 0;
                 document.getElementById('gstat-today').textContent = s.today_new || 0;
-                document.getElementById('gstat-used').textContent = s.used || 0;
+                document.getElementById('gstat-used').textContent = s.hit_total || 0;
             } catch (e) {}
         }
 
@@ -1059,6 +1064,7 @@
                             <div class="g-check"></div>
                             <div class="glossary-term">${escapeHtml(i.term)}</div>
                             ${isAuto ? `<div class="g-src" title="自动采集，未经人工确认">自动</div>` : ''}
+                            ${(i.hit_count || 0) > 0 ? `<div class="g-hit" title="对话中命中并注入的次数">命中 ${i.hit_count}</div>` : ''}
                         </div>`;
                     }).join('');
                 }

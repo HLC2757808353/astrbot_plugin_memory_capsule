@@ -29,7 +29,7 @@ _CORRECTION_HINTS = re.compile(
     r"能不能别|可以别|不用这么|应该这么|应该这样回)")
 
 
-@register("memory_capsule", "引灯续昼", "记忆胶囊插件", "v0.29.1", "https://github.com/HLC2757808353/astrbot_plugin_memory_capsule")
+@register("memory_capsule", "引灯续昼", "记忆胶囊插件", "v0.29.2", "https://github.com/HLC2757808353/astrbot_plugin_memory_capsule")
 class MemoryCapsulePlugin(Star):
     def __init__(self, context: Context, config=None):
         super().__init__(context)
@@ -607,6 +607,13 @@ class MemoryCapsulePlugin(Star):
                             + "\n".join(hit_lines)
                             + "\n</梗/黑话释义>"
                         )
+                        # 只统计真正注入的那几条（超上限被丢弃的不算"被使用"）
+                        try:
+                            await asyncio.to_thread(
+                                self.db_manager.increment_glossary_hits,
+                                [g['id'] for g in glossary_hits])
+                        except Exception:
+                            pass
                 except Exception as e:
                     logger.error(f"梗匹配注入失败: {e}")
 
@@ -778,7 +785,11 @@ class MemoryCapsulePlugin(Star):
         return relation, True
 
     def _match_glossary(self, text):
-        """匹配用户消息中出现的梗词，返回命中的梗列表。"""
+        """匹配用户消息中出现的梗词，返回**真正会被注入**的那几条。
+
+        计数不在这里做：命中但超出注入上限被丢弃的条目不该算"被使用"，
+        由调用方对实际注入的条目统一计数。
+        """
         current_time = time.time()
         if (self._glossary_cache is None or
             current_time - self._glossary_cache_time >= self._glossary_cache_ttl):
@@ -795,10 +806,6 @@ class MemoryCapsulePlugin(Star):
             if term in text:
                 seen.add(term)
                 hits.append(g)
-                try:
-                    self.db_manager.increment_glossary_hit(g['id'])
-                except Exception:
-                    pass
         try:
             limit = int(self.config.get('glossary_inject_limit', 3))
         except (TypeError, ValueError):

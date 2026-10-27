@@ -1430,9 +1430,13 @@ class DatabaseManager:
             today_new = cursor.fetchone()[0]
             cursor.execute('SELECT COUNT(*) FROM glossary WHERE hit_count > 0')
             used = cursor.fetchone()[0]
-            return {'total': total, 'categories': categories, 'today_new': today_new, 'used': used}
+            cursor.execute('SELECT COALESCE(SUM(hit_count), 0) FROM glossary')
+            hit_total = cursor.fetchone()[0]
+            return {'total': total, 'categories': categories, 'today_new': today_new,
+                    'used': used, 'hit_total': hit_total}
         result = self._execute_read(_do_op)
-        return result if result is not None else {'total': 0, 'categories': 0, 'today_new': 0, 'used': 0}
+        return result if result is not None else {'total': 0, 'categories': 0, 'today_new': 0,
+                                                  'used': 0, 'hit_total': 0}
 
     def get_all_glossary_terms(self):
         """返回所有梗词条目，用于对话匹配注入。"""
@@ -1448,6 +1452,31 @@ class DatabaseManager:
             conn.execute('UPDATE glossary SET hit_count = hit_count + 1 WHERE id = ?', (glossary_id,))
             return "ok"
         self._execute_write(_do_op)
+
+    def increment_glossary_hits(self, ids):
+        """批量给命中并真正注入的梗计数（一次一条 SQL）。
+
+        Args:
+            ids: 梗 ID 列表。
+
+        Returns:
+            实际更新的条数。
+        """
+        clean = []
+        for i in ids or []:
+            try:
+                clean.append(int(i))
+            except (TypeError, ValueError):
+                continue
+        if not clean:
+            return 0
+        def _do_op(conn):
+            cursor = conn.cursor()
+            placeholders = ','.join('?' * len(clean))
+            cursor.execute(
+                f'UPDATE glossary SET hit_count = hit_count + 1 WHERE id IN ({placeholders})', clean)
+            return cursor.rowcount
+        return self._execute_write(_do_op) or 0
 
     def bulk_import_glossary(self, items):
         def _do_op(conn):
