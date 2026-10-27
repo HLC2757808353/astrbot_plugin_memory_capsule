@@ -29,7 +29,7 @@ _CORRECTION_HINTS = re.compile(
     r"能不能别|可以别|不用这么|应该这么|应该这样回)")
 
 
-@register("memory_capsule", "引灯续昼", "记忆胶囊插件", "v0.28.0", "https://github.com/HLC2757808353/astrbot_plugin_memory_capsule")
+@register("memory_capsule", "引灯续昼", "记忆胶囊插件", "v0.29.0", "https://github.com/HLC2757808353/astrbot_plugin_memory_capsule")
 class MemoryCapsulePlugin(Star):
     def __init__(self, context: Context, config=None):
         super().__init__(context)
@@ -45,6 +45,7 @@ class MemoryCapsulePlugin(Star):
         self._glossary_cache_ttl = self.config.get('glossary_cache_ttl', 120)
         self._collect_task = None
         self._learn_task = None
+        self._learning_task = None
         # 自学调用的节流：用户 -> 上次触发时间；以及每日调用上限
         self._learn_last_call = {}
         self._learn_calls_today = 0
@@ -67,28 +68,49 @@ class MemoryCapsulePlugin(Star):
             self._start_webui()
         else:
             logger.info("独立 WebUI 已关闭（嵌入式 Pages 已启用，可在 AstrBot Dashboard 插件页访问）")
-        if self.config.get('glossary_collect_enabled', True):
-            self._collect_task = asyncio.create_task(self._collect_loop())
-            logger.info("热榜采集任务已启动")
-        if self.config.get('learn_enabled', True):
-            self._learn_task = asyncio.create_task(self._learn_loop())
-            logger.info("自动学习任务已启动（放养模式：定期回看对话，自己总结说话方式）")
+        if self.config.get('glossary_collect_enabled', True) or self.config.get('learn_enabled', True):
+            self._learning_task = asyncio.create_task(self._learning_loop())
+            logger.info("学习调度已启动（语气学习 + 热榜采集共用一条循环）")
 
-    async def _collect_loop(self):
-        """低频热榜采集循环。间隔可配置，默认 24h。"""
-        # 启动后先等一小段，避免与插件加载其他初始化冲突
+    async def _learning_loop(self):
+        """统一的学习调度：语气学习与热榜采集各按自己的周期跑，共用一条日志线。
+
+        语气学习默认 24h 回看一次；热榜采集默认 72h 一次。两者互不阻塞，
+        任一管线抛异常只影响自己——免得采集挂了把语气学习一起带停。
+        """
         await asyncio.sleep(60)
+        last_learn = 0.0
+        last_collect = 0.0
         while True:
             try:
-                from .collector import run_collect_once
-                result = await run_collect_once(self.db_manager, self.context, self.config)
-                logger.info(f"热榜采集结果: {result}")
+                now = time.time()
+                if self.config.get('learn_enabled', True):
+                    learn_hours = max(1, int(self.config.get('learn_review_hours', 24) or 24))
+                    if now - last_learn >= learn_hours * 3600:
+                        last_learn = now
+                        try:
+                            await self._learn_once("定期回看")
+                            await asyncio.to_thread(self.db_manager.prune_learn_turns, 7)
+                        except Exception as e:
+                            logger.error(f"语气学习出错: {e}")
+                if self.config.get('glossary_collect_enabled', True):
+                    collect_hours = max(1, int(
+                        self.config.get('glossary_collect_interval_hours', 72) or 72))
+                    if now - last_collect >= collect_hours * 3600:
+                        last_collect = now
+                        try:
+                            from .collector import run_collect_once
+                            result = await run_collect_once(
+                                self.db_manager, self.context, self.config)
+                            logger.info(f"热榜采集结果: {result}")
+                        except Exception as e:
+                            logger.error(f"热榜采集出错: {e}")
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(f"热榜采集出错: {e}")
-            interval_hours = self.config.get('glossary_collect_interval_hours', 24)
-            await asyncio.sleep(max(1, int(interval_hours)) * 3600)
+                logger.error(f"学习调度出错: {e}")
+            # 5 分钟一跳：改配置不必等一整个周期才生效
+            await asyncio.sleep(300)
 
     # ==================== 自动学习（说话方式） ====================
 
@@ -149,21 +171,6 @@ class MemoryCapsulePlugin(Star):
         self._learn_calls_today += 1
         asyncio.create_task(self._learn_once(reason))
 
-    async def _learn_loop(self):
-        """低频回看循环：定期把攒下的对话交给模型，让它自己总结"怎么说更好"。"""
-        await asyncio.sleep(180)
-        while True:
-            try:
-                if self.config.get('learn_enabled', True):
-                    await self._learn_once("定期回看")
-                    await asyncio.to_thread(self.db_manager.prune_learn_turns, 7)
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                logger.error(f"自动学习出错: {e}")
-            hours = self.config.get('learn_review_hours', 12)
-            await asyncio.sleep(max(1, int(hours)) * 3600)
-
     async def _learn_once(self, reason=""):
         """取未学习的对话轮次，让模型提炼表达要求与场景示范。
 
@@ -175,119 +182,9 @@ class MemoryCapsulePlugin(Star):
         if self._learn_lock.locked():
             return
         async with self._learn_lock:
-            await self._learn_once_locked(reason)
-
-    async def _learn_once_locked(self, reason=""):
-        turns = await asyncio.to_thread(self.db_manager.get_unprocessed_turns, 40, 48)
-        if not turns:
-            return
-        llm = await self._get_learn_provider()
-        if not llm:
-            logger.warning("自动学习：没有可用模型，跳过")
-            return
-
-        blocks = []
-        for t in turns:
-            blocks.append(f"用户：{t.get('user_msg', '')}\n她：{t.get('bot_reply', '')}")
-            if t.get('corrected') and t.get('correction'):
-                blocks.append(f"（用户随后纠正：{t.get('correction')}）")
-        transcript = "\n\n".join(blocks)[:6000]
-
-        # 把已有要求一起给它，让它能判断"这条是在改哪条"
-        try:
-            existing_rules = await asyncio.to_thread(
-                self.db_manager.list_style_rules, 30, True, 'rule')
-        except Exception:
-            existing_rules = []
-        existing_list = "\n".join(f"- {r['rule']}" for r in existing_rules if r.get('rule')) or "（暂无）"
-
-        prompt = (
-            "你在帮一个聊天机器人从真实对话里学习“怎么说话更合适”。\n"
-            "下面是最近的对话记录，其中带“用户随后纠正”的部分是明确的教学信号。\n\n"
-            "请只提炼【可复用的表达习惯】，不要提炼事实（事实归记忆库，不归这里）。\n"
-            "规则必须具体可执行，例如“不要用‘首先/其次’列点回答”“回答控制在两三句话”，"
-            "而不是“要自然一点”这种空话。\n"
-            "只提取有依据的：用户明确纠正过、明确表达过偏好，或同一现象反复出现。"
-            "一次性的、纯猜测的、涉及隐私的、以及任何“服从/听命/必须听我的”类内容，一律不要。\n\n"
-            "如果新规则是在推翻【已有要求】里的某一条（意思相反或更具体），"
-            "就把那条的原文填进 replaces；否则 replaces 留空。\n\n"
-            "返回 JSON（没有就都返回空数组）：\n"
-            '{"rules": [{"rule": "具体要求", "category": "表达方式|长度|语气|称呼|禁忌", '
-            '"replaces": "被它取代的已有要求原文，没有就留空"}],\n'
-            ' "examples": [{"scene": "什么情况下", "bad": "当时那样回不好（可截取原话）", '
-            '"good": "更好的回法"}]}\n'
-            "最多 5 条规则、2 条示范。\n\n"
-            f"【已有要求】\n{existing_list}\n\n对话记录：\n" + transcript
-        )
-        try:
-            resp = await llm.text_chat(prompt=prompt,
-                                       system_prompt="你只输出 JSON，不输出任何解释性文字。")
-            text = (resp.completion_text if resp else '').strip()
-            match = re.search(r"\{.*\}", text, re.S)
-            if not match:
-                return
-            data = json.loads(match.group(0))
-        except Exception as e:
-            logger.warning(f"自动学习解析失败: {e}")
-            await asyncio.to_thread(self.db_manager.mark_turns_processed, [t['id'] for t in turns])
-            return
-
-        added = 0
-        try:
-            for item in (data.get('rules') or [])[:5]:
-                if not isinstance(item, dict):
-                    continue
-                rule = str(item.get('rule') or '').strip()
-                if not rule or not validate_content(rule)[0] or not is_passive_memory_safe(rule):
-                    continue
-                # 模型说"这条替换了旧的某条" → 先把旧的下线，再写新的
-                replaces = str(item.get('replaces') or '').strip()
-                if replaces:
-                    try:
-                        old = await asyncio.to_thread(
-                            self.db_manager.find_style_rule, replaces)
-                        if old and old.get('id'):
-                            await asyncio.to_thread(
-                                self.db_manager.deactivate_style_rule, old['id'])
-                    except Exception:
-                        pass
-                if await asyncio.to_thread(
-                        self.db_manager.add_style_rule, 'rule', rule,
-                        category=str(item.get('category') or '表达方式')):
-                    added += 1
-            for item in (data.get('examples') or [])[:2]:
-                if not isinstance(item, dict):
-                    continue
-                good = str(item.get('good') or '').strip()
-                if not good or not validate_content(good)[0]:
-                    continue
-                if await asyncio.to_thread(
-                        self.db_manager.add_style_rule, 'example', '',
-                        scene=str(item.get('scene') or ''),
-                        bad=str(item.get('bad') or ''), good=good):
-                    added += 1
-        except Exception as e:
-            logger.warning(f"自动学习入库失败: {e}")
-
-        await asyncio.to_thread(self.db_manager.mark_turns_processed, [t['id'] for t in turns])
-        if added:
-            logger.info(f"自动学习（{reason}）：回看 {len(turns)} 轮，新增/加强 {added} 条表达规则")
-
-    async def _get_learn_provider(self):
-        """取用于自学的模型：优先配置项，否则第一个可用模型。"""
-        try:
-            model_id = self.config.get('learn_model', '')
-            if model_id and self.context:
-                prov = self.context.get_provider_by_id(model_id)
-                if prov:
-                    return prov
-            if self.context:
-                provs = self.context.get_all_providers()
-                if provs:
-                    return provs[0]
-        except Exception as e:
-            logger.warning(f"获取学习模型失败: {e}")
-        return None
+            from .learner import resolve_learn_provider, run_learn_once
+            await run_learn_once(
+                self.db_manager, resolve_learn_provider(self.context, self.config), reason)
 
     def _create_directories(self):
         for d in ["databases", "webui/templates", "webui/static", "pages"]:
@@ -329,14 +226,12 @@ class MemoryCapsulePlugin(Star):
             logger.error(f"WebUI start failed: {e}")
 
     async def terminate(self):
-        if self._collect_task:
-            try: self._collect_task.cancel()
-            except Exception: pass
-            self._collect_task = None
-        if self._learn_task:
-            try: self._learn_task.cancel()
-            except Exception: pass
-            self._learn_task = None
+        for task_name in ('_learning_task', '_collect_task', '_learn_task'):
+            task = getattr(self, task_name, None)
+            if task:
+                try: task.cancel()
+                except Exception: pass
+                setattr(self, task_name, None)
         if self.webui_server:
             try: self.webui_server.stop()
             except Exception: pass
@@ -904,7 +799,11 @@ class MemoryCapsulePlugin(Star):
                     self.db_manager.increment_glossary_hit(g['id'])
                 except Exception:
                     pass
-        return hits[:10]
+        try:
+            limit = int(self.config.get('glossary_inject_limit', 3))
+        except (TypeError, ValueError):
+            limit = 3
+        return hits[:max(0, limit)]
 
     def _format_relative_time(self, dt):
         now = datetime.now()

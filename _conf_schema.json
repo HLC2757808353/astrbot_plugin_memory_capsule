@@ -92,7 +92,7 @@
   "learn_review_hours": {
     "description": "自动回看间隔（小时）",
     "type": "int",
-    "default": 12,
+    "default": 24,
     "hint": "多久把攒下的对话回顾一次。平时只缓存不调用模型，回顾时才花一次请求",
     "editable": true,
     "display_name": "回看间隔(小时)"
@@ -277,10 +277,18 @@
   "glossary_collect_interval_hours": {
     "description": "热榜采集间隔（小时）",
     "type": "int",
-    "default": 24,
-    "hint": "梗不是每天都会出现，24小时一次足够。修改后需重启插件",
+    "default": 72,
+    "hint": "梗不是每天都会出现，72小时一次足够（与语气学习共用一条调度循环）",
     "editable": true,
     "display_name": "采集间隔(小时)"
+  },
+  "glossary_inject_limit": {
+    "description": "一条消息最多注入几个命中的梗",
+    "type": "int",
+    "default": 3,
+    "hint": "梗释义比较占字数，一次灌十条会把上下文稀释掉；真正相关的通常只有一两个。0=不注入",
+    "editable": true,
+    "display_name": "梗注入条数"
   },
   "glossary_collect_llm_model": {
     "description": "用于热榜提炼的LLM模型ID（留空自动用第一个可用模型）",

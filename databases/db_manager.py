@@ -1874,3 +1874,27 @@ class DatabaseManager:
             return cursor.rowcount
         return self._execute_write(_do_op) or 0
 
+    def get_learning_stats(self):
+        """学习板块用的汇总：学到的规则/示范、梗总数、待学习轮次、最近一条对话时间。
+
+        Returns:
+            dict: rules / examples / glossary / pending_turns / last_turn。
+        """
+        def _do_op(conn):
+            cursor = conn.cursor()
+            stats = {}
+            cursor.execute("SELECT COUNT(*) FROM style_rules WHERE active = 1 AND kind = 'rule'")
+            stats['rules'] = cursor.fetchone()[0]
+            cursor.execute("SELECT COUNT(*) FROM style_rules WHERE active = 1 AND kind = 'example'")
+            stats['examples'] = cursor.fetchone()[0]
+            cursor.execute("SELECT COUNT(*) FROM glossary")
+            stats['glossary'] = cursor.fetchone()[0]
+            cursor.execute("SELECT COUNT(*) FROM learn_turns WHERE processed = 0")
+            stats['pending_turns'] = cursor.fetchone()[0]
+            cursor.execute("SELECT MAX(created_at) FROM learn_turns")
+            stats['last_turn'] = cursor.fetchone()[0] or ''
+            return stats
+        result = self._execute_read(_do_op)
+        return result or {"rules": 0, "examples": 0, "glossary": 0,
+                          "pending_turns": 0, "last_turn": ""}
+

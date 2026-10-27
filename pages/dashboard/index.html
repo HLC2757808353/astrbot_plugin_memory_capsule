@@ -373,6 +373,7 @@
         <button class="tab-btn" data-tab="glossary" onclick="switchTab('glossary')">&#10024; 梗百科</button>
         <button class="tab-btn" data-tab="memories" onclick="switchTab('memories')">&#9830; 记忆宫殿</button>
         <button class="tab-btn" data-tab="relationships" onclick="switchTab('relationships')">&#10070; 关系图谱</button>
+        <button class="tab-btn" data-tab="learning" onclick="switchTab('learning')">&#127891; 学习</button>
         <button class="tab-btn" data-tab="settings" onclick="switchTab('settings')">&#9881; 设置</button>
     </div>
 
@@ -482,6 +483,40 @@
         </div>
 
         <!-- ==================== 设置 ==================== -->
+        <!-- ==================== 学习 ==================== -->
+        <div class="view" id="view-learning">
+            <div class="page-header">
+                <h1 class="page-title">学习</h1>
+                <p class="page-subtitle">她自己学到的东西：怎么说话（来自你们的对话）＋ 外面的新词（来自热榜）</p>
+            </div>
+            <div class="stats-row" style="grid-template-columns:repeat(4,1fr);">
+                <div class="stat-card"><div class="stat-value" id="lg-rules">0</div><div class="stat-label">说话要求</div></div>
+                <div class="stat-card"><div class="stat-value" id="lg-examples">0</div><div class="stat-label">场景示范</div></div>
+                <div class="stat-card"><div class="stat-value" id="lg-glossary">0</div><div class="stat-label">梗/黑话</div></div>
+                <div class="stat-card"><div class="stat-value" id="lg-pending">0</div><div class="stat-label">待学习轮次</div></div>
+            </div>
+            <div class="card">
+                <div class="card-header"><div class="card-title">学习节奏</div></div>
+                <div class="card-body">
+                    <div id="lg-rhythm" style="font-size:0.85rem;color:#94a3b8;line-height:1.9;">加载中...</div>
+                    <div class="toolbar" style="margin-top:10px;">
+                        <button class="btn btn-primary btn-sm" onclick="lgRun()">立即学习一次</button>
+                        <button class="btn btn-outline btn-sm" onclick="lgCollect()">立即采集梗</button>
+                        <button class="btn btn-outline btn-sm" onclick="lgLoad()">刷新</button>
+                        <span id="lg-status" style="font-size:0.85rem;color:#10b981;"></span>
+                    </div>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-header"><div class="card-title">说话方式 <span style="font-size:12px;font-weight:400;color:#a0aec0;">（规则常驻注入，示范按话题匹配）</span></div></div>
+                <div class="card-body"><div id="lg-style-list" style="max-height:420px;overflow:auto;">加载中...</div></div>
+            </div>
+            <div class="card">
+                <div class="card-header"><div class="card-title">梗 · 黑话 <span style="font-size:12px;font-weight:400;color:#a0aec0;">（自动采集来的，命中才注入）</span></div></div>
+                <div class="card-body"><div id="lg-gloss-list" style="max-height:420px;overflow:auto;">加载中...</div></div>
+            </div>
+        </div>
+
         <div class="view" id="view-settings">
             <div class="page-header">
                 <h1 class="page-title">系统设置</h1>
@@ -593,11 +628,9 @@
                     <div class="setting-control"><select class="form-control" id="s-learn_model"><option value="">自动（第一个可用模型）</option></select></div>
                 </div>
                 <div class="setting-row">
-                    <div class="setting-info"><div class="setting-name">已学到的规则</div><div class="setting-hint">不合适的可以直接删掉，删了就不再注入</div></div>
-                    <div class="setting-control"><button class="btn btn-outline btn-sm" onclick="lLoad()">刷新</button></div>
+                    <div class="setting-info"><div class="setting-name">已学到的规则</div><div class="setting-hint">在「学习」页查看与删除</div></div>
+                    <div class="setting-control"><button class="btn btn-outline btn-sm" onclick="switchTab('learning')">去看</button></div>
                 </div>
-                <div id="l-list" style="max-height:300px;overflow:auto;margin-top:8px;"></div>
-                <div id="l-status" class="save-status" style="font-size:0.85rem;color:#10b981;margin-top:6px;"></div>
             </div>
             <div class="settings-card">
                 <div class="settings-title">独立 WebUI（嵌入式已启用，通常无需开启）</div>
@@ -889,6 +922,7 @@
             if (name === 'glossary') { gLoadStats(); gLoad(1); }
             if (name === 'memories') mLoad(1);
             if (name === 'relationships') rLoad(1);
+            if (name === 'learning') lgLoad();
             if (name === 'settings') sLoad();
         }
         window.switchTab = switchTab;
@@ -1701,7 +1735,6 @@
                 document.getElementById('s-collect_llm').value = cfg.glossary_collect_llm_model || '';
                 const learnSel = document.getElementById('s-learn_model');
                 if (learnSel) learnSel.value = cfg.learn_model || '';
-                lLoad();
             } catch (e) { console.error('设置加载失败:', e); }
         }
 
@@ -1755,15 +1788,41 @@
             }
         }
 
-        // ==================== 已学到的说话规则 ====================
-        async function lLoad() {
-            const box = document.getElementById('l-list');
+        // ==================== 学习页 ====================
+        async function lgLoad() {
+            try {
+                const d = await apiGet('api/learning/status');
+                const st = d.status || {};
+                const cfg = d.config || {};
+                setStatText('lg-rules', st.rules);
+                setStatText('lg-examples', st.examples);
+                setStatText('lg-glossary', st.glossary);
+                setStatText('lg-pending', st.pending_turns);
+                document.getElementById('lg-rhythm').innerHTML =
+                    `语气学习：${cfg.learn_enabled ? '每 ' + (cfg.learn_review_hours || 24) + ' 小时回看一次' : '<span style="color:#ef4444;">已关闭</span>'}`
+                    + `　｜　热榜采集：每 ${cfg.collect_interval_hours || 72} 小时一次<br>`
+                    + `每轮注入上限：规则 ${cfg.learn_max_rules} 条 / 示范 ${cfg.learn_max_examples} 条 / 梗 ${cfg.glossary_inject_limit} 条<br>`
+                    + `最近缓存的对话：${st.last_turn ? escapeHtml(String(st.last_turn)) : '暂无'}`;
+            } catch (e) {
+                document.getElementById('lg-rhythm').textContent = '读取状态失败: ' + e.message;
+            }
+            await lgLoadStyle();
+            await lgLoadGlossary();
+        }
+
+        function setStatText(id, v) {
+            const el = document.getElementById(id);
+            if (el) el.textContent = v || 0;
+        }
+
+        async function lgLoadStyle() {
+            const box = document.getElementById('lg-style-list');
             if (!box) return;
             try {
                 const d = await apiGet('api/style-rules');
                 const rules = d.rules || [];
                 if (!rules.length) {
-                    box.innerHTML = '<div class="empty-state">还没学到东西。让她多聊几天，或在你纠正她之后过一会儿再看。</div>';
+                    box.innerHTML = '<div class="empty-state">还没学到东西。让她多聊几天，或你纠正她一次之后再看。</div>';
                     return;
                 }
                 box.innerHTML = rules.map(r => {
@@ -1776,7 +1835,7 @@
                             <span style="font-size:0.72rem;color:#8b5cf6;">${escapeHtml(r.category || '')}${isEx ? '·示范' : ''} · 证据${r.evidence || 1} · 用${r.hits || 0}次</span>
                             <div style="margin-top:3px;">${main}</div>
                         </div>
-                        <button class="btn btn-danger btn-sm" onclick="lDelete(${r.id})">删</button>
+                        <button class="btn btn-danger btn-sm" onclick="lgDeleteRule(${r.id})">删</button>
                     </div>`;
                 }).join('');
             } catch (e) {
@@ -1784,15 +1843,79 @@
             }
         }
 
-        function lDelete(id) {
+        async function lgLoadGlossary() {
+            const box = document.getElementById('lg-gloss-list');
+            if (!box) return;
+            try {
+                const d = await apiGet('api/glossary', { limit: 60, q: '自动采集' });
+                const items = d.items || [];
+                if (!items.length) {
+                    box.innerHTML = '<div class="empty-state">还没采集到梗。可以在下方点「立即采集梗」，或等下一次自动采集。</div>';
+                    return;
+                }
+                box.innerHTML = items.map(i => `
+                    <div style="display:flex;gap:8px;align-items:flex-start;border:1px solid rgba(236,72,153,0.15);border-radius:8px;padding:8px;margin-bottom:6px;">
+                        <div style="flex:1;font-size:0.85rem;">
+                            <b>${escapeHtml(i.term || '')}</b>
+                            <span style="font-size:0.72rem;color:#ec4899;">${escapeHtml(i.category || '')}</span>
+                            <div style="color:#94a3b8;margin-top:3px;">${escapeHtml(i.meaning || '')}</div>
+                        </div>
+                        <button class="btn btn-danger btn-sm" onclick="lgDeleteGloss(${i.id})">删</button>
+                    </div>`).join('');
+            } catch (e) {
+                box.innerHTML = `<div class="empty-state">读取失败: ${escapeHtml(e.message || '')}</div>`;
+            }
+        }
+
+        function lgDeleteRule(id) {
             showConfirm('删掉这条学到的规则？之后不再注入。', async function() {
                 try {
                     await apiPost(`api/style-rules/${id}/delete`, {});
-                    const st = document.getElementById('l-status');
-                    if (st) { st.textContent = '已删除'; setTimeout(() => st.textContent = '', 2000); }
-                    lLoad();
+                    lgLoad();
                 } catch (e) { showConfirm('删除失败: ' + e.message, function(){}); }
             });
+        }
+
+        function lgDeleteGloss(id) {
+            showConfirm('删掉这个梗？', async function() {
+                try {
+                    await apiPost(`api/glossary/${id}/delete`, {});
+                    lgLoad();
+                } catch (e) { showConfirm('删除失败: ' + e.message, function(){}); }
+            });
+        }
+
+        async function lgRun() {
+            const st = document.getElementById('lg-status');
+            const btn = document.querySelector('button[onclick="lgRun()"]');
+            if (btn) btn.disabled = true;
+            if (st) st.textContent = '正在回顾对话...';
+            try {
+                const d = await apiPost('api/learning/run', {});
+                const r = d.result || {};
+                if (st) st.textContent = `回看 ${r.turns || 0} 轮，学到 ${r.added || 0} 条`;
+                lgLoad();
+            } catch (e) {
+                if (st) st.textContent = '失败: ' + e.message;
+            } finally {
+                if (btn) btn.disabled = false;
+            }
+        }
+
+        async function lgCollect() {
+            const st = document.getElementById('lg-status');
+            const btn = document.querySelector('button[onclick="lgCollect()"]');
+            if (btn) btn.disabled = true;
+            if (st) st.textContent = '正在采集热榜...（要一会儿）';
+            try {
+                const d = await apiPost('api/glossary/collect', {});
+                if (st) st.textContent = `采集完成：${JSON.stringify(d.result || {})}`;
+                lgLoad();
+            } catch (e) {
+                if (st) st.textContent = '失败: ' + e.message;
+            } finally {
+                if (btn) btn.disabled = false;
+            }
         }
 
         // 立即采集一次
@@ -1850,8 +1973,11 @@
         window.sLoad = sLoad;
         window.sSave = sSave;
         window.sCollectNow = sCollectNow;
-        window.lLoad = lLoad;
-        window.lDelete = lDelete;
+        window.lgLoad = lgLoad;
+        window.lgRun = lgRun;
+        window.lgCollect = lgCollect;
+        window.lgDeleteRule = lgDeleteRule;
+        window.lgDeleteGloss = lgDeleteGloss;
         window.loadDashboard = loadDashboard;
 
         // Modal 点击遮罩关闭

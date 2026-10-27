@@ -321,6 +321,33 @@ class EmbeddedAPI:
         except Exception as e:
             return self._err(e)
 
+    async def api_learning_status(self):
+        """学习页的汇总数据：学到多少、还有多少没学、各自的周期。"""
+        try:
+            stats = await self._to_thread(self.db_manager.get_learning_stats)
+            return self._ok(status=stats, config={
+                "learn_enabled": self.config.get('learn_enabled', True),
+                "learn_review_hours": self.config.get('learn_review_hours', 24),
+                "collect_interval_hours": self.config.get('glossary_collect_interval_hours', 72),
+                "learn_max_rules": self.config.get('learn_max_rules', 6),
+                "learn_max_examples": self.config.get('learn_max_examples', 2),
+                "glossary_inject_limit": self.config.get('glossary_inject_limit', 3),
+            })
+        except Exception as e:
+            return self._err(e)
+
+    async def api_learning_run(self):
+        """立刻跑一次语气学习（面板上的「立即学习一次」）。"""
+        try:
+            from .learner import resolve_learn_provider, run_learn_once
+            provider = resolve_learn_provider(self.context, self.config)
+            if not provider:
+                return self._err("没有可用的 LLM 模型")
+            result = await run_learn_once(self.db_manager, provider, "手动触发")
+            return self._ok(result=result)
+        except Exception as e:
+            return self._err(e)
+
     async def api_glossary_categories(self):
         try:
             cats = await self._to_thread(self.db_manager.get_glossary_categories)
@@ -451,6 +478,8 @@ def register_embedded_apis(context, db_manager, config=None):
         (f"/{PLUGIN_NAME}/api/providers", api.api_providers, ["GET"], "LLM提供商列表"),
         (f"/{PLUGIN_NAME}/api/style-rules", api.api_style_rules_list, ["GET"], "已学到的说话规则"),
         (f"/{PLUGIN_NAME}/api/style-rules/<rule_id>/delete", api.api_style_rule_delete, ["POST"], "删除学到规则"),
+        (f"/{PLUGIN_NAME}/api/learning/status", api.api_learning_status, ["GET"], "学习状态"),
+        (f"/{PLUGIN_NAME}/api/learning/run", api.api_learning_run, ["POST"], "立即学习一次"),
         (f"/{PLUGIN_NAME}/api/settings", api.api_settings_get, ["GET"], "读取设置"),
         (f"/{PLUGIN_NAME}/api/settings", api.api_settings_save, ["POST"], "保存设置"),
     ]
