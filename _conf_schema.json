@@ -194,12 +194,52 @@
     "display_name": "TF-IDF加载上限"
   },
   "memory_cleanup_enabled": {
-    "description": "启用自动清理低价值旧记忆",
+    "description": "启用自动清理低价值旧记忆（改为归档，不删除）",
     "type": "bool",
     "default": true,
-    "hint": "只清理重要性低且从未被访问的记忆",
+    "hint": "只归档重要性低、且一直没有被用到（注入或搜索）的旧记忆，随时可在面板恢复",
     "editable": true,
     "display_name": "自动清理"
+  },
+  "memory_cleanup_protect_importance": {
+    "description": "重要度 >= 此值的记忆永不自动清理",
+    "type": "int",
+    "default": 6,
+    "hint": "保护底线：重要度高于这条线的记忆，无论多久没用到都不会被归档。建议 6-8",
+    "editable": true,
+    "display_name": "清理保护线"
+  },
+  "memory_decay_enabled": {
+    "description": "记忆时效衰减（排序用）：越久没被用到、又不重要的记忆，排得越后",
+    "type": "bool",
+    "default": true,
+    "hint": "重要度 >=8 的记忆不吃衰减（生日、雷点这类）；5-7 每90天减半；<=4 每30天减半",
+    "editable": true,
+    "display_name": "时效衰减"
+  },
+  "memory_archive_enabled": {
+    "description": "长期未用的低重要度记忆自动归档",
+    "type": "bool",
+    "default": true,
+    "hint": "归档后不再参与自动注入，但搜索仍能找到，面板可一键恢复",
+    "editable": true,
+    "display_name": "自动归档"
+  },
+  "memory_archive_days": {
+    "description": "多少天没被用到就归档",
+    "type": "int",
+    "default": 180,
+    "hint": "按“最后被注入/搜索到的时间”算，不是创建时间",
+    "editable": true,
+    "display_name": "归档天数"
+  },
+  "memory_archive_max_importance": {
+    "description": "只归档重要度 <= 此值的记忆",
+    "type": "int",
+    "default": 4,
+    "hint": "重要的记忆（>=5）不会被自动归档",
+    "editable": true,
+    "display_name": "归档重要度上限"
   },
   "memory_cleanup_days": {
     "description": "清理多少天前的低价值记忆",

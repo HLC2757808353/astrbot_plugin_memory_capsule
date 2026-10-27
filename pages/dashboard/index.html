@@ -435,6 +435,7 @@
                 </select>
                 <button class="btn btn-primary btn-sm" onclick="mAdd()">+ 添加记忆</button>
                 <button class="btn btn-outline btn-sm" id="m-batch-btn" onclick="mEnterBatch()">&#128203; 批量删除</button>
+                <button class="btn btn-outline btn-sm" id="m-archived-btn" onclick="mToggleArchived()">显示已归档</button>
                 <button class="btn btn-outline btn-sm" onclick="mShowImport()">批量导入</button>
                 <button class="btn btn-outline btn-sm" onclick="mLoad(1)">刷新</button>
             </div>
@@ -591,6 +592,18 @@
                 <div class="setting-row">
                     <div class="setting-info"><div class="setting-name">私有记忆只在私聊使用</div><div class="setting-hint">标为 private 的记忆（隐私/约定/关于某人的事）群聊里永不自动注入，但仍可被显式搜索</div></div>
                     <div class="setting-control"><span style="font-size:0.8rem;color:#94a3b8;">固定策略</span></div>
+                </div>
+                <div class="setting-row">
+                    <div class="setting-info"><div class="setting-name">时效衰减</div><div class="setting-hint">越久没被用到、又不重要的记忆排得越后；重要度 ≥8 的永不受影响</div></div>
+                    <div class="setting-control"><label class="switch"><input type="checkbox" id="s-mem_decay"><span class="slider"></span></label></div>
+                </div>
+                <div class="setting-row">
+                    <div class="setting-info"><div class="setting-name">自动归档</div><div class="setting-hint">长期没被用到、重要度一般的记忆自动归档（不再自动注入，可恢复）</div></div>
+                    <div class="setting-control"><label class="switch"><input type="checkbox" id="s-mem_archive"><span class="slider"></span></label></div>
+                </div>
+                <div class="setting-row">
+                    <div class="setting-info"><div class="setting-name">归档天数</div><div class="setting-hint">多少天没被注入/搜索到就归档</div></div>
+                    <div class="setting-control"><input type="number" class="form-control" id="s-mem_archive_days"></div>
                 </div>
             </div>
             <div class="settings-card">
@@ -1373,7 +1386,10 @@
                     mRender(mMemories);
                     document.getElementById('m-pagination').innerHTML = `<span class="page-info">共 ${mMemories.length} 条</span>`;
                 } else {
-                    const d = await apiGet('api/memories', { page, limit: mPageSize() });
+                    const d = await apiGet('api/memories', {
+                        page, limit: mPageSize(),
+                        include_archived: mShowArchived ? 1 : undefined
+                    });
                     mMemories = d.memories || [];
                     document.getElementById('m-related').style.display = 'none';
                     mRender(mMemories);
@@ -1394,11 +1410,13 @@
                         <span class="memory-importance">重要性: ${m.importance || 1}</span>
                         <span class="memory-category">${escapeHtml(m.category || 'general')}</span>
                         ${m.visibility === 'private' ? '<span class="memory-category" title="只在私聊自动注入">私有</span>' : ''}
+                        ${m.archived ? '<span class="memory-category" title="已归档：不再参与自动注入，仍可搜索到" style="color:#94a3b8;background:rgba(148,163,184,0.12);">已归档</span>' : ''}
                     </div>
                     <div class="memory-content">${escapeHtml(m.content)}</div>
                     ${m.tags ? `<div class="memory-tags">${m.tags.split(',').filter(Boolean).map(t => `<span class="tag">${escapeHtml(t.trim())}</span>`).join('')}</div>` : ''}
                     <div class="memory-actions">
                         <span class="memory-date">${formatDate(m.created_at)}</span>
+                        ${m.archived ? `<button class="btn btn-outline btn-sm" onclick="event.stopPropagation();mRestore(${m.id})">恢复</button>` : ''}
                         <button class="btn btn-outline btn-sm" onclick="event.stopPropagation();mEdit(${m.id})">编辑</button>
                         <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();mDelete(${m.id})">删除</button>
                     </div>
@@ -1406,9 +1424,26 @@
             `).join('');
         }
 
-        // ==================== 记忆批量删除 ====================
+        // ==================== 记忆批量删除 / 归档 ====================
         let mBatchMode = false;
+        let mShowArchived = false;
         const mSelected = new Set();
+
+        function mToggleArchived() {
+            mShowArchived = !mShowArchived;
+            const btn = document.getElementById('m-archived-btn');
+            if (btn) btn.textContent = mShowArchived ? '隐藏已归档' : '显示已归档';
+            mLoad(1);
+        }
+
+        function mRestore(id) {
+            showConfirm('把这条从归档里恢复？恢复后会重新参与自动注入。', async function() {
+                try {
+                    await apiPost('api/memories/archive', { ids: [id], archived: 0 });
+                    mLoad(mPage);
+                } catch (e) { showConfirm('恢复失败: ' + e.message, function(){}); }
+            });
+        }
 
         function mCardClick(id) {
             if (!mBatchMode) return;
@@ -1756,6 +1791,9 @@
                 setBool('s-mem_auto_inject', cfg.memory_auto_inject_enabled, true);
                 setNum('s-mem_limit', cfg.memory_auto_inject_limit, 3);
                 setNum('s-mem_min_score', cfg.memory_auto_inject_min_score, 2);
+                setBool('s-mem_decay', cfg.memory_decay_enabled, true);
+                setBool('s-mem_archive', cfg.memory_archive_enabled, true);
+                setNum('s-mem_archive_days', cfg.memory_archive_days, 180);
                 setNum('s-related_limit', cfg.search_related_limit, 3);
                 setNum('s-webui_port', cfg.webui_port, 5000);
                 document.getElementById('s-inject_pos').value = cfg.context_inject_position || 'system_prompt';
@@ -1793,6 +1831,9 @@
                 ['s-mem_auto_inject', 'memory_auto_inject_enabled', 'bool'],
                 ['s-mem_limit', 'memory_auto_inject_limit', 'int'],
                 ['s-mem_min_score', 'memory_auto_inject_min_score', 'int'],
+                ['s-mem_decay', 'memory_decay_enabled', 'bool'],
+                ['s-mem_archive', 'memory_archive_enabled', 'bool'],
+                ['s-mem_archive_days', 'memory_archive_days', 'int'],
                 ['s-related_limit', 'search_related_limit', 'int'],
                 ['s-webui_port', 'webui_port', 'int'],
                 ['s-inject_pos', 'context_inject_position', 'str'],
@@ -1965,6 +2006,8 @@
         window.mEnterBatch = mEnterBatch;
         window.mExitBatch = mExitBatch;
         window.mBatchDelete = mBatchDelete;
+        window.mToggleArchived = mToggleArchived;
+        window.mRestore = mRestore;
         window.mLoad = mLoad;
         window.mChangeSort = mChangeSort;
         window.mShowImport = mShowImport;

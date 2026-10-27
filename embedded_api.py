@@ -61,11 +61,24 @@ class EmbeddedAPI:
         limit = self._req.query.get("limit", 12, type=int)
         offset = (page - 1) * limit
         category = self._req.query.get("category")
+        include_archived = bool(self._req.query.get("include_archived"))
         try:
-            memories = await self._to_thread(self.db_manager.get_all_memories, limit, offset, category)
+            memories = await self._to_thread(
+                self.db_manager.get_all_memories, limit, offset, category, include_archived)
             total = await self._to_thread(self.db_manager.get_memories_count)
             return self._ok(memories=memories, total=total, page=page, limit=limit,
                             total_pages=(total + limit - 1) // limit if limit else 1)
+        except Exception as e:
+            return self._err(e)
+
+    async def api_memories_archive(self):
+        """手动归档 / 恢复记忆（body: ids, archived）。"""
+        data = await self._req.json() or {}
+        try:
+            result = await self._to_thread(
+                self.db_manager.set_memory_archived,
+                data.get("ids") or [], int(data.get("archived", 1)))
+            return self._ok(result={"updated": result})
         except Exception as e:
             return self._err(e)
 
@@ -458,6 +471,7 @@ def register_embedded_apis(context, db_manager, config=None):
         (f"/{PLUGIN_NAME}/api/memories/<memory_id>/update", api.api_memories_update, ["POST"], "更新记忆"),
         (f"/{PLUGIN_NAME}/api/memories/<memory_id>/delete", api.api_memories_delete, ["POST"], "删除记忆"),
         (f"/{PLUGIN_NAME}/api/memories/batch-delete", api.api_memories_batch_delete, ["POST"], "批量删除记忆"),
+        (f"/{PLUGIN_NAME}/api/memories/archive", api.api_memories_archive, ["POST"], "归档/恢复记忆"),
         (f"/{PLUGIN_NAME}/api/categories", api.api_categories, ["GET"], "记忆分类"),
         (f"/{PLUGIN_NAME}/api/relationships", api.api_relationships_list, ["GET"], "关系列表"),
         (f"/{PLUGIN_NAME}/api/relationships", api.api_relationships_add, ["POST"], "新增关系"),

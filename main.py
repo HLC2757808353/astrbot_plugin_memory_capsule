@@ -29,7 +29,7 @@ _CORRECTION_HINTS = re.compile(
     r"能不能别|可以别|不用这么|应该这么|应该这样回)")
 
 
-@register("memory_capsule", "引灯续昼", "记忆胶囊插件", "v0.29.2", "https://github.com/HLC2757808353/astrbot_plugin_memory_capsule")
+@register("memory_capsule", "引灯续昼", "记忆胶囊插件", "v0.30.0", "https://github.com/HLC2757808353/astrbot_plugin_memory_capsule")
 class MemoryCapsulePlugin(Star):
     def __init__(self, context: Context, config=None):
         super().__init__(context)
@@ -81,9 +81,19 @@ class MemoryCapsulePlugin(Star):
         await asyncio.sleep(60)
         last_learn = 0.0
         last_collect = 0.0
+        last_archive = 0.0
         while True:
             try:
                 now = time.time()
+                if self.config.get('memory_archive_enabled', True):
+                    if now - last_archive >= 24 * 3600:
+                        last_archive = now
+                        try:
+                            n = await asyncio.to_thread(self.db_manager.archive_stale_memories)
+                            if n:
+                                logger.info(f"记忆归档：{n} 条长期没用到、重要度一般的记忆已归档")
+                        except Exception as e:
+                            logger.error(f"记忆归档出错: {e}")
                 if self.config.get('learn_enabled', True):
                     learn_hours = max(1, int(self.config.get('learn_review_hours', 24) or 24))
                     if now - last_learn >= learn_hours * 3600:
@@ -719,6 +729,13 @@ class MemoryCapsulePlugin(Star):
                             + "\n这些已经给你了，不需要再调用 search_memory 查同一件事。\n"
                             "</可能相关的历史记忆>"
                         )
+                        # 记"最后被用到的时间"（不涨 access_count，避免自动注入自我强化），
+                        # 供时效衰减判断这条记忆是不是已经很久没人用了
+                        try:
+                            await asyncio.to_thread(
+                                self.db_manager.bump_memory_access, [m['id'] for m in matches])
+                        except Exception:
+                            pass
                 except Exception as e:
                     logger.error(f"记忆匹配注入失败: {e}")
 

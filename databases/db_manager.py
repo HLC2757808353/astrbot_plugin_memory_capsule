@@ -279,6 +279,9 @@ class DatabaseManager:
             if 'owner_id' not in columns:
                 cursor.execute("ALTER TABLE memories ADD COLUMN owner_id TEXT DEFAULT ''")
                 logger.info("Migrated: added memories.owner_id")
+            if 'archived' not in columns:
+                cursor.execute("ALTER TABLE memories ADD COLUMN archived INTEGER DEFAULT 0")
+                logger.info("Migrated: added memories.archived")
             keywords = self._SENSITIVE_KEYWORDS
             conditions = ' OR '.join(['content LIKE ?'] * len(keywords))
             cursor.execute(
@@ -319,7 +322,8 @@ class DatabaseManager:
                 category TEXT DEFAULT 'general', importance INTEGER DEFAULT 5,
                 tags TEXT DEFAULT '', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, access_count INTEGER DEFAULT 0,
-                last_accessed TIMESTAMP, source TEXT DEFAULT 'user', hash TEXT UNIQUE)''')
+                last_accessed TIMESTAMP, source TEXT DEFAULT 'user', hash TEXT UNIQUE,
+                archived INTEGER DEFAULT 0)''')
             cursor.execute('''CREATE TABLE IF NOT EXISTS relationships (
                 user_id TEXT PRIMARY KEY, nickname TEXT, relation_type TEXT DEFAULT 'friend',
                 summary TEXT DEFAULT '', notes TEXT DEFAULT '', first_met_location TEXT,
@@ -401,6 +405,70 @@ class DatabaseManager:
         return "No backup manager"
 
     # ==================== Utility ====================
+
+    def _decay_factor(self, importance, last_seen=None):
+        """时效系数：越久没被用到，分数越低；重要度高的记忆不吃时间衰减。
+
+        半衰期按重要度分档：>=8 永不衰减（生日、雷点这类不能沉底）；
+        5-7 每 90 天减半；<=4 每 30 天减半。last_seen 取最后被用过的时间
+        （自动注入或搜索命中都会更新），没有就用创建时间。
+
+        Args:
+            importance: 记忆重要度 1-10。
+            last_seen: 最后被使用的时间，str 或 datetime。
+
+        Returns:
+            float: 0-1 之间的系数，1.0 表示不衰减。
+        """
+        if not self.config.get('memory_decay_enabled', True):
+            return 1.0
+        try:
+            imp = int(importance or 5)
+        except (TypeError, ValueError):
+            imp = 5
+        if imp >= 8:
+            return 1.0
+        half_life_days = 90.0 if imp >= 5 else 30.0
+        if not last_seen:
+            return 1.0
+        try:
+            stamp = last_seen
+            if isinstance(stamp, str):
+                stamp = datetime.strptime(str(stamp)[:19], '%Y-%m-%d %H:%M:%S')
+            idle_days = max(0.0, (datetime.now() - stamp).total_seconds() / 86400.0)
+        except Exception:
+            return 1.0
+        return 0.5 ** (idle_days / half_life_days)
+
+    def bump_memory_access(self, ids):
+        """只更新"最后被用到的时间"，不动 access_count。
+
+        自动注入属于"她确实用了这条记忆"，但每次注入都涨 access_count 会自我强化
+        （越常注入越排前），所以这里只记时间，用于时效衰减判断。
+
+        Args:
+            ids: 记忆 ID 列表。
+
+        Returns:
+            更新条数。
+        """
+        clean = []
+        for i in ids or []:
+            try:
+                clean.append(int(i))
+            except (TypeError, ValueError):
+                continue
+        if not clean:
+            return 0
+        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        def _do_op(conn):
+            cursor = conn.cursor()
+            placeholders = ','.join('?' * len(clean))
+            cursor.execute(
+                f'UPDATE memories SET last_accessed = ? WHERE id IN ({placeholders})',
+                [now] + clean)
+            return cursor.rowcount
+        return self._execute_write(_do_op) or 0
 
     def _rrf_fuse(self, result_lists, k=60):
         if not result_lists: return []
@@ -549,6 +617,17 @@ class DatabaseManager:
             fused = self._rrf_fuse(result_lists, k=self.config.get('rrf_k', 60)) if result_lists else []
             if category_filter:
                 fused = [r for r in fused if r.get('category') == category_filter]
+            # 时效衰减：以 RRF 的先后顺序分位置分，再乘重要度与时效系数做微调。
+            # 衰减只让"久没用到又不重要"的条目往后滑，不会把强相关的结果踢下去。
+            if fused and self.config.get('memory_decay_enabled', True):
+                for rank, r in enumerate(fused):
+                    decay = self._decay_factor(
+                        r.get('importance'), r.get('last_accessed') or r.get('created_at'))
+                    imp_bonus = 0.6 + 0.4 * min(10, max(0, int(r.get('importance') or 5))) / 10
+                    r['_rank'] = (1.0 / (1 + rank)) * imp_bonus * decay
+                fused.sort(key=lambda r: -r['_rank'])
+                for r in fused:
+                    r.pop('_rank', None)
             if self.config.get('mmr_enabled', True) and len(fused) > _limit:
                 fused = self._mmr_rerank(fused, query, _limit)
             else:
@@ -634,13 +713,14 @@ class DatabaseManager:
         result = self._execute_write(_do_op)
         return result if result is not None else "Error: operation failed"
 
-    def get_all_memories(self, limit=100, offset=0, category=None):
+    def get_all_memories(self, limit=100, offset=0, category=None, include_archived=False):
         def _do_op(conn):
             cursor = conn.cursor()
+            arch = '' if include_archived else ' AND COALESCE(archived, 0) = 0'
             if category:
-                cursor.execute('SELECT id, content, category, importance, tags, visibility, access_count, created_at FROM memories WHERE category = ? ORDER BY created_at DESC LIMIT ? OFFSET ?', (category, limit, offset))
+                cursor.execute('SELECT id, content, category, importance, tags, visibility, access_count, created_at, COALESCE(archived, 0) AS archived FROM memories WHERE category = ?' + arch + ' ORDER BY created_at DESC LIMIT ? OFFSET ?', (category, limit, offset))
             else:
-                cursor.execute('SELECT id, content, category, importance, tags, visibility, access_count, created_at FROM memories ORDER BY created_at DESC LIMIT ? OFFSET ?', (limit, offset))
+                cursor.execute('SELECT id, content, category, importance, tags, visibility, access_count, created_at, COALESCE(archived, 0) AS archived FROM memories WHERE 1=1' + arch + ' ORDER BY created_at DESC LIMIT ? OFFSET ?', (limit, offset))
             return [dict(row) for row in cursor.fetchall()]
         result = self._execute_read(_do_op)
         return result if result is not None else []
@@ -1010,20 +1090,96 @@ class DatabaseManager:
         result = self._execute_read(_do_op)
         return result if result is not None else []
 
-    def cleanup_memories(self, days=None, max_memories=None):
-        days = days or self.config.get('memory_cleanup_days', 365)
-        max_memories = max_memories or self.config.get('memory_cleanup_max', 10000)
+    def archive_stale_memories(self, days=None, max_importance=None):
+        """把长期没被用到、又不重要的记忆归档（不是删除）。
+
+        归档后不再参与对话中的自动注入，但显式搜索仍能搜到，面板里也能恢复。
+        重要度高于阈值的记忆永不自动归档——生日、雷点这类一年用一次但必须记住。
+
+        Args:
+            days: 多少天没被用过就归档，默认取配置 memory_archive_days（180）。
+            max_importance: 只归档重要度 <= 此值的记忆，默认取配置（4）。
+
+        Returns:
+            归档条数。
+        """
+        days = int(days if days is not None else self.config.get('memory_archive_days', 180))
+        max_imp = int(max_importance if max_importance is not None
+                      else self.config.get('memory_archive_max_importance', 4))
+        cutoff = (datetime.now() - timedelta(days=max(1, days))).strftime('%Y-%m-%d %H:%M:%S')
         def _do_op(conn):
             cursor = conn.cursor()
-            cutoff = (datetime.now() - timedelta(days=days)).isoformat()
-            cursor.execute('DELETE FROM memories WHERE importance < 3 AND access_count = 0 AND created_at < ?', (cutoff,))
-            deleted = cursor.rowcount
-            cursor.execute('SELECT COUNT(*) FROM memories')
+            cursor.execute(
+                "UPDATE memories SET archived = 1, updated_at = ? "
+                "WHERE COALESCE(archived, 0) = 0 AND importance <= ? "
+                "AND COALESCE(last_accessed, created_at) < ?",
+                (datetime.now().strftime('%Y-%m-%d %H:%M:%S'), max_imp, cutoff))
+            return cursor.rowcount
+        return self._execute_write(_do_op) or 0
+
+    def set_memory_archived(self, ids, archived=1):
+        """手动归档/恢复记忆。
+
+        Args:
+            ids: 记忆 ID 列表。
+            archived: 1=归档，0=恢复。
+
+        Returns:
+            更新条数。
+        """
+        clean = []
+        for i in ids or []:
+            try:
+                clean.append(int(i))
+            except (TypeError, ValueError):
+                continue
+        if not clean:
+            return 0
+        def _do_op(conn):
+            cursor = conn.cursor()
+            placeholders = ','.join('?' * len(clean))
+            cursor.execute(
+                f'UPDATE memories SET archived = ?, updated_at = ? WHERE id IN ({placeholders})',
+                [1 if archived else 0, datetime.now().strftime('%Y-%m-%d %H:%M:%S')] + clean)
+            return cursor.rowcount
+        return self._execute_write(_do_op) or 0
+
+    def cleanup_memories(self, days=None, max_memories=None):
+        """清理过期记忆：改成"归档"而不是删除，且永不碰重要度高的记忆。
+
+        原逻辑会直接 DELETE，而 access_count 只在显式搜索时增加——一条天天被自动
+        注入的记忆看起来像"从没被用过"，一年后就会被删掉。现在改为归档，可恢复。
+
+        Args:
+            days: 多少天没被用到算过期，默认 memory_cleanup_days（365）。
+            max_memories: 总量上限，超出部分归档最不重要的。
+
+        Returns:
+            结果描述字符串。
+        """
+        days = days or self.config.get('memory_cleanup_days', 365)
+        max_memories = int(max_memories or self.config.get('memory_cleanup_max', 10000))
+        protect_importance = int(self.config.get('memory_cleanup_protect_importance', 6))
+        cutoff = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d %H:%M:%S')
+        def _do_op(conn):
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE memories SET archived = 1, updated_at = ? "
+                "WHERE COALESCE(archived, 0) = 0 AND importance < ? "
+                "AND access_count = 0 AND COALESCE(last_accessed, created_at) < ?",
+                (datetime.now().strftime('%Y-%m-%d %H:%M:%S'), protect_importance, cutoff))
+            archived = cursor.rowcount
+            cursor.execute('SELECT COUNT(*) FROM memories WHERE COALESCE(archived, 0) = 0')
             count = cursor.fetchone()[0]
             if count > max_memories:
-                cursor.execute('DELETE FROM memories WHERE id IN (SELECT id FROM memories ORDER BY importance ASC, access_count ASC, created_at ASC LIMIT ?)', (count - max_memories,))
-                deleted += cursor.rowcount
-            return f"Cleaned {deleted} memories"
+                overflow = count - max_memories
+                cursor.execute(
+                    "UPDATE memories SET archived = 1 WHERE id IN ("
+                    "SELECT id FROM memories WHERE COALESCE(archived, 0) = 0 AND importance < ? "
+                    "ORDER BY importance ASC, access_count ASC, created_at ASC LIMIT ?)",
+                    (protect_importance, overflow))
+                archived += cursor.rowcount
+            return f"Archived {archived} memories"
         result = self._execute_write(_do_op)
         return result if result is not None else "Error: cleanup failed"
 
@@ -1593,8 +1749,9 @@ class DatabaseManager:
             for w in words:
                 conditions.append('(content LIKE ? OR tags LIKE ?)')
                 params.extend([f'%{w}%', f'%{w}%'])
-            sql = (f"SELECT id, content, category, importance, tags, visibility, owner_id FROM memories "
-                   f"WHERE ({' OR '.join(conditions)})")
+            sql = (f"SELECT id, content, category, importance, tags, visibility, owner_id, "
+                   f"created_at, last_accessed FROM memories "
+                   f"WHERE ({' OR '.join(conditions)}) AND COALESCE(archived, 0) = 0")
             if include_private:
                 # 私聊：公开记忆 + 归属自己的私有记忆（历史遗留的未归属私有记忆也放行）
                 sql += " AND (visibility = 'public' OR visibility IS NULL OR owner_id = '' OR owner_id = ?)"
@@ -1609,7 +1766,11 @@ class DatabaseManager:
                 blob = f"{row['content'] or ''} {row['tags'] or ''}"
                 score = sum(1 for w in words if w in blob)
                 if score < need: continue
-                scored.append((score, row['importance'] or 0, row))
+                # 相关度 × 重要度加成 × 时效系数：久没用到、又不重要的自然往后排
+                importance = row['importance'] or 0
+                decay = self._decay_factor(importance, row['last_accessed'] or row['created_at'])
+                weight = score * (0.5 + 0.05 * importance) * decay
+                scored.append((weight, importance, row))
             scored.sort(key=lambda x: (-x[0], -x[1]))
             matches = []
             for _score, _importance, row in scored[:limit]:
