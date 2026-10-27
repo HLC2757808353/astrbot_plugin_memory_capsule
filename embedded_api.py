@@ -442,12 +442,27 @@ class EmbeddedAPI:
             return self._err(e)
 
     async def api_settings_save(self):
+        """保存设置：先改内存（立即生效），再落盘（重启不丢）。"""
+        data = await self._req.json() or {}
         try:
-            data = await self._req.json() or {}
-            if self.db_manager and self.db_manager.config is not None:
-                for key, value in data.items():
-                    self.db_manager.config[key] = value
-            return self._ok(result="Saved")
+            cfg = self.config
+            if cfg is None:
+                return self._err("配置不可用")
+            for key, value in data.items():
+                cfg[key] = value
+            # AstrBot 传给插件的是 AstrBotConfig（dict 子类），自带落盘方法；
+            # 不调用它的话改动只在内存里，重启插件就回到旧值。
+            persisted = False
+            try:
+                if hasattr(cfg, 'save_config_async'):
+                    await cfg.save_config_async()
+                    persisted = True
+                elif hasattr(cfg, 'save_config'):
+                    cfg.save_config()
+                    persisted = True
+            except Exception as e:
+                logger.warning(f"配置落盘失败（本次改动仅内存生效）: {e}")
+            return self._ok(result="Saved", persisted=persisted)
         except Exception as e:
             return self._err(e)
 

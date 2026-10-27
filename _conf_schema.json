@@ -228,8 +228,8 @@
   "memory_archive_days": {
     "description": "多少天没被用到就归档",
     "type": "int",
-    "default": 180,
-    "hint": "按“最后被注入/搜索到的时间”算，不是创建时间",
+    "default": 60,
+    "hint": "按“最后被注入/搜索到的时间”算，不是创建时间；可在面板里选 30/60/90/180 天",
     "editable": true,
     "display_name": "归档天数"
   },

@@ -602,8 +602,16 @@
                     <div class="setting-control"><label class="switch"><input type="checkbox" id="s-mem_archive"><span class="slider"></span></label></div>
                 </div>
                 <div class="setting-row">
-                    <div class="setting-info"><div class="setting-name">归档天数</div><div class="setting-hint">多少天没被注入/搜索到就归档</div></div>
-                    <div class="setting-control"><input type="number" class="form-control" id="s-mem_archive_days"></div>
+                    <div class="setting-info"><div class="setting-name">归档天数</div><div class="setting-hint">多少天没被注入/搜索到就归档；重要度 ≥5 的不受此影响</div></div>
+                    <div class="setting-control">
+                        <select class="form-control" id="s-mem_archive_days">
+                            <option value="30">30 天</option>
+                            <option value="60">60 天（推荐）</option>
+                            <option value="90">90 天</option>
+                            <option value="180">180 天</option>
+                            <option value="365">365 天</option>
+                        </select>
+                    </div>
                 </div>
             </div>
             <div class="settings-card">
@@ -1793,7 +1801,7 @@
                 setNum('s-mem_min_score', cfg.memory_auto_inject_min_score, 2);
                 setBool('s-mem_decay', cfg.memory_decay_enabled, true);
                 setBool('s-mem_archive', cfg.memory_archive_enabled, true);
-                setNum('s-mem_archive_days', cfg.memory_archive_days, 180);
+                setNum('s-mem_archive_days', cfg.memory_archive_days, 60);
                 setNum('s-related_limit', cfg.search_related_limit, 3);
                 setNum('s-webui_port', cfg.webui_port, 5000);
                 document.getElementById('s-inject_pos').value = cfg.context_inject_position || 'system_prompt';
@@ -1856,10 +1864,12 @@
                 else updates[key] = el.value;
             }
             try {
-                await apiPost('api/settings', updates);
+                const resp = await apiPost('api/settings', updates);
                 const st = document.getElementById('s-status');
-                st.textContent = '已保存 ✓（采集间隔等设置需重启插件生效）';
-                setTimeout(() => st.textContent = '', 3000);
+                st.textContent = (resp && resp.persisted)
+                    ? '已保存并写入配置 ✓（立即生效）'
+                    : '已保存，但配置写入失败：本次运行有效，重启会回退';
+                setTimeout(() => st.textContent = '', 4000);
             } catch (e) {
                 document.getElementById('s-status').textContent = '保存失败: ' + e.message;
             }

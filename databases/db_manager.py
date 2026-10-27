@@ -1097,13 +1097,13 @@ class DatabaseManager:
         重要度高于阈值的记忆永不自动归档——生日、雷点这类一年用一次但必须记住。
 
         Args:
-            days: 多少天没被用过就归档，默认取配置 memory_archive_days（180）。
+            days: 多少天没被用过就归档，默认取配置 memory_archive_days（60）。
             max_importance: 只归档重要度 <= 此值的记忆，默认取配置（4）。
 
         Returns:
             归档条数。
         """
-        days = int(days if days is not None else self.config.get('memory_archive_days', 180))
+        days = int(days if days is not None else self.config.get('memory_archive_days', 60))
         max_imp = int(max_importance if max_importance is not None
                       else self.config.get('memory_archive_max_importance', 4))
         cutoff = (datetime.now() - timedelta(days=max(1, days))).strftime('%Y-%m-%d %H:%M:%S')
