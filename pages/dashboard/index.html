@@ -52,6 +52,20 @@
         .page-wrap { padding: 20px 24px 32px; }
         .view { display: none; }
         .view.active { display: block; animation: fadeIn 0.3s ease; }
+        /* 学习页内部子标签 */
+        .sub-tabs { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+        .sub-tab {
+            padding: 7px 16px; border-radius: 10px; cursor: pointer; font-size: 0.9rem;
+            border: 1px solid rgba(139,92,246,0.22); background: transparent; color: #8b5cf6;
+            transition: all 0.2s ease;
+        }
+        .sub-tab:hover { border-color: rgba(139,92,246,0.45); }
+        .sub-tab.active { background: linear-gradient(135deg,#8b5cf6,#ec4899); color: #fff; border-color: transparent; }
+        .sub-tab-num { font-size: 0.72rem; opacity: 0.85; margin-left: 3px; }
+        [data-theme="dark"] .sub-tab { color: #cbd5e1; }
+        [data-theme="dark"] .sub-tab.active { color: #fff; }
+        .subview { display: none; }
+        .subview.active { display: block; }
 
         @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 
@@ -370,7 +384,6 @@
 <body>
     <div class="tab-bar">
         <button class="tab-btn active" data-tab="dashboard" onclick="switchTab('dashboard')">&#9632; 仪表盘</button>
-        <button class="tab-btn" data-tab="glossary" onclick="switchTab('glossary')">&#10024; 梗百科</button>
         <button class="tab-btn" data-tab="memories" onclick="switchTab('memories')">&#9830; 记忆宫殿</button>
         <button class="tab-btn" data-tab="relationships" onclick="switchTab('relationships')">&#10070; 关系图谱</button>
         <button class="tab-btn" data-tab="learning" onclick="switchTab('learning')">&#127891; 学习</button>
@@ -401,41 +414,7 @@
         </div>
 
         <!-- ==================== 梗百科 ==================== -->
-        <div class="view" id="view-glossary">
-            <div class="page-header">
-                <h1 class="page-title">梗百科</h1>
-                <p class="page-subtitle">黑话 / 谐音梗 / 行为梗 / 抽象梗 小词典，对话中命中会自动注入给 AI</p>
-            </div>
-            <div class="stats-row" style="grid-template-columns:repeat(4,1fr);">
-                <div class="stat-card"><div class="stat-value" id="gstat-total">0</div><div class="stat-label">梗总数</div></div>
-                <div class="stat-card"><div class="stat-value" id="gstat-cats">0</div><div class="stat-label">分类数</div></div>
-                <div class="stat-card"><div class="stat-value" id="gstat-today">0</div><div class="stat-label">今日新增</div></div>
-                <div class="stat-card"><div class="stat-value" id="gstat-used">0</div><div class="stat-label">已被使用</div></div>
-            </div>
-            <div class="toolbar">
-                <input type="text" class="search-box" id="g-search" placeholder="搜索梗词 / 解释 / 标签 / 来源...">
-                <button class="btn btn-primary btn-sm" onclick="gAdd()">+ 添加梗</button>
-                <button class="btn btn-outline btn-sm" id="g-batch-btn" onclick="gEnterBatch()">&#128203; 批量编辑</button>
-                <button class="btn btn-outline btn-sm" onClick="gCheckDedup()" style="color:#8b5cf6;border-color:rgba(139,92,246,0.4);">&#129513; 检查重复</button>
-                <button class="btn btn-outline btn-sm" onclick="gShowImport()">&#8681; 批量导入</button>
-                <button class="btn btn-outline btn-sm" onclick="gExport()">&#8682; 导出</button>
-                <button class="btn btn-outline btn-sm" style="color:#f59e0b;border-color:rgba(245,158,11,0.4);" onclick="gClearAuto()">&#128465; 清理自动采集</button>
-            </div>
-            <div class="batch-bar" id="g-batch-bar" style="display:none;">
-                <span>已选 <b id="g-batch-count">0</b> 项</span>
-                <button class="btn btn-danger btn-sm" onclick="gBatchDelete()">删除选中</button>
-                <button class="btn btn-gray btn-sm" onclick="gExitBatch()">取消</button>
-            </div>
-            <div class="content-row">
-                <div class="category-side" id="g-category-side"></div>
-                <div style="flex:1;">
-                    <div class="glossary-grid" id="g-grid"></div>
-                    <div class="pagination" id="g-pagination"></div>
-                </div>
-            </div>
-        </div>
-
-        <!-- ==================== 记忆宫殿 ==================== -->
+                <!-- ==================== 记忆宫殿 ==================== -->
         <div class="view" id="view-memories">
             <div class="page-header">
                 <h1 class="page-title">记忆宫殿</h1>
@@ -482,38 +461,77 @@
             <div class="pagination" id="r-pagination"></div>
         </div>
 
-        <!-- ==================== 设置 ==================== -->
-        <!-- ==================== 学习 ==================== -->
+        <!-- ==================== 学习（说话方式 / 梗百科 / 学习节奏） ==================== -->
         <div class="view" id="view-learning">
             <div class="page-header">
                 <h1 class="page-title">学习</h1>
-                <p class="page-subtitle">她自己学到的东西：怎么说话（来自你们的对话）＋ 外面的新词（来自热榜）</p>
+                <p class="page-subtitle">她学到的东西：怎么说话（来自你们的对话）＋ 外面的新词（来自热榜）</p>
             </div>
-            <div class="stats-row" style="grid-template-columns:repeat(4,1fr);">
-                <div class="stat-card"><div class="stat-value" id="lg-rules">0</div><div class="stat-label">说话要求</div></div>
-                <div class="stat-card"><div class="stat-value" id="lg-examples">0</div><div class="stat-label">场景示范</div></div>
-                <div class="stat-card"><div class="stat-value" id="lg-glossary">0</div><div class="stat-label">梗/黑话</div></div>
-                <div class="stat-card"><div class="stat-value" id="lg-pending">0</div><div class="stat-label">待学习轮次</div></div>
+            <div class="sub-tabs">
+                <button class="sub-tab active" data-sub="style" onclick="learnTab('style')">说话方式 <span class="sub-tab-num" id="lg-rules">0</span></button>
+                <button class="sub-tab" data-sub="glossary" onclick="learnTab('glossary')">梗百科 <span class="sub-tab-num" id="lg-glossary">0</span></button>
+                <button class="sub-tab" data-sub="status" onclick="learnTab('status')">学习节奏</button>
             </div>
-            <div class="card">
-                <div class="card-header"><div class="card-title">学习节奏</div></div>
-                <div class="card-body">
-                    <div id="lg-rhythm" style="font-size:0.85rem;color:#94a3b8;line-height:1.9;">加载中...</div>
-                    <div class="toolbar" style="margin-top:10px;">
-                        <button class="btn btn-primary btn-sm" onclick="lgRun()">立即学习一次</button>
-                        <button class="btn btn-outline btn-sm" onclick="lgCollect()">立即采集梗</button>
-                        <button class="btn btn-outline btn-sm" onclick="lgLoad()">刷新</button>
-                        <span id="lg-status" style="font-size:0.85rem;color:#10b981;"></span>
-                    </div>
+
+            <div class="subview active" id="subview-style">
+                <div class="card">
+                    <div class="card-header"><div class="card-title">说话方式 <span style="font-size:12px;font-weight:400;color:#a0aec0;">（规则常驻注入，示范按话题匹配；学歪了直接删）</span></div></div>
+                    <div class="card-body"><div id="lg-style-list" style="max-height:460px;overflow:auto;">加载中...</div></div>
                 </div>
             </div>
-            <div class="card">
-                <div class="card-header"><div class="card-title">说话方式 <span style="font-size:12px;font-weight:400;color:#a0aec0;">（规则常驻注入，示范按话题匹配）</span></div></div>
-                <div class="card-body"><div id="lg-style-list" style="max-height:420px;overflow:auto;">加载中...</div></div>
-            </div>
-            <div class="card">
-                <div class="card-header"><div class="card-title">梗 · 黑话 <span style="font-size:12px;font-weight:400;color:#a0aec0;">（自动采集来的，命中才注入）</span></div></div>
-                <div class="card-body"><div id="lg-gloss-list" style="max-height:420px;overflow:auto;">加载中...</div></div>
+
+        <div class="subview" id="subview-glossary">
+                    <div class="page-header">
+                        <h1 class="page-title">梗百科</h1>
+                        <p class="page-subtitle">黑话 / 谐音梗 / 行为梗 / 抽象梗 小词典，对话中命中会自动注入给 AI</p>
+                    </div>
+                    <div class="stats-row" style="grid-template-columns:repeat(4,1fr);">
+                        <div class="stat-card"><div class="stat-value" id="gstat-total">0</div><div class="stat-label">梗总数</div></div>
+                        <div class="stat-card"><div class="stat-value" id="gstat-cats">0</div><div class="stat-label">分类数</div></div>
+                        <div class="stat-card"><div class="stat-value" id="gstat-today">0</div><div class="stat-label">今日新增</div></div>
+                        <div class="stat-card"><div class="stat-value" id="gstat-used">0</div><div class="stat-label">已被使用</div></div>
+                    </div>
+                    <div class="toolbar">
+                        <input type="text" class="search-box" id="g-search" placeholder="搜索梗词 / 解释 / 标签 / 来源...">
+                        <button class="btn btn-primary btn-sm" onclick="gAdd()">+ 添加梗</button>
+                        <button class="btn btn-outline btn-sm" id="g-batch-btn" onclick="gEnterBatch()">&#128203; 批量编辑</button>
+                        <button class="btn btn-outline btn-sm" onClick="gCheckDedup()" style="color:#8b5cf6;border-color:rgba(139,92,246,0.4);">&#129513; 检查重复</button>
+                        <button class="btn btn-outline btn-sm" onclick="gShowImport()">&#8681; 批量导入</button>
+                        <button class="btn btn-outline btn-sm" onclick="gExport()">&#8682; 导出</button>
+                        <button class="btn btn-outline btn-sm" style="color:#f59e0b;border-color:rgba(245,158,11,0.4);" onclick="gClearAuto()">&#128465; 清理自动采集</button>
+                    </div>
+                    <div class="batch-bar" id="g-batch-bar" style="display:none;">
+                        <span>已选 <b id="g-batch-count">0</b> 项</span>
+                        <button class="btn btn-danger btn-sm" onclick="gBatchDelete()">删除选中</button>
+                        <button class="btn btn-gray btn-sm" onclick="gExitBatch()">取消</button>
+                    </div>
+                    <div class="content-row">
+                        <div class="category-side" id="g-category-side"></div>
+                        <div style="flex:1;">
+                            <div class="glossary-grid" id="g-grid"></div>
+                            <div class="pagination" id="g-pagination"></div>
+                        </div>
+                    </div>
+                </div>
+
+            <div class="subview" id="subview-status">
+                <div class="stats-row" style="grid-template-columns:repeat(3,1fr);">
+                    <div class="stat-card"><div class="stat-value" id="lg-examples">0</div><div class="stat-label">场景示范</div></div>
+                    <div class="stat-card"><div class="stat-value" id="lg-pending">0</div><div class="stat-label">待学习轮次</div></div>
+                    <div class="stat-card"><div class="stat-value" id="lg-gloss-total">0</div><div class="stat-label">梗条目</div></div>
+                </div>
+                <div class="card">
+                    <div class="card-header"><div class="card-title">学习节奏</div></div>
+                    <div class="card-body">
+                        <div id="lg-rhythm" style="font-size:0.85rem;color:#94a3b8;line-height:1.9;">加载中...</div>
+                        <div class="toolbar" style="margin-top:10px;">
+                            <button class="btn btn-primary btn-sm" onclick="lgRun()">立即学习一次</button>
+                            <button class="btn btn-outline btn-sm" onclick="lgCollect()">立即采集梗</button>
+                            <button class="btn btn-outline btn-sm" onclick="lgLoad()">刷新</button>
+                            <span id="lg-status" style="font-size:0.85rem;color:#10b981;"></span>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -919,13 +937,25 @@
             document.querySelector(`.tab-btn[data-tab="${name}"]`).classList.add('active');
             // 切换时刷新对应数据
             if (name === 'dashboard') loadDashboard();
-            if (name === 'glossary') { gLoadStats(); gLoad(1); }
+            if (name === 'learning') learnTab('style');
             if (name === 'memories') mLoad(1);
             if (name === 'relationships') rLoad(1);
-            if (name === 'learning') lgLoad();
             if (name === 'settings') sLoad();
         }
         window.switchTab = switchTab;
+
+        /** 学习页的三个子标签：说话方式 / 梗百科 / 学习节奏 */
+        function learnTab(name) {
+            document.querySelectorAll('.sub-tab').forEach(b =>
+                b.classList.toggle('active', b.dataset.sub === name));
+            document.querySelectorAll('.subview').forEach(v => v.classList.remove('active'));
+            const panel = document.getElementById('subview-' + name);
+            if (panel) panel.classList.add('active');
+            lgLoad();
+            if (name === 'glossary') { gLoadStats(); gLoad(1); }
+            if (name === 'style') lgLoadStyle();
+        }
+        window.learnTab = learnTab;
         window.closeModal = closeModal;
 
         // ==================== 仪表盘 ====================
@@ -1794,9 +1824,12 @@
                 const d = await apiGet('api/learning/status');
                 const st = d.status || {};
                 const cfg = d.config || {};
+                // 子标签上的计数
                 setStatText('lg-rules', st.rules);
-                setStatText('lg-examples', st.examples);
                 setStatText('lg-glossary', st.glossary);
+                // 学习节奏里的计数
+                setStatText('lg-examples', st.examples);
+                setStatText('lg-gloss-total', st.glossary);
                 setStatText('lg-pending', st.pending_turns);
                 document.getElementById('lg-rhythm').innerHTML =
                     `语气学习：${cfg.learn_enabled ? '每 ' + (cfg.learn_review_hours || 24) + ' 小时回看一次' : '<span style="color:#ef4444;">已关闭</span>'}`
@@ -1804,10 +1837,9 @@
                     + `每轮注入上限：规则 ${cfg.learn_max_rules} 条 / 示范 ${cfg.learn_max_examples} 条 / 梗 ${cfg.glossary_inject_limit} 条<br>`
                     + `最近缓存的对话：${st.last_turn ? escapeHtml(String(st.last_turn)) : '暂无'}`;
             } catch (e) {
-                document.getElementById('lg-rhythm').textContent = '读取状态失败: ' + e.message;
+                const box = document.getElementById('lg-rhythm');
+                if (box) box.textContent = '读取状态失败: ' + e.message;
             }
-            await lgLoadStyle();
-            await lgLoadGlossary();
         }
 
         function setStatText(id, v) {
@@ -1843,43 +1875,10 @@
             }
         }
 
-        async function lgLoadGlossary() {
-            const box = document.getElementById('lg-gloss-list');
-            if (!box) return;
-            try {
-                const d = await apiGet('api/glossary', { limit: 60, q: '自动采集' });
-                const items = d.items || [];
-                if (!items.length) {
-                    box.innerHTML = '<div class="empty-state">还没采集到梗。可以在下方点「立即采集梗」，或等下一次自动采集。</div>';
-                    return;
-                }
-                box.innerHTML = items.map(i => `
-                    <div style="display:flex;gap:8px;align-items:flex-start;border:1px solid rgba(236,72,153,0.15);border-radius:8px;padding:8px;margin-bottom:6px;">
-                        <div style="flex:1;font-size:0.85rem;">
-                            <b>${escapeHtml(i.term || '')}</b>
-                            <span style="font-size:0.72rem;color:#ec4899;">${escapeHtml(i.category || '')}</span>
-                            <div style="color:#94a3b8;margin-top:3px;">${escapeHtml(i.meaning || '')}</div>
-                        </div>
-                        <button class="btn btn-danger btn-sm" onclick="lgDeleteGloss(${i.id})">删</button>
-                    </div>`).join('');
-            } catch (e) {
-                box.innerHTML = `<div class="empty-state">读取失败: ${escapeHtml(e.message || '')}</div>`;
-            }
-        }
-
         function lgDeleteRule(id) {
             showConfirm('删掉这条学到的规则？之后不再注入。', async function() {
                 try {
                     await apiPost(`api/style-rules/${id}/delete`, {});
-                    lgLoad();
-                } catch (e) { showConfirm('删除失败: ' + e.message, function(){}); }
-            });
-        }
-
-        function lgDeleteGloss(id) {
-            showConfirm('删掉这个梗？', async function() {
-                try {
-                    await apiPost(`api/glossary/${id}/delete`, {});
                     lgLoad();
                 } catch (e) { showConfirm('删除失败: ' + e.message, function(){}); }
             });
@@ -1977,7 +1976,6 @@
         window.lgRun = lgRun;
         window.lgCollect = lgCollect;
         window.lgDeleteRule = lgDeleteRule;
-        window.lgDeleteGloss = lgDeleteGloss;
         window.loadDashboard = loadDashboard;
 
         // Modal 点击遮罩关闭
