@@ -1673,6 +1673,7 @@
                         <span class="rel-type">${escapeHtml(r.relation_type || 'friend')}</span>
                     </div>
                     <div class="rel-user-id">ID: ${escapeHtml(r.user_id)}</div>
+                    ${(r.identity_aliases || []).length ? `<div class="rel-user-id" title="这个人在别的群用过这些名字">也叫过：${escapeHtml((r.identity_aliases || []).join('、'))}</div>` : ''}
                     ${r.summary ? `<div class="rel-summary">${escapeHtml(r.summary)}</div>` : ''}
                     ${r.notes ? `<div class="rel-notes">&#128276; ${escapeHtml(r.notes)}</div>` : ''}
                     <div class="rel-meta">

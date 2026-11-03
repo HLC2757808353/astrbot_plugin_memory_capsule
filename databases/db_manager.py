@@ -5,6 +5,7 @@ import math
 import hashlib
 import difflib
 import unicodedata
+import json
 from datetime import datetime, timedelta
 
 try:
@@ -913,7 +914,23 @@ class DatabaseManager:
                 params = []
                 if relation_type is not None: updates.append("relation_type = ?"); params.append(relation_type)
                 if summary is not None: updates.append("summary = ?"); params.append(summary)
-                if nickname is not None: updates.append("nickname = ?"); params.append(nickname)
+                if nickname is not None:
+                    updates.append("nickname = ?"); params.append(nickname)
+                    # AI 主动改名：旧的主名降级成曾用名，别让它凭空消失
+                    old_name = str(existing.get('nickname') or '').strip()
+                    if old_name and old_name != str(nickname).strip():
+                        try:
+                            limit = int(self.config.get('max_aliases_per_user', 3))
+                        except (TypeError, ValueError):
+                            limit = 3
+                        aliases = [a for a in self._parse_aliases(existing.get('identity_aliases'))
+                                   if a['name'] not in (old_name, str(nickname).strip())]
+                        if limit > 0:
+                            aliases.insert(0, {'name': old_name,
+                                               'last_seen': datetime.now().strftime('%Y-%m-%d %H:%M:%S')})
+                            aliases = aliases[:limit]
+                        updates.append("identity_aliases = ?")
+                        params.append(self._dump_aliases(aliases))
                 if first_met_location is not None: updates.append("first_met_location = ?"); params.append(first_met_location)
                 if notes is not None: updates.append("notes = ?"); params.append(notes)
                 updates.append("updated_at = ?"); params.append(datetime.now().isoformat())
@@ -940,13 +957,114 @@ class DatabaseManager:
             return dict(row) if row else None
         return self._execute_read(_do_op)
 
+    @staticmethod
+    def _parse_aliases(raw):
+        """把 identity_aliases 解析成 [{'name','last_seen'}]，兼容旧的逗号分隔串。
+
+        新格式是 JSON 数组、最新的在前；老数据库里可能还是 "A,B" 这种裸串，
+        这里统一按"没有时间信息"处理，不丢数据。
+
+        Args:
+            raw: 数据库里的原始字段值。
+
+        Returns:
+            list[dict]: 每项含 name 和 last_seen（旧数据为 ''）。
+        """
+        if not raw:
+            return []
+        text = str(raw).strip()
+        if text.startswith('['):
+            try:
+                items = json.loads(text)
+                out = []
+                for it in items:
+                    if isinstance(it, dict) and str(it.get('name') or '').strip():
+                        out.append({'name': str(it['name']).strip(),
+                                    'last_seen': str(it.get('last_seen') or '')})
+                return out
+            except Exception:
+                return []
+        return [{'name': a.strip(), 'last_seen': ''} for a in text.split(',') if a.strip()]
+
+    @staticmethod
+    def _dump_aliases(items):
+        """别名列表序列化成 JSON，供数据库存储。"""
+        return json.dumps(items or [], ensure_ascii=False)
+
+    def upsert_identity(self, user_id, name, group_id=''):
+        """见到一个人就登记：没有档案就建骨架，有档案就更新名字历史。
+
+        主名（nickname）是"她习惯怎么叫这个人"，只由 AI 显式设定或首次见到时确定，
+        自动采集不会改它；其它名字进别名池，按最近使用时间排序、超出上限就淘汰最久没见的。
+
+        Args:
+            user_id: 平台用户 ID（主键）。
+            name: 这次看到的称呼（群名片或昵称）。
+            group_id: 当前群，用于首次建档时记录"初识于"。
+
+        Returns:
+            dict: created=是否新建，changed=是否真的写库。
+        """
+        uid = str(user_id or '').strip()
+        nick = str(name or '').strip()[:32]
+        if not uid:
+            return {'created': False, 'changed': False}
+        try:
+            limit = int(self.config.get('max_aliases_per_user', 3))
+        except (TypeError, ValueError):
+            limit = 3
+        limit = max(0, limit)
+        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+        def _do_op(conn):
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM relationships WHERE user_id = ?', (uid,))
+            row = cursor.fetchone()
+            if not row:
+                cursor.execute(
+                    'INSERT INTO relationships (user_id, nickname, relation_type, first_met_location, '
+                    'identity_aliases, last_interaction, interaction_count) '
+                    'VALUES (?, ?, ?, ?, ?, ?, 1)',
+                    (uid, nick, 'friend', str(group_id or ''), self._dump_aliases([]), now))
+                cursor.execute(
+                    'INSERT INTO activities (memory_id, activity_type, description) VALUES (?, ?, ?)',
+                    (0, 'create_relation', nick or uid))
+                return {'created': True, 'changed': True}
+
+            row = dict(row)
+            primary = str(row.get('nickname') or '').strip()
+            aliases = self._parse_aliases(row.get('identity_aliases'))
+            changed = False
+            if not primary and nick:
+                primary = nick
+                changed = True
+            elif nick and nick != primary:
+                # 名字和主名不同：视作"这个人还有个叫法"，塞进别名池最前面
+                rest = [a for a in aliases if a['name'] != nick]
+                rest.insert(0, {'name': nick, 'last_seen': now})
+                if limit == 0:
+                    rest = []
+                elif len(rest) > limit:
+                    # 超出上限：淘汰最久没被看到的那一个
+                    rest.sort(key=lambda a: a['last_seen'] or '', reverse=True)
+                    rest = rest[:limit]
+                if rest != aliases:
+                    aliases = rest
+                    changed = True
+            if not changed:
+                return {'created': False, 'changed': False}
+            cursor.execute(
+                'UPDATE relationships SET nickname = ?, identity_aliases = ?, '
+                'updated_at = ? WHERE user_id = ?',
+                (primary, self._dump_aliases(aliases), now, uid))
+            return {'created': False, 'changed': True}
+
+        return self._execute_write(_do_op) or {'created': False, 'changed': False}
+
     def get_relationship_with_identity(self, user_id):
         rel = self.get_relationship_by_user_id(user_id)
         if not rel: return None
-        aliases = rel.get('identity_aliases', '')
-        if aliases:
-            try: rel['identity_aliases'] = [a.strip() for a in aliases.split(',') if a.strip()]
-            except Exception: rel['identity_aliases'] = []
+        rel['identity_aliases'] = self._parse_aliases(rel.get('identity_aliases'))
         return rel
 
     def get_relationship_checked(self, user_id):
@@ -970,8 +1088,7 @@ class DatabaseManager:
             row = cursor.fetchone()
             if not row: return None
             rel = dict(row)
-            aliases = rel.get('identity_aliases') or ''
-            rel['identity_aliases'] = [a.strip() for a in str(aliases).split(',') if a.strip()]
+            rel['identity_aliases'] = self._parse_aliases(rel.get('identity_aliases'))
             return rel
         conn = self._get_connection()
         try:
@@ -1000,14 +1117,18 @@ class DatabaseManager:
         def _do_op(conn):
             cursor = conn.cursor()
             cursor.execute(
-                'SELECT * FROM relationships WHERE user_id = ? OR nickname = ?',
-                (query, query))
+                'SELECT * FROM relationships WHERE user_id = ? OR nickname = ? '
+                'OR identity_aliases LIKE ?',
+                (query, query, f'%{query}%'))
             exact = [dict(row) for row in cursor.fetchall()]
             if exact:
                 return exact[:limit]
             cursor.execute(
-                'SELECT * FROM relationships WHERE user_id LIKE ? OR nickname LIKE ? OR relation_type LIKE ? OR summary LIKE ? OR notes LIKE ? LIMIT ?',
-                (f'%{query}%', f'%{query}%', f'%{query}%', f'%{query}%', f'%{query}%', limit))
+                'SELECT * FROM relationships WHERE user_id LIKE ? OR nickname LIKE ? '
+                'OR identity_aliases LIKE ? OR relation_type LIKE ? OR summary LIKE ? '
+                'OR notes LIKE ? LIMIT ?',
+                (f'%{query}%', f'%{query}%', f'%{query}%', f'%{query}%', f'%{query}%',
+                 f'%{query}%', limit))
             return [dict(row) for row in cursor.fetchall()]
         result = self._execute_read(_do_op)
         return result if result is not None else []
@@ -1033,51 +1154,6 @@ class DatabaseManager:
                 'UPDATE relationships SET last_interaction = ?, interaction_count = interaction_count + 1 WHERE user_id = ?',
                 (datetime.now().isoformat(), user_id))
         self._execute_write(_do_op)
-
-    def add_identity_alias(self, user_id, alias):
-        def _do_op(conn):
-            cursor = conn.cursor()
-            cursor.execute('SELECT identity_aliases FROM relationships WHERE user_id = ?', (user_id,))
-            row = cursor.fetchone()
-            if not row: return "Relationship not found"
-            current = row[0] or ''
-            aliases = [a.strip() for a in current.split(',') if a.strip()]
-            if alias not in aliases: aliases.append(alias)
-            cursor.execute('UPDATE relationships SET identity_aliases = ?, updated_at = ? WHERE user_id = ?',
-                         (','.join(aliases), datetime.now().isoformat(), user_id))
-            return f"Alias added: {alias}"
-        result = self._execute_write(_do_op)
-        return result if result is not None else "Error: add alias failed"
-
-    def get_user_aliases(self, user_id):
-        def _do_op(conn):
-            cursor = conn.cursor()
-            cursor.execute('SELECT identity_aliases FROM relationships WHERE user_id = ?', (user_id,))
-            row = cursor.fetchone()
-            if not row or not row[0]: return []
-            return [a.strip() for a in row[0].split(',') if a.strip()]
-        result = self._execute_read(_do_op)
-        return result if result is not None else []
-
-    def smart_resolve_identity(self, identifier):
-        def _do_op(conn):
-            cursor = conn.cursor()
-            cursor.execute('SELECT user_id, nickname FROM relationships WHERE user_id = ?', (identifier,))
-            row = cursor.fetchone()
-            if row: return {'user_id': row[0], 'nickname': row[1], 'match_type': 'exact'}
-            cursor.execute('SELECT user_id, nickname FROM relationships WHERE nickname = ?', (identifier,))
-            row = cursor.fetchone()
-            if row: return {'user_id': row[0], 'nickname': row[1], 'match_type': 'nickname'}
-            cursor.execute('SELECT user_id, nickname, identity_aliases FROM relationships')
-            for row in cursor.fetchall():
-                aliases = (row[2] or '').split(',')
-                if identifier in [a.strip() for a in aliases]:
-                    return {'user_id': row[0], 'nickname': row[1], 'match_type': 'alias'}
-            cursor.execute('SELECT user_id, nickname FROM relationships WHERE nickname LIKE ?', (f'%{identifier}%',))
-            row = cursor.fetchone()
-            if row: return {'user_id': row[0], 'nickname': row[1], 'match_type': 'fuzzy'}
-            return None
-        return self._execute_read(_do_op)
 
     # ==================== Activities & Utils ====================
 

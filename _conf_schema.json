@@ -348,12 +348,36 @@
     "display_name": "单轮入库上限"
   },
   "max_aliases_per_user": {
-    "description": "每个用户最多允许的别名数量",
+    "description": "每个人除主名外，最多记住几个曾用名",
     "type": "int",
     "default": 3,
-    "hint": "别名用于识别同一用户的不同称呼",
+    "hint": "主名（她习惯怎么叫这个人）永不淘汰；其它名字按最近见到的时间排序，超出就淘汰最久没见的。0=不记曾用名",
     "editable": true,
-    "display_name": "最大别名数"
+    "display_name": "曾用名上限"
+  },
+  "group_context_enabled": {
+    "description": "群聊时告诉模型“刚才还有谁在说话”",
+    "type": "bool",
+    "default": true,
+    "hint": "只给事实（谁、ID、说了什么），不加任何要求；用来避免把别人的事记到当前对话者头上",
+    "editable": true,
+    "display_name": "群聊近况"
+  },
+  "group_context_lines": {
+    "description": "群聊近况最多列几个人",
+    "type": "int",
+    "default": 3,
+    "hint": "每人只取最近一条，最多 5；人再多也不会线性膨胀",
+    "editable": true,
+    "display_name": "近况条数"
+  },
+  "group_context_window_minutes": {
+    "description": "群聊近况只取多少分钟内的发言",
+    "type": "int",
+    "default": 10,
+    "hint": "超过窗口的发言不算“刚才”，避免翻出很久以前的旧话",
+    "editable": true,
+    "display_name": "近况时间窗(分钟)"
   },
   "memory_categories": {
     "description": "自定义记忆分类列表",

@@ -1,10 +1,10 @@
-# 记忆胶囊 v0.30.2
+# 记忆胶囊 v0.31.0
 
 <div align="center">
 
 [![AstrBot](https://img.shields.io/badge/AstrBot-v4.x-blue.svg)](https://github.com/AstrBotDevs/AstrBot)
 [![Python](https://img.shields.io/badge/Python-3.10+-green.svg)](https://www.python.org/)
-[![Version](https://img.shields.io/badge/version-v0.30.2-red.svg)]()
+[![Version](https://img.shields.io/badge/version-v0.31.0-red.svg)]()
 
 *长期记忆 · 人物档案 · 梗库 · 说话方式——一个面板全管*
 
@@ -21,7 +21,7 @@
 | 能力 | 记什么 | 怎么用上 |
 |---|---|---|
 | **记忆** | 事实、约定、偏好、待办（重要度 1-10） | 每轮对话按相关度自动匹配，命中才注入 |
-| **人物档案** | 昵称、关系、印象、备注、别名 | 每轮都注入"正在和你说话的这个人" |
+| **人物档案** | 昵称（+ 曾用名）、关系、印象、备注 | 每轮都注入"正在和你说话的这个人"；见到就自动建档 |
 | **梗库** | 黑话、谐音梗、抽象梗（释义/出处/例句） | 用户消息里出现该词才注入，每条计数 |
 | **说话方式** | 从你们的对话里提炼的规则 + 场景示范 | 规则常驻注入，示范按话题匹配 |
 
@@ -38,17 +38,20 @@
 | 顺序 | 块 | 何时出现 | 上限 |
 |---|---|---|---|
 | 1 | `<梗/黑话释义>` | 消息里命中梗库的词 | `glossary_inject_limit` = 3 条 |
-| 2 | `<对当前对话对象的了解>` | 有该用户的档案时，**每轮都有** | 印象/备注各截断 120 字 |
-| 3 | `<说话方式>` | 学到过规则/示范时 | 规则 6 条 + 示范 2 条，整块 ≤900 字 |
-| 4 | `<可能相关的历史记忆>` | 词面重合度达标时 | `memory_auto_inject_limit` = 3 条 |
+| 2 | `<对当前对话对象的了解>` | 有该用户的档案时，**每轮都有** | 印象/备注各截断 120 字，曾用名最多 3 个 |
+| 3 | `<群聊近况>` | 群聊且最近有人说过话 | `group_context_lines` = 3 人，每人 1 条，每条 ≤20 字 |
+| 4 | `<说话方式>` | 学到过规则/示范时 | 规则 6 条 + 示范 2 条，整块 ≤900 字 |
+| 5 | `<可能相关的历史记忆>` | 词面重合度达标时 | `memory_auto_inject_limit` = 3 条 |
+
+`<群聊近况>` 只给事实（谁、ID、说了什么），不含任何"该怎么回"的要求——它是用来防止把别人的事记到当前对话者头上，不是用来教她说话。
 
 实测一轮全开约 **300-700 字（≈250-600 tokens）**，比一条普通图片描述还便宜。
 
 几个刻意的设计：
 
-- 档案块会写"不要像念档案一样逐条复述""分不清谁说过的就先问一句"
+- 只保留"防误解"和"防工具打架"的说明，不写任何"该怎么说话"的要求
 - 记忆块会写"这些已经给你了，不需要再调用 search_memory 查同一件事"
-- 说话方式块会写"这是你学到的习惯，不是用户这轮的新要求"
+- 说话方式块会写"这是你学到的习惯，不是用户这轮提出的新要求"
 - 检索没结果时，工具返回里带一句"不代表你不知道，优先依据上下文"
 
 ---
@@ -178,13 +181,14 @@ AstrBot 面板 → 插件 → 记忆胶囊。五个标签：
 
 ---
 
-## 配置分组（40 项，全部可在面板改）
+## 配置分组（48 项，全部可在面板改）
 
 | 分组 | 关键项 |
 |---|---|
 | 记忆功能 | `memory_palace`、`identity_mapping_enabled`、`memory_categories` |
 | 注入 | `auto_inject_enabled`、`memory_auto_inject_enabled/limit/min_score`、`context_inject_position`、`glossary_inject_limit` |
-| 关系 | `relation_injection_refresh_time`、`relation_cache_ttl`、`max_aliases_per_user` |
+| 关系 | `relation_injection_refresh_time`、`relation_cache_ttl`、`max_aliases_per_user`（曾用名上限，默认 3） |
+| 群聊近况 | `group_context_enabled`、`group_context_lines`、`group_context_window_minutes` |
 | 检索排序 | `search_max_results`、`rrf_k`、`mmr_enabled`、`mmr_lambda`、`tfidf_search_enabled`、`tfidf_search_limit`、`max_extracted_tags` |
 | 衰减与归档 | `memory_decay_enabled`、`memory_archive_enabled/days/max_importance` |
 | 清理保护 | `memory_cleanup_enabled/days/max/protect_importance` |

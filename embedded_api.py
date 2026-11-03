@@ -184,6 +184,14 @@ class EmbeddedAPI:
         offset = (page - 1) * limit
         try:
             items = await self._to_thread(self.db_manager.get_all_relationships, limit, offset)
+            # 别名在库里是 JSON，前端只关心名字，这里摊平成名字列表
+            for it in items:
+                try:
+                    it['identity_aliases'] = [
+                        a['name'] for a in self.db_manager._parse_aliases(it.get('identity_aliases'))
+                    ]
+                except Exception:
+                    it['identity_aliases'] = []
             total = await self._to_thread(self.db_manager.get_relationships_count)
             return self._ok(relationships=items, total=total, page=page, limit=limit,
                             total_pages=(total + limit - 1) // limit if limit else 1)

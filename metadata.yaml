@@ -2,6 +2,6 @@ name: astrbot_plugin_memory_capsule
 display_name: 记忆胶囊
 desc: 长期记忆 + 人物档案 + 梗库 + 说话方式：公私分层注入、时效衰减与归档、热榜自动收集梗，一个面板全管
 short_desc: 她会记事、认人、学梗，也会自己学着好好说话
-version: v0.30.2
+version: v0.31.0
 author: 引灯续昼
 repo: https://github.com/HLC2757808353/astrbot_plugin_memory_capsule

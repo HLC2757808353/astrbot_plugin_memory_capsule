@@ -29,7 +29,7 @@ _CORRECTION_HINTS = re.compile(
     r"能不能别|可以别|不用这么|应该这么|应该这样回)")
 
 
-@register("memory_capsule", "引灯续昼", "记忆胶囊插件", "v0.30.2", "https://github.com/HLC2757808353/astrbot_plugin_memory_capsule")
+@register("memory_capsule", "引灯续昼", "记忆胶囊插件", "v0.31.0", "https://github.com/HLC2757808353/astrbot_plugin_memory_capsule")
 class MemoryCapsulePlugin(Star):
     def __init__(self, context: Context, config=None):
         super().__init__(context)
@@ -40,6 +40,8 @@ class MemoryCapsulePlugin(Star):
         self.webui_port = self.config.get('webui_port', 5000)
         self.relation_injection_refresh_time = self.config.get('relation_injection_refresh_time', 3600)
         self._relation_cache = {}
+        # 本群最近的发言者，用于给模型"刚才谁在说话"的事实（不落库、不加指令）
+        self._recent_speakers = {}
         self._glossary_cache = None
         self._glossary_cache_time = 0
         self._glossary_cache_ttl = self.config.get('glossary_cache_ttl', 120)
@@ -599,6 +601,18 @@ class MemoryCapsulePlugin(Star):
             is_group = bool(current_group)
             user_message = (event.message_str or "").strip()
 
+            # ---------- 身份登记：见到就建档，名字变了就记进别名池 ----------
+            # 不花模型调用；主名不会被自动采集改掉，只由 AI 显式设定
+            if user_id:
+                try:
+                    ident = await asyncio.to_thread(
+                        self.db_manager.upsert_identity, user_id, sender_name, current_group)
+                    # 刚建过档或名字有变化，说明缓存里的档案已经过期，直接丢掉落
+                    if isinstance(ident, dict) and ident.get('changed'):
+                        self._relation_cache.pop(user_id, None)
+                except Exception as e:
+                    logger.warning(f"身份登记失败: {e}")
+
             injection_parts = []
 
             # ---------- 梗库匹配注入（每次消息独立检查） ----------
@@ -645,15 +659,22 @@ class MemoryCapsulePlugin(Star):
                 scene = f"当前场景={current_group}群聊" if is_group else "当前场景=私聊"
                 injection_parts.append(
                     "<对当前对话对象的了解>\n"
-                    "以下是关于【正在和你说话的这个账号】的信息，来自你之前和TA相处时记下的印象。\n"
-                    "请自然地融入对话，不要像念档案一样逐条复述；这些信息只属于这个人，"
-                    "不要套用到群里的其他成员身上。群体聊天里若分不清谁说过的，就先问一句，别张冠李戴。\n"
-                    "如果上下文里还有别的来源（比如其他记忆模块）提供的更新信息，以那些为准。\n"
                     f"{relation_xml}, {scene}\n"
+                    "如果上下文里还有别的来源（比如其他记忆模块）提供的更新信息，以那些为准。\n"
                     "</对当前对话对象的了解>"
                 )
             else:
                 logger.warning(f"关系档案读取失败，本轮跳过关系注入: {user_id}")
+
+            # ---------- 群聊近况：刚才是谁在说话（只给事实，不加任何要求） ----------
+            if is_group and self.config.get('group_context_enabled', True):
+                try:
+                    lines = self._recent_other_lines(current_group, user_id)
+                    if lines:
+                        injection_parts.append(
+                            "<群聊近况>\n" + "\n".join(lines) + "\n</群聊近况>")
+                except Exception as e:
+                    logger.warning(f"群聊近况注入失败: {e}")
 
             # 更新时间放在取档案之后：先记一次互动再去读，会让"上次互动"永远显示"刚刚"
             try:
@@ -689,8 +710,8 @@ class MemoryCapsulePlugin(Star):
                             style_parts.append(seg.strip())
                     if style_parts:
                         block = ("<说话方式>\n" + "\n\n".join(style_parts) +
-                                 "\n（这些是你自己从过往对话里学到的习惯，不是用户这轮的新要求；"
-                                 "照着做就行，不要把它们复述给用户。）\n</说话方式>")
+                                 "\n（这些是你自己从过往对话里学到的习惯，不是用户这轮提出的新要求。）"
+                                 "\n</说话方式>")
                         if len(block) > 900:
                             block = block[:900] + "…\n</说话方式>"
                         injection_parts.append(block)
@@ -723,8 +744,6 @@ class MemoryCapsulePlugin(Star):
                             lines.append(f"- [#{m['id']}|{m.get('category') or 'general'}] {m['content']}")
                         injection_parts.append(
                             "<可能相关的历史记忆>\n"
-                            "以下是从小本本里自动匹配到的条目，仅供参考：和当前话题无关就完全忽略，"
-                            "不要生硬引用，也不要假设一定和对方有关（记忆库是共享的）。\n"
                             + "\n".join(lines)
                             + "\n这些已经给你了，不需要再调用 search_memory 查同一件事。\n"
                             "</可能相关的历史记忆>"
@@ -738,6 +757,19 @@ class MemoryCapsulePlugin(Star):
                             pass
                 except Exception as e:
                     logger.error(f"记忆匹配注入失败: {e}")
+
+            # 记下这句是谁说的：下一轮判断"刚才还有谁在说话"要用。
+            # 工具循环里同一条消息可能重复进到这里，所以按 人+内容 去重。
+            if is_group and user_id and user_message:
+                try:
+                    buf = self._recent_speakers.setdefault(current_group, [])
+                    if not (buf and buf[-1]['uid'] == user_id
+                            and buf[-1]['text'] == user_message):
+                        buf.append({'ts': time.time(), 'uid': user_id,
+                                    'name': sender_name, 'text': user_message})
+                        del buf[:-40]
+                except Exception:
+                    pass
 
             if not injection_parts:
                 return req
@@ -800,6 +832,51 @@ class MemoryCapsulePlugin(Star):
             for key in list(self._relation_cache)[:100]:
                 self._relation_cache.pop(key, None)
         return relation, True
+
+    def _recent_other_lines(self, group_id, current_uid):
+        """取本群最近说过话的**其他人**，每人一条，用来给模型一个"刚才谁在说"的事实。
+
+        按人去重、只回最近几条，所以人再多也不会线性膨胀；不含当前对话者。
+
+        Args:
+            group_id: 当前群 ID。
+            current_uid: 当前对话者 ID，会被排除。
+
+        Returns:
+            list[str]: 形如 "小红(123)：我妈住院了" 的行，按时间从早到晚。
+        """
+        try:
+            want = int(self.config.get('group_context_lines', 3))
+        except (TypeError, ValueError):
+            want = 3
+        want = max(0, min(5, want))
+        if want == 0:
+            return []
+        try:
+            window = max(1, int(self.config.get('group_context_window_minutes', 10))) * 60
+        except (TypeError, ValueError):
+            window = 600
+        now = time.time()
+        buf = self._recent_speakers.get(group_id) or []
+        seen = set()
+        picked = []
+        for item in reversed(buf):
+            if now - item['ts'] > window:
+                break
+            if item['uid'] == current_uid or item['uid'] in seen:
+                continue
+            seen.add(item['uid'])
+            picked.append(item)
+            if len(picked) >= want:
+                break
+        picked.reverse()
+        lines = []
+        for item in picked:
+            text = ' '.join(str(item['text']).split())
+            if len(text) > 20:
+                text = text[:20] + '…'
+            lines.append(f"{item['name'] or item['uid']}({item['uid']})：{text}")
+        return lines
 
     def _match_glossary(self, text):
         """匹配用户消息中出现的梗词，返回**真正会被注入**的那几条。
@@ -864,6 +941,15 @@ class MemoryCapsulePlugin(Star):
             parts.append(f'ID={user_id}')
         if nickname:
             parts.append(f'称呼={nickname}')
+        # 曾用名：她自己记下的"这个人还叫过什么"，最多列 3 个
+        aliases = relation.get('identity_aliases') or []
+        alias_names = []
+        for a in aliases:
+            name = a.get('name') if isinstance(a, dict) else str(a)
+            if name and name != nickname and name not in alias_names:
+                alias_names.append(name)
+        if alias_names:
+            parts.append(f'也叫过={"、".join(alias_names[:3])}')
         if relation_type:
             parts.append(f'关系={relation_type}')
         if summary:
