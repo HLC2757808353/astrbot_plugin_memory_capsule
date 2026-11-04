@@ -29,7 +29,7 @@ _CORRECTION_HINTS = re.compile(
     r"能不能别|可以别|不用这么|应该这么|应该这样回)")
 
 
-@register("memory_capsule", "引灯续昼", "记忆胶囊插件", "v0.31.0", "https://github.com/HLC2757808353/astrbot_plugin_memory_capsule")
+@register("memory_capsule", "引灯续昼", "记忆胶囊插件", "v0.32.0", "https://github.com/HLC2757808353/astrbot_plugin_memory_capsule")
 class MemoryCapsulePlugin(Star):
     def __init__(self, context: Context, config=None):
         super().__init__(context)
@@ -42,6 +42,9 @@ class MemoryCapsulePlugin(Star):
         self._relation_cache = {}
         # 本群最近的发言者，用于给模型"刚才谁在说话"的事实（不落库、不加指令）
         self._recent_speakers = {}
+        # 日报：今天跑过没有、每个会话上次注入的时间（用于冷却）
+        self._digest_last_date = ""
+        self._digest_inject_ts = {}
         self._glossary_cache = None
         self._glossary_cache_time = 0
         self._glossary_cache_ttl = self.config.get('glossary_cache_ttl', 120)
@@ -84,6 +87,7 @@ class MemoryCapsulePlugin(Star):
         last_learn = 0.0
         last_collect = 0.0
         last_archive = 0.0
+        last_digest_archive = 0.0
         while True:
             try:
                 now = time.time()
@@ -117,6 +121,33 @@ class MemoryCapsulePlugin(Star):
                             logger.info(f"热榜采集结果: {result}")
                         except Exception as e:
                             logger.error(f"热榜采集出错: {e}")
+                # 每日日报：固定钟点跑一次（默认 9 点），同一天只跑一次
+                if self.config.get('digest_enabled', True):
+                    today_str = datetime.now().strftime('%Y-%m-%d')
+                    digest_hour = int(self.config.get('digest_hour', 9) or 9)
+                    if (self._digest_last_date != today_str
+                            and datetime.now().hour >= digest_hour):
+                        self._digest_last_date = today_str
+                        try:
+                            from .digest import run_digest_once
+                            from .learner import resolve_learn_provider
+                            provider = resolve_learn_provider(self.context, self.config)
+                            result = await run_digest_once(
+                                self.db_manager, provider, self.config, "每日")
+                            logger.info(f"日报结果: {result}")
+                        except Exception as e:
+                            logger.error(f"日报出错: {e}")
+                    if now - last_digest_archive >= 24 * 3600:
+                        last_digest_archive = now
+                        try:
+                            n = await asyncio.to_thread(
+                                self.db_manager.archive_stale_digest,
+                                int(self.config.get('digest_keep_days', 21) or 21),
+                                int(self.config.get('digest_keep_bonus_days', 35) or 35))
+                            if n:
+                                logger.info(f"日报归档：{n} 条过期新闻已归档")
+                        except Exception as e:
+                            logger.error(f"日报归档出错: {e}")
             except asyncio.CancelledError:
                 break
             except Exception as e:
@@ -582,6 +613,57 @@ class MemoryCapsulePlugin(Star):
         except Exception as e:
             return f"失败: {e}"
 
+    # ==================== 日报查询 ====================
+
+    @filter.llm_tool(name="search_digest")
+    async def search_digest(self, event, query, limit=5):
+        """
+        查最近新闻/热点/二次元资讯。想知道某件事的来龙去脉、或者别人提到一个新东西你不确定时用。
+
+        Args:
+            query(str): 关键词，如 "大模型"、"某游戏"、"番剧"
+            limit(int): 返回条数，默认5
+        Returns:
+            匹配到的新闻条目（含标题、摘要、来源、日期）
+        """
+        try:
+            rows = await asyncio.to_thread(
+                self.db_manager.search_digest, str(query), int(limit))
+            if not rows:
+                return json.dumps({"results": [], "note": f"最近没见过关于「{query}」的消息。"},
+                                  ensure_ascii=False)
+            await asyncio.to_thread(self.db_manager.bump_digest_hits, [r['id'] for r in rows])
+            out = [{"date": r.get('digest_date'), "title": r.get('title'),
+                    "summary": r.get('summary'), "source": r.get('source'),
+                    "url": r.get('url')} for r in rows]
+            return json.dumps({"results": out}, ensure_ascii=False)
+        except Exception as e:
+            return json.dumps({"results": [], "error": str(e)}, ensure_ascii=False)
+
+    @filter.llm_tool(name="get_digest")
+    async def get_digest(self, event, date=""):
+        """
+        查看某一天完整的日报（默认今天）。
+
+        Args:
+            date(str): 日期，格式 2026-11-03；留空=今天
+        Returns:
+            当天全部条目的标题与摘要
+        """
+        try:
+            day = str(date or "").strip() or datetime.now().strftime('%Y-%m-%d')
+            rows = await asyncio.to_thread(self.db_manager.get_digest_by_date, day)
+            if not rows:
+                return json.dumps({"date": day, "results": [],
+                                   "note": f"{day} 没有日报记录。"}, ensure_ascii=False)
+            await asyncio.to_thread(self.db_manager.bump_digest_hits, [r['id'] for r in rows])
+            out = [{"title": r.get('title'), "summary": r.get('summary'),
+                    "category": r.get('category'), "source": r.get('source'),
+                    "url": r.get('url')} for r in rows]
+            return json.dumps({"date": day, "results": out}, ensure_ascii=False)
+        except Exception as e:
+            return json.dumps({"date": date, "results": [], "error": str(e)}, ensure_ascii=False)
+
     # ==================== 关系被动注入 ====================
 
     @filter.on_llm_request()
@@ -675,6 +757,19 @@ class MemoryCapsulePlugin(Star):
                             "<群聊近况>\n" + "\n".join(lines) + "\n</群聊近况>")
                 except Exception as e:
                     logger.warning(f"群聊近况注入失败: {e}")
+
+            # ---------- 今日日报目录：只给几条标题，详情靠她自己去查 ----------
+            # 只在抓取后的窗口内、且同一会话冷却时间之外注入，避免整天反复灌同样的内容
+            if self.config.get('digest_enabled', True):
+                try:
+                    digest_lines, digest_ids = await self._digest_lines_for_injection(
+                        event, current_group, user_id)
+                    if digest_lines:
+                        injection_parts.append(
+                            "<今日日报>\n" + "\n".join(digest_lines) + "\n</今日日报>")
+                        await asyncio.to_thread(self.db_manager.bump_digest_hits, digest_ids)
+                except Exception as e:
+                    logger.warning(f"日报注入失败: {e}")
 
             # 更新时间放在取档案之后：先记一次互动再去读，会让"上次互动"永远显示"刚刚"
             try:
@@ -877,6 +972,65 @@ class MemoryCapsulePlugin(Star):
                 text = text[:20] + '…'
             lines.append(f"{item['name'] or item['uid']}({item['uid']})：{text}")
         return lines
+
+    async def _digest_lines_for_injection(self, event, group_id, user_id):
+        """决定这一轮要不要给她"今天有什么"的目录，以及给哪几条。
+
+        三重限制：抓取后的时间窗内、同一会话冷却期外、每次只给很少几条。
+        注入的是标题目录而不是全文——全文留在库里，等真聊到了再查。
+
+        Args:
+            event: 消息事件（取会话标识用）。
+            group_id: 当前群 ID，私聊为空。
+            user_id: 当前用户 ID。
+
+        Returns:
+            tuple[list[str], list[int]]: 要注入的行，以及这些条目的 id（用于计命中）。
+        """
+        try:
+            window_hours = max(1, int(self.config.get('digest_inject_window_hours', 3) or 3))
+        except (TypeError, ValueError):
+            window_hours = 3
+        start = int(self.config.get('digest_hour', 9) or 9)
+        hour = datetime.now().hour
+        if not (start <= hour < start + window_hours):
+            return [], []
+
+        # 冷却按会话算：同一个群灌过一次，一小时内不再灌；别的群该给还得给
+        try:
+            cooldown = max(1, int(
+                self.config.get('digest_inject_cooldown_minutes', 60) or 60)) * 60
+        except (TypeError, ValueError):
+            cooldown = 3600
+        try:
+            session_key = f"{event.get_platform_id()}:{group_id or user_id}"
+        except Exception:
+            session_key = group_id or user_id or "default"
+        now = time.time()
+        last = self._digest_inject_ts.get(session_key, 0)
+        if now - last < cooldown:
+            return [], []
+
+        try:
+            limit = max(1, min(5, int(self.config.get('digest_inject_limit', 3) or 3)))
+        except (TypeError, ValueError):
+            limit = 3
+        rows = await asyncio.to_thread(self.db_manager.get_injectable_digest, limit=limit)
+        if not rows:
+            return [], []
+
+        lines = []
+        for r in rows:
+            title = str(r.get('title') or '').strip()
+            if len(title) > 30:
+                title = title[:30] + '…'
+            # 带上日期：免得她把几天前的新闻当成今天的说
+            lines.append(f"{r.get('digest_date')} {title}")
+        self._digest_inject_ts[session_key] = now
+        if len(self._digest_inject_ts) > 500:
+            for k in list(self._digest_inject_ts)[:100]:
+                self._digest_inject_ts.pop(k, None)
+        return lines, [r['id'] for r in rows]
 
     def _match_glossary(self, text):
         """匹配用户消息中出现的梗词，返回**真正会被注入**的那几条。

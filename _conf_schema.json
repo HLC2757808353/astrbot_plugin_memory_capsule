@@ -379,6 +379,70 @@
     "editable": true,
     "display_name": "近况时间窗(分钟)"
   },
+  "digest_enabled": {
+    "description": "每天自动抓一份日报（新闻/科技/二次元/热点）",
+    "type": "bool",
+    "default": true,
+    "hint": "抓取是公开接口，整理用一次模型调用；全部源都失败时跳过当天，不写空记录",
+    "editable": true,
+    "display_name": "启用每日日报"
+  },
+  "digest_hour": {
+    "description": "每天几点抓日报",
+    "type": "int",
+    "default": 9,
+    "hint": "0-23 的整点，到点后第一次调度时执行，同一天只跑一次",
+    "editable": true,
+    "display_name": "抓取时间(点)"
+  },
+  "digest_items_per_day": {
+    "description": "每天整理多少条",
+    "type": "int",
+    "default": 12,
+    "hint": "AI/科技、二次元/游戏、大众热点大致各占三分之一",
+    "editable": true,
+    "display_name": "每日条数"
+  },
+  "digest_inject_limit": {
+    "description": "每轮最多给她看几条标题",
+    "type": "int",
+    "default": 3,
+    "hint": "只给目录不给全文；给太多她会变成新闻播报机，1-5",
+    "editable": true,
+    "display_name": "注入条数"
+  },
+  "digest_inject_window_hours": {
+    "description": "抓取后多长时间内才注入标题",
+    "type": "int",
+    "default": 3,
+    "hint": "过了这个窗口就不再主动提，改由她自己按关键词检索",
+    "editable": true,
+    "display_name": "注入时间窗(小时)"
+  },
+  "digest_inject_cooldown_minutes": {
+    "description": "同一个会话两次注入之间的最小间隔",
+    "type": "int",
+    "default": 60,
+    "hint": "防止在同一个群里反复念叨同几条新闻；不同群互不影响",
+    "editable": true,
+    "display_name": "注入冷却(分钟)"
+  },
+  "digest_keep_days": {
+    "description": "日报基础保留天数",
+    "type": "int",
+    "default": 21,
+    "hint": "到期的新闻归档（不删除）；被反复提起的会保留更久",
+    "editable": true,
+    "display_name": "保留天数"
+  },
+  "digest_keep_bonus_days": {
+    "description": "被反复提起最多延长多少天",
+    "type": "int",
+    "default": 35,
+    "hint": "被提起满 5 次时额外保留这么多天，所以最久约 21+35 天",
+    "editable": true,
+    "display_name": "重要新闻延长(天)"
+  },
   "memory_categories": {
     "description": "自定义记忆分类列表",
     "type": "list",

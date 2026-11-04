@@ -345,6 +345,21 @@ class DatabaseManager:
                 hit_count INTEGER DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
+            # 每日日报：外部世界的时间线（AI/科技/二次元/热点），留一段时间后归档
+            cursor.execute('''CREATE TABLE IF NOT EXISTS daily_digest (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                digest_date TEXT NOT NULL,
+                category TEXT DEFAULT '',
+                title TEXT NOT NULL,
+                summary TEXT DEFAULT '',
+                keywords TEXT DEFAULT '',
+                source TEXT DEFAULT '',
+                url TEXT DEFAULT '',
+                chat_value INTEGER DEFAULT 3,
+                hits INTEGER DEFAULT 0,
+                last_hit_at TIMESTAMP,
+                archived INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
             # 对话缓存：供"放养式自学"回看，定期清理
             cursor.execute('''CREATE TABLE IF NOT EXISTS learn_turns (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -373,6 +388,8 @@ class DatabaseManager:
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_relationships_nickname ON relationships(nickname)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_glossary_term ON glossary(term)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_glossary_category ON glossary(category)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_digest_date ON daily_digest(digest_date)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_digest_archived ON daily_digest(archived)')
             try:
                 cursor.execute('''CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
                     content, tags, category, content='memories', content_rowid='id')''')
@@ -1678,6 +1695,192 @@ class DatabaseManager:
             return [dict(row) for row in cursor.fetchall()]
         result = self._execute_read(_do_op)
         return result if result is not None else []
+
+    # ==================== 每日日报 ====================
+
+    def add_digest_items(self, items, digest_date):
+        """批量写入当天日报条目，标题重复的跳过。
+
+        Args:
+            items: 条目列表，每项含 title/summary/keywords/source/url/category/chat_value。
+            digest_date: 归属日期（YYYY-MM-DD）。
+
+        Returns:
+            int: 实际新增条数。
+        """
+        def _do_op(conn):
+            cursor = conn.cursor()
+            added = 0
+            for it in items or []:
+                title = str(it.get('title') or '').strip()
+                if not title:
+                    continue
+                cursor.execute(
+                    'SELECT id FROM daily_digest WHERE digest_date = ? AND title = ?',
+                    (digest_date, title))
+                if cursor.fetchone():
+                    continue
+                cursor.execute(
+                    'INSERT INTO daily_digest (digest_date, category, title, summary, '
+                    'keywords, source, url, chat_value) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                    (digest_date, str(it.get('category') or ''), title,
+                     str(it.get('summary') or ''), str(it.get('keywords') or ''),
+                     str(it.get('source') or ''), str(it.get('url') or ''),
+                     int(it.get('chat_value') or 3)))
+                added += 1
+            return added
+        result = self._execute_write(_do_op)
+        return result if result is not None else 0
+
+    def get_digest_by_date(self, digest_date, include_archived=False):
+        """取某一天的日报条目，按好聊程度倒序。"""
+        def _do_op(conn):
+            cursor = conn.cursor()
+            arch = '' if include_archived else ' AND COALESCE(archived, 0) = 0'
+            cursor.execute(
+                'SELECT * FROM daily_digest WHERE digest_date = ?' + arch +
+                ' ORDER BY chat_value DESC, hits DESC, id ASC', (digest_date,))
+            return [dict(row) for row in cursor.fetchall()]
+        result = self._execute_read(_do_op)
+        return result if result is not None else []
+
+    def get_recent_digest_dates(self, limit=7):
+        """最近的几个日报日期，供面板翻页。"""
+        def _do_op(conn):
+            cursor = conn.cursor()
+            cursor.execute(
+                'SELECT digest_date, COUNT(*) AS n FROM daily_digest '
+                'GROUP BY digest_date ORDER BY digest_date DESC LIMIT ?', (limit,))
+            return [dict(row) for row in cursor.fetchall()]
+        result = self._execute_read(_do_op)
+        return result if result is not None else []
+
+    def search_digest(self, query, limit=5, days=60):
+        """按关键词检索日报：标题/摘要/关键词任一命中。
+
+        Args:
+            query: 关键词。
+            limit: 最多返回条数。
+            days: 只回溯最近多少天。
+
+        Returns:
+            list[dict]: 命中的条目，按 提及次数 × 新近度 排序。
+        """
+        q = str(query or '').strip()
+        if not q:
+            return []
+        def _do_op(conn):
+            cursor = conn.cursor()
+            like = f'%{q}%'
+            cursor.execute(
+                "SELECT * FROM daily_digest WHERE COALESCE(archived, 0) = 0 "
+                "AND digest_date >= date('now', ?) AND (title LIKE ? OR summary LIKE ? "
+                "OR keywords LIKE ?) LIMIT 200", (f'-{int(days)} days', like, like, like))
+            rows = [dict(row) for row in cursor.fetchall()]
+            from datetime import date
+            today = date.today()
+            for r in rows:
+                try:
+                    age = (today - date.fromisoformat(str(r.get('digest_date')))).days
+                except Exception:
+                    age = 30
+                # 被提起得多的更重要；越新的分越高
+                r['_score'] = int(r.get('hits') or 0) * 10 - age
+            rows.sort(key=lambda x: -x['_score'])
+            for r in rows:
+                r.pop('_score', None)
+            return rows[:limit]
+        result = self._execute_read(_do_op)
+        return result if result is not None else []
+
+    def get_injectable_digest(self, limit=3, days=2):
+        """取适合塞进上下文的少量条目：优先高好聊度、被提过的、最近的。"""
+        def _do_op(conn):
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT * FROM daily_digest WHERE COALESCE(archived, 0) = 0 "
+                "AND digest_date >= date('now', ?) ", (f'-{int(days)} days',))
+            rows = [dict(row) for row in cursor.fetchall()]
+            from datetime import date
+            today = date.today()
+            for r in rows:
+                try:
+                    age = (today - date.fromisoformat(str(r.get('digest_date')))).days
+                except Exception:
+                    age = 9
+                r['_score'] = int(r.get('chat_value') or 3) * 10 + int(r.get('hits') or 0) * 5 - age * 8
+            rows.sort(key=lambda x: -x['_score'])
+            for r in rows:
+                r.pop('_score', None)
+            return rows[:limit]
+        result = self._execute_read(_do_op)
+        return result if result is not None else []
+
+    def bump_digest_hits(self, ids):
+        """被注入/检索命中一次就记一次，用于"经常被提起说明重要"。"""
+        if not ids:
+            return 0
+        def _do_op(conn):
+            cursor = conn.cursor()
+            now = datetime.now().isoformat()
+            for i in ids:
+                cursor.execute(
+                    'UPDATE daily_digest SET hits = COALESCE(hits, 0) + 1, last_hit_at = ? '
+                    'WHERE id = ?', (now, i))
+            return len(ids)
+        result = self._execute_write(_do_op)
+        return result if result is not None else 0
+
+    def archive_stale_digest(self, keep_days=21, bonus_days=35):
+        """归档过期的日报：基础保留期 + 被提起次数加成。
+
+        没被提起过的新闻到期即归档；被反复提起的活得久一些（最多 +bonus_days）。
+
+        Args:
+            keep_days: 基础保留天数。
+            bonus_days: 被提起满 5 次时额外增加的天数。
+
+        Returns:
+            int: 归档条数。
+        """
+        def _do_op(conn):
+            cursor = conn.cursor()
+            from datetime import date
+            today = date.today()
+            cursor.execute('SELECT id, digest_date, hits FROM daily_digest '
+                           'WHERE COALESCE(archived, 0) = 0')
+            to_archive = []
+            for row in cursor.fetchall():
+                try:
+                    age = (today - date.fromisoformat(str(row[1]))).days
+                except Exception:
+                    continue
+                hits = min(int(row[2] or 0), 5)
+                keep = int(keep_days) + int(hits * (bonus_days / 5))
+                if age > keep:
+                    to_archive.append(row[0])
+            for i in to_archive:
+                cursor.execute('UPDATE daily_digest SET archived = 1 WHERE id = ?', (i,))
+            return len(to_archive)
+        result = self._execute_write(_do_op)
+        return result if result is not None else 0
+
+    def get_digest_stats(self):
+        """日报概览：总条数、今日条数、被提起最多的、已归档条数。"""
+        def _do_op(conn):
+            cursor = conn.cursor()
+            cursor.execute('SELECT COUNT(*) FROM daily_digest WHERE COALESCE(archived, 0) = 0')
+            total = cursor.fetchone()[0]
+            cursor.execute('SELECT COUNT(*) FROM daily_digest WHERE digest_date = date("now","localtime")')
+            today = cursor.fetchone()[0]
+            cursor.execute('SELECT COALESCE(SUM(hits), 0) FROM daily_digest')
+            hits = cursor.fetchone()[0]
+            cursor.execute('SELECT COUNT(*) FROM daily_digest WHERE COALESCE(archived, 0) = 1')
+            archived = cursor.fetchone()[0]
+            return {'total': total, 'today': today, 'hits': hits, 'archived': archived}
+        result = self._execute_read(_do_op)
+        return result if result is not None else {'total': 0, 'today': 0, 'hits': 0, 'archived': 0}
+
 
     def increment_glossary_hit(self, glossary_id):
         def _do_op(conn):

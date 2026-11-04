@@ -1,10 +1,10 @@
-# 记忆胶囊 v0.31.0
+# 记忆胶囊 v0.32.0
 
 <div align="center">
 
 [![AstrBot](https://img.shields.io/badge/AstrBot-v4.x-blue.svg)](https://github.com/AstrBotDevs/AstrBot)
 [![Python](https://img.shields.io/badge/Python-3.10+-green.svg)](https://www.python.org/)
-[![Version](https://img.shields.io/badge/version-v0.31.0-red.svg)]()
+[![Version](https://img.shields.io/badge/version-v0.32.0-red.svg)]()
 
 *长期记忆 · 人物档案 · 梗库 · 说话方式——一个面板全管*
 
@@ -24,6 +24,7 @@
 | **人物档案** | 昵称（+ 曾用名）、关系、印象、备注 | 每轮都注入"正在和你说话的这个人"；见到就自动建档 |
 | **梗库** | 黑话、谐音梗、抽象梗（释义/出处/例句） | 用户消息里出现该词才注入，每条计数 |
 | **说话方式** | 从你们的对话里提炼的规则 + 场景示范 | 规则常驻注入，示范按话题匹配 |
+| **每日日报** | 每天的外部消息：AI/科技、二次元/游戏、大众热点 | 早上给几条标题，细聊时按关键词检索全文 |
 
 > **没有向量检索，也没有 RAG。** 检索走的是 SQLite FTS5 + jieba 分词 + 标签/TF-IDF 多路召回，再用 RRF 融合、MMR 去重、时效衰减排序——纯本地、无 embedding、不依赖向量库。（早期确实设想过 RAG 方向，已放弃。）
 
@@ -40,8 +41,9 @@
 | 1 | `<梗/黑话释义>` | 消息里命中梗库的词 | `glossary_inject_limit` = 3 条 |
 | 2 | `<对当前对话对象的了解>` | 有该用户的档案时，**每轮都有** | 印象/备注各截断 120 字，曾用名最多 3 个 |
 | 3 | `<群聊近况>` | 群聊且最近有人说过话 | `group_context_lines` = 3 人，每人 1 条，每条 ≤20 字 |
-| 4 | `<说话方式>` | 学到过规则/示范时 | 规则 6 条 + 示范 2 条，整块 ≤900 字 |
-| 5 | `<可能相关的历史记忆>` | 词面重合度达标时 | `memory_auto_inject_limit` = 3 条 |
+| 4 | `<今日日报>` | 抓取后的时间窗内，且该会话冷却已过 | `digest_inject_limit` = 3 条标题，约 60 字 |
+| 5 | `<说话方式>` | 学到过规则/示范时 | 规则 6 条 + 示范 2 条，整块 ≤900 字 |
+| 6 | `<可能相关的历史记忆>` | 词面重合度达标时 | `memory_auto_inject_limit` = 3 条 |
 
 `<群聊近况>` 只给事实（谁、ID、说了什么），不含任何"该怎么回"的要求——它是用来防止把别人的事记到当前对话者头上，不是用来教她说话。
 
@@ -56,7 +58,7 @@
 
 ---
 
-## AI 能用的工具（8 个）
+## AI 能用的工具（10 个）
 
 | 工具 | 用途 |
 |---|---|
@@ -65,9 +67,11 @@
 | `get_all_memories` | 按重要度/分类列出记忆 |
 | `delete_memory` | 删除记忆 |
 | `update_relationship` | 写入/更新人物档案（昵称、关系、印象、备注、初遇地点） |
-| `search_relationship` | 模糊找人 |
+| `search_relationship` | 模糊找人（旧名字也能查到） |
 | `get_all_relationships` | 列出所有档案 |
 | `delete_relationship` | 删除档案 |
+| `search_digest` | 查最近新闻/科技/二次元/热点（按关键词） |
+| `get_digest` | 看某一天的完整日报 |
 
 工具查不到东西时**不会装作失忆**——返回里会带上兜底提示，避免模型回"我没有记录"。
 
@@ -127,6 +131,44 @@
 
 ---
 
+## 每日日报：让她跟得上外面的世界
+
+模型自己的知识是停在做训练那天的。日报就是给她补上"今天外面发生了什么"。
+
+**抓什么**（全部公开接口，不用 API key）：
+
+| 源 | 类型 |
+|---|---|
+| 量子位 RSS | AI / 大模型 |
+| 游研社 RSS、机核 RSS | 二次元 / 游戏 |
+| B站动画分区、B站游戏分区 | 二次元 / 游戏 |
+| 百度热搜、头条热榜 | 大众热点 |
+
+**怎么跑**：
+
+1. 每天 `digest_hour`（默认 **9 点**）跑一次，同一天只跑一次
+2. 逐源独立抓取——某个源挂了只跳过它，**全挂就跳过当天，不写空记录**
+3. 交给模型挑出 `digest_items_per_day`（默认 **12**）条，每条给出：标题、一两句摘要、关键词、分类、**好聊程度 1-5**
+4. 存进 `daily_digest` 表；同时**每条写一条记忆**（分类「每日日报」，重要度 3）——这样她"知道自己看过什么"
+
+**三层用法**（存得厚、看得薄、聊到才取）：
+
+| 层 | 表现 |
+|---|---|
+| 注入 | 抓取后 `digest_inject_window_hours`（3）小时内，每次给 `digest_inject_limit`（3）条**标题**，约 60 字；同一会话 `digest_inject_cooldown_minutes`（60）内不重复 |
+| 记忆 | 聊到相关关键词时，对应的那条自己浮出来 |
+| 检索 | `search_digest(关键词)` 找相关条目，`get_digest(日期)` 看某天全部 |
+
+**会自己淡忘**：
+
+- 基础保留 `digest_keep_days`（21 天）
+- 被反复提到的（`hits` 高）多留一点，最多再加 `digest_keep_bonus_days`（35 天）
+- 到期**归档不删除**，面板勾"含已归档"还能翻到
+
+> 没有向量检索：日报检索走的是关键词 + 命中计数 + 时间衰减。每天 12 条、留一两个月，几百条的规模用 FTS/关键词足够快，不需要引入 embedding。
+
+---
+
 ## 说话方式：她怎么学会"好好说话"
 
 放养式，不需要你一条条教。
@@ -181,7 +223,7 @@ AstrBot 面板 → 插件 → 记忆胶囊。五个标签：
 
 ---
 
-## 配置分组（48 项，全部可在面板改）
+## 配置分组（56 项，全部可在面板改）
 
 | 分组 | 关键项 |
 |---|---|
@@ -189,6 +231,7 @@ AstrBot 面板 → 插件 → 记忆胶囊。五个标签：
 | 注入 | `auto_inject_enabled`、`memory_auto_inject_enabled/limit/min_score`、`context_inject_position`、`glossary_inject_limit` |
 | 关系 | `relation_injection_refresh_time`、`relation_cache_ttl`、`max_aliases_per_user`（曾用名上限，默认 3） |
 | 群聊近况 | `group_context_enabled`、`group_context_lines`、`group_context_window_minutes` |
+| 每日日报 | `digest_enabled`、`digest_hour`、`digest_items_per_day`、`digest_inject_limit/window_hours/cooldown_minutes`、`digest_keep_days`、`digest_keep_bonus_days` |
 | 检索排序 | `search_max_results`、`rrf_k`、`mmr_enabled`、`mmr_lambda`、`tfidf_search_enabled`、`tfidf_search_limit`、`max_extracted_tags` |
 | 衰减与归档 | `memory_decay_enabled`、`memory_archive_enabled/days/max_importance` |
 | 清理保护 | `memory_cleanup_enabled/days/max/protect_importance` |
@@ -231,6 +274,7 @@ AstrBot/data/plugin_data/memory_capsule/
 | `relationships` | 人物档案（昵称、关系、印象、备注、别名） |
 | `glossary` | 梗库（释义、出处、命中次数） |
 | `style_rules` | 学到的规则与场景示范 |
+| `daily_digest` | 每日日报（标题/摘要/关键词/好聊度/提及次数） |
 | `learn_turns` | 待学习的对话轮次（7 天） |
 | `activities` | 操作记录 |
 

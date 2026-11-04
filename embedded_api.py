@@ -421,6 +421,35 @@ class EmbeddedAPI:
         except Exception as e:
             return self._err(e)
 
+    # ==================== 日报 ====================
+
+    async def api_digest_list(self):
+        """某一天的日报条目；不给日期就取最近一天。"""
+        from datetime import date as _date
+        try:
+            day = (self._req.query.get("date") or "").strip()
+            include_archived = str(
+                self._req.query.get("include_archived") or "").lower() in ("1", "true", "yes")
+            if not day:
+                dates = await self._to_thread(self.db_manager.get_recent_digest_dates, 1)
+                day = dates[0]["digest_date"] if dates else _date.today().isoformat()
+            items = await self._to_thread(
+                self.db_manager.get_digest_by_date, day, include_archived)
+            dates = await self._to_thread(self.db_manager.get_recent_digest_dates, 30)
+            stats = await self._to_thread(self.db_manager.get_digest_stats)
+            return self._ok(date=day, items=items, dates=dates, **stats)
+        except Exception as e:
+            return self._err(e)
+
+    async def api_digest_search(self):
+        try:
+            q = (self._req.query.get("q") or "").strip()
+            limit = self._req.query.get("limit", 20, type=int)
+            items = await self._to_thread(self.db_manager.search_digest, q, limit)
+            return self._ok(query=q, items=items)
+        except Exception as e:
+            return self._err(e)
+
     # ==================== 设置 ====================
 
     async def api_providers(self):
@@ -517,6 +546,8 @@ def register_embedded_apis(context, db_manager, config=None):
         (f"/{PLUGIN_NAME}/api/style-rules/<rule_id>/delete", api.api_style_rule_delete, ["POST"], "删除学到规则"),
         (f"/{PLUGIN_NAME}/api/learning/status", api.api_learning_status, ["GET"], "学习状态"),
         (f"/{PLUGIN_NAME}/api/learning/run", api.api_learning_run, ["POST"], "立即学习一次"),
+        (f"/{PLUGIN_NAME}/api/digest/list", api.api_digest_list, ["GET"], "日报列表"),
+        (f"/{PLUGIN_NAME}/api/digest/search", api.api_digest_search, ["GET"], "搜索日报"),
         (f"/{PLUGIN_NAME}/api/settings", api.api_settings_get, ["GET"], "读取设置"),
         (f"/{PLUGIN_NAME}/api/settings", api.api_settings_save, ["POST"], "保存设置"),
     ]
