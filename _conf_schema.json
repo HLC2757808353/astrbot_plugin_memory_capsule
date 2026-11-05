@@ -415,30 +415,6 @@
     "editable": true,
     "display_name": "每日条数"
   },
-  "digest_inject_limit": {
-    "description": "每次给她看几条（一次抓取的条目数，默认全部）",
-    "type": "int",
-    "default": 12,
-    "hint": "一天只给几次，给全量也花不了多少；上限 30",
-    "editable": true,
-    "display_name": "注入条数"
-  },
-  "digest_inject_window_hours": {
-    "description": "抓取后多少小时内还当作“今天的简报”给她",
-    "type": "int",
-    "default": 12,
-    "hint": "跨零点也生效；超过窗口后改由她按关键词检索",
-    "editable": true,
-    "display_name": "注入时间窗(小时)"
-  },
-  "digest_inject_cooldown_minutes": {
-    "description": "同一个会话两次给简报之间的最小间隔",
-    "type": "int",
-    "default": 240,
-    "hint": "防止在同一个群反复念叨同样的内容；不同群互不影响",
-    "editable": true,
-    "display_name": "注入冷却(分钟)"
-  },
   "digest_keep_days": {
     "description": "日报基础保留天数",
     "type": "int",
