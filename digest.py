@@ -141,12 +141,22 @@ async def run_digest_once(db_manager, provider, config=None, reason="每日"):
         dict: {'status': ..., 'added': n, 'sources': [成功源名]}
     """
     config = config or {}
+
+    async def _record(status, added=0, sources=None, detail=""):
+        """把本轮结果记进库，面板上就能看出"到底抓没抓到"。"""
+        try:
+            await asyncio.to_thread(
+                db_manager.record_digest_run, status, added, sources or [], detail)
+        except Exception as e:
+            logger.warning(f"日报记录写入失败: {e}")
+        return {"status": status, "added": added, "sources": sources or [], "detail": detail}
+
     if not provider:
         logger.warning("日报：没有可用模型，跳过")
-        return {"status": "no_provider", "added": 0, "sources": []}
+        return await _record("no_provider", detail="没有可用的模型")
     if not _HAS_HTTPX:
         logger.warning("日报：缺少 httpx，跳过")
-        return {"status": "no_httpx", "added": 0, "sources": []}
+        return await _record("no_httpx", detail="缺少 httpx 依赖")
 
     # ---------- 抓取：逐源独立，失败只跳过自己 ----------
     tasks = [_fetch_rss(n, u, c) for n, u, c in _RSS_SOURCES]
@@ -166,7 +176,7 @@ async def run_digest_once(db_manager, provider, config=None, reason="每日"):
                 ok_sources.append(r[0]["source"])
     if not candidates:
         logger.warning("日报：所有源都抓不到，跳过今天（不写空记录）")
-        return {"status": "no_data", "added": 0, "sources": []}
+        return await _record("no_data", detail="所有源都抓不到")
 
     # 同一标题只留一次
     seen = set()
@@ -205,11 +215,11 @@ async def run_digest_once(db_manager, provider, config=None, reason="每日"):
         m = re.search(r"\[.*\]", text, re.S)
         if not m:
             logger.warning(f"日报：模型没给出 JSON，原文前 200 字: {text[:200]}")
-            return {"status": "no_json", "added": 0, "sources": ok_sources}
+            return await _record("no_json", sources=ok_sources, detail=text[:200])
         items = json.loads(m.group(0))
     except Exception as e:
         logger.error(f"日报：模型整理失败: {e}")
-        return {"status": "llm_error", "added": 0, "sources": ok_sources}
+        return await _record("llm_error", sources=ok_sources, detail=str(e)[:200])
 
     cleaned = []
     for it in items if isinstance(items, list) else []:
@@ -228,7 +238,7 @@ async def run_digest_once(db_manager, provider, config=None, reason="每日"):
             "url": str(it.get("url") or "").strip()[:300],
         })
     if not cleaned:
-        return {"status": "no_items", "added": 0, "sources": ok_sources}
+        return await _record("no_items", sources=ok_sources, detail="模型返回的条目为空")
 
     # ---------- 入库 ----------
     from datetime import date
@@ -256,4 +266,5 @@ async def run_digest_once(db_manager, provider, config=None, reason="每日"):
 
     logger.info(f"日报完成({reason}): 抓 {len(candidates)} 条 → 入库 {added} 条，"
                 f"源 {', '.join(ok_sources)}")
-    return {"status": "ok", "added": added, "sources": ok_sources}
+    return await _record("ok", added, ok_sources,
+                         f"候选 {len(candidates)} 条，整理 {len(cleaned)} 条")

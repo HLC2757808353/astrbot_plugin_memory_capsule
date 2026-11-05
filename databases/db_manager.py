@@ -360,6 +360,14 @@ class DatabaseManager:
                 last_hit_at TIMESTAMP,
                 archived INTEGER DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
+            # 每次抓取的结果留一条记录，方便在面板上看"到底抓没抓到"
+            cursor.execute('''CREATE TABLE IF NOT EXISTS digest_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                status TEXT DEFAULT '',
+                added INTEGER DEFAULT 0,
+                sources TEXT DEFAULT '',
+                detail TEXT DEFAULT '',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
             # 对话缓存：供"放养式自学"回看，定期清理
             cursor.execute('''CREATE TABLE IF NOT EXISTS learn_turns (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1793,22 +1801,34 @@ class DatabaseManager:
         result = self._execute_read(_do_op)
         return result if result is not None else []
 
-    def get_injectable_digest(self, limit=3, days=2):
-        """取适合塞进上下文的少量条目：优先高好聊度、被提过的、最近的。"""
+    def get_injectable_digest(self, limit=12, days=2):
+        """取最近一批日报里最值得看的条目。
+
+        先定"最近的那一批日期"，再在那天里按好聊度/命中/新鲜度排序——
+        这样注入进来的条目日期一致，不会把昨天的旧闻标成今天的。
+
+        Args:
+            limit: 最多返回条数。
+            days: 只在这几天范围内找"最近一批"。
+
+        Returns:
+            list[dict]: 同一天的条目，按分数从高到低。
+        """
         def _do_op(conn):
             cursor = conn.cursor()
             cursor.execute(
-                "SELECT * FROM daily_digest WHERE COALESCE(archived, 0) = 0 "
+                "SELECT MAX(digest_date) FROM daily_digest WHERE COALESCE(archived, 0) = 0 "
                 "AND digest_date >= date('now', ?) ", (f'-{int(days)} days',))
-            rows = [dict(row) for row in cursor.fetchall()]
-            from datetime import date
-            today = date.today()
+            row = cursor.fetchone()
+            latest = row[0] if row else None
+            if not latest:
+                return []
+            cursor.execute(
+                'SELECT * FROM daily_digest WHERE COALESCE(archived, 0) = 0 '
+                'AND digest_date = ?', (latest,))
+            rows = [dict(r) for r in cursor.fetchall()]
             for r in rows:
-                try:
-                    age = (today - date.fromisoformat(str(r.get('digest_date')))).days
-                except Exception:
-                    age = 9
-                r['_score'] = int(r.get('chat_value') or 3) * 10 + int(r.get('hits') or 0) * 5 - age * 8
+                r['_score'] = int(r.get('chat_value') or 3) * 10 + int(r.get('hits') or 0) * 5
             rows.sort(key=lambda x: -x['_score'])
             for r in rows:
                 r.pop('_score', None)
@@ -1880,6 +1900,39 @@ class DatabaseManager:
             return {'total': total, 'today': today, 'hits': hits, 'archived': archived}
         result = self._execute_read(_do_op)
         return result if result is not None else {'total': 0, 'today': 0, 'hits': 0, 'archived': 0}
+
+    def record_digest_run(self, status, added=0, sources=None, detail=''):
+        """记一次抓取结果，供面板和排查用（只保留最近 30 条）。
+
+        Args:
+            status: ok / no_data / no_provider / llm_error / no_json 等。
+            added: 本轮入库条数。
+            sources: 成功的源名列表。
+            detail: 附加信息（错误原因、抓到的候选数等）。
+
+        Returns:
+            None
+        """
+        def _do_op(conn):
+            cursor = conn.cursor()
+            cursor.execute(
+                'INSERT INTO digest_runs (status, added, sources, detail) VALUES (?, ?, ?, ?)',
+                (str(status or ''), int(added or 0),
+                 ','.join(sources or []) if isinstance(sources, (list, tuple)) else str(sources or ''),
+                 str(detail or '')[:500]))
+            cursor.execute('DELETE FROM digest_runs WHERE id NOT IN '
+                           '(SELECT id FROM digest_runs ORDER BY id DESC LIMIT 30)')
+        self._execute_write(_do_op)
+
+    def get_last_digest_run(self):
+        """最近一次抓取记录；没有记录时返回 None。"""
+        def _do_op(conn):
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM digest_runs ORDER BY id DESC LIMIT 1')
+            row = cursor.fetchone()
+            return dict(row) if row else None
+        result = self._execute_read(_do_op)
+        return result
 
 
     def increment_glossary_hit(self, glossary_id):

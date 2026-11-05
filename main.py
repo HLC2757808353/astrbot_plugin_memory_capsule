@@ -29,7 +29,7 @@ _CORRECTION_HINTS = re.compile(
     r"能不能别|可以别|不用这么|应该这么|应该这样回)")
 
 
-@register("memory_capsule", "引灯续昼", "记忆胶囊插件", "v0.32.0", "https://github.com/HLC2757808353/astrbot_plugin_memory_capsule")
+@register("memory_capsule", "引灯续昼", "记忆胶囊插件", "v0.32.1", "https://github.com/HLC2757808353/astrbot_plugin_memory_capsule")
 class MemoryCapsulePlugin(Star):
     def __init__(self, context: Context, config=None):
         super().__init__(context)
@@ -45,6 +45,7 @@ class MemoryCapsulePlugin(Star):
         # 日报：今天跑过没有、每个会话上次注入的时间（用于冷却）
         self._digest_last_date = ""
         self._digest_inject_ts = {}
+        self._digest_retry_ts = 0.0
         self._glossary_cache = None
         self._glossary_cache_time = 0
         self._glossary_cache_ttl = self.config.get('glossary_cache_ttl', 120)
@@ -121,13 +122,17 @@ class MemoryCapsulePlugin(Star):
                             logger.info(f"热榜采集结果: {result}")
                         except Exception as e:
                             logger.error(f"热榜采集出错: {e}")
-                # 每日日报：固定钟点跑一次（默认 9 点），同一天只跑一次
+                # 每日日报：到点后跑，成功才记今天已完成；失败则隔一段时间重试
                 if self.config.get('digest_enabled', True):
                     today_str = datetime.now().strftime('%Y-%m-%d')
                     digest_hour = int(self.config.get('digest_hour', 9) or 9)
-                    if (self._digest_last_date != today_str
-                            and datetime.now().hour >= digest_hour):
-                        self._digest_last_date = today_str
+                    retry_gap = max(600, int(
+                        self.config.get('digest_retry_minutes', 30) or 30) * 60)
+                    due = (self._digest_last_date != today_str
+                           and datetime.now().hour >= digest_hour
+                           and now - self._digest_retry_ts >= retry_gap)
+                    if due:
+                        self._digest_retry_ts = now
                         try:
                             from .digest import run_digest_once
                             from .learner import resolve_learn_provider
@@ -135,6 +140,8 @@ class MemoryCapsulePlugin(Star):
                             result = await run_digest_once(
                                 self.db_manager, provider, self.config, "每日")
                             logger.info(f"日报结果: {result}")
+                            if isinstance(result, dict) and result.get('status') == 'ok':
+                                self._digest_last_date = today_str
                         except Exception as e:
                             logger.error(f"日报出错: {e}")
                     if now - last_digest_archive >= 24 * 3600:
@@ -762,11 +769,15 @@ class MemoryCapsulePlugin(Star):
             # 只在抓取后的窗口内、且同一会话冷却时间之外注入，避免整天反复灌同样的内容
             if self.config.get('digest_enabled', True):
                 try:
-                    digest_lines, digest_ids = await self._digest_lines_for_injection(
+                    digest_lines, digest_ids, digest_day = await self._digest_lines_for_injection(
                         event, current_group, user_id)
                     if digest_lines:
+                        # 标记清楚这是自动抓来的外部资讯，不是对话内容，
+                        # 免得被当成"某个人跟她说过的话"混进上下文
                         injection_parts.append(
-                            "<今日日报>\n" + "\n".join(digest_lines) + "\n</今日日报>")
+                            f'<每日简报 日期="{digest_day}" 来源="系统自动抓取的公开资讯，不是对话内容">\n'
+                            + "\n".join(digest_lines)
+                            + "\n</每日简报>")
                         await asyncio.to_thread(self.db_manager.bump_digest_hits, digest_ids)
                 except Exception as e:
                     logger.warning(f"日报注入失败: {e}")
@@ -974,10 +985,10 @@ class MemoryCapsulePlugin(Star):
         return lines
 
     async def _digest_lines_for_injection(self, event, group_id, user_id):
-        """决定这一轮要不要给她"今天有什么"的目录，以及给哪几条。
+        """决定这一轮要不要把今天的简报交给她，以及交哪些条目。
 
-        三重限制：抓取后的时间窗内、同一会话冷却期外、每次只给很少几条。
-        注入的是标题目录而不是全文——全文留在库里，等真聊到了再查。
+        一天只有几次，所以这里给的是**全量条目**（标题+一句摘要），而不是几条目录；
+        限制只剩两个：抓取后多久内还算"今天新看到"，以及同一会话多久给一次。
 
         Args:
             event: 消息事件（取会话标识用）。
@@ -988,20 +999,23 @@ class MemoryCapsulePlugin(Star):
             tuple[list[str], list[int]]: 要注入的行，以及这些条目的 id（用于计命中）。
         """
         try:
-            window_hours = max(1, int(self.config.get('digest_inject_window_hours', 3) or 3))
+            window_hours = max(1, int(
+                self.config.get('digest_inject_window_hours', 12) or 12))
         except (TypeError, ValueError):
-            window_hours = 3
+            window_hours = 12
         start = int(self.config.get('digest_hour', 9) or 9)
         hour = datetime.now().hour
-        if not (start <= hour < start + window_hours):
-            return [], []
+        # 跨零点也算在窗口内（比如 9 点抓、窗口 12 小时 → 覆盖到次日 9 点）
+        elapsed = (hour - start) % 24
+        if elapsed >= window_hours:
+            return [], [], ""
 
-        # 冷却按会话算：同一个群灌过一次，一小时内不再灌；别的群该给还得给
+        # 冷却按会话算：同一个群给过一次，几小时内不再给；别的群该给还得给
         try:
             cooldown = max(1, int(
-                self.config.get('digest_inject_cooldown_minutes', 60) or 60)) * 60
+                self.config.get('digest_inject_cooldown_minutes', 240) or 240)) * 60
         except (TypeError, ValueError):
-            cooldown = 3600
+            cooldown = 14400
         try:
             session_key = f"{event.get_platform_id()}:{group_id or user_id}"
         except Exception:
@@ -1009,28 +1023,38 @@ class MemoryCapsulePlugin(Star):
         now = time.time()
         last = self._digest_inject_ts.get(session_key, 0)
         if now - last < cooldown:
-            return [], []
+            return [], [], ""
 
         try:
-            limit = max(1, min(5, int(self.config.get('digest_inject_limit', 3) or 3)))
+            limit = max(1, min(30, int(self.config.get('digest_inject_limit', 12) or 12)))
         except (TypeError, ValueError):
-            limit = 3
+            limit = 12
         rows = await asyncio.to_thread(self.db_manager.get_injectable_digest, limit=limit)
         if not rows:
-            return [], []
+            return [], [], ""
+
+        # 只给最近那一批（同一日期）的条目，免得日期标错、把昨天的当今天的说
+        latest_day = str(rows[0].get('digest_date') or '')
+        rows = [r for r in rows if str(r.get('digest_date') or '') == latest_day]
 
         lines = []
         for r in rows:
             title = str(r.get('title') or '').strip()
-            if len(title) > 30:
-                title = title[:30] + '…'
-            # 带上日期：免得她把几天前的新闻当成今天的说
-            lines.append(f"{r.get('digest_date')} {title}")
+            if len(title) > 40:
+                title = title[:40] + '…'
+            summary = ' '.join(str(r.get('summary') or '').split())
+            if len(summary) > 45:
+                summary = summary[:45] + '…'
+            # 每条都带日期：免得她把几天前的新闻当成今天的说
+            line = f"· {title}"
+            if summary:
+                line += f"——{summary}"
+            lines.append(line)
         self._digest_inject_ts[session_key] = now
         if len(self._digest_inject_ts) > 500:
             for k in list(self._digest_inject_ts)[:100]:
                 self._digest_inject_ts.pop(k, None)
-        return lines, [r['id'] for r in rows]
+        return lines, [r['id'] for r in rows], latest_day
 
     def _match_glossary(self, text):
         """匹配用户消息中出现的梗词，返回**真正会被注入**的那几条。

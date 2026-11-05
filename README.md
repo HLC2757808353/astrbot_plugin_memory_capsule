@@ -1,10 +1,10 @@
-# 记忆胶囊 v0.32.0
+# 记忆胶囊 v0.32.1
 
 <div align="center">
 
 [![AstrBot](https://img.shields.io/badge/AstrBot-v4.x-blue.svg)](https://github.com/AstrBotDevs/AstrBot)
 [![Python](https://img.shields.io/badge/Python-3.10+-green.svg)](https://www.python.org/)
-[![Version](https://img.shields.io/badge/version-v0.32.0-red.svg)]()
+[![Version](https://img.shields.io/badge/version-v0.32.1-red.svg)]()
 
 *长期记忆 · 人物档案 · 梗库 · 说话方式——一个面板全管*
 
@@ -41,7 +41,7 @@
 | 1 | `<梗/黑话释义>` | 消息里命中梗库的词 | `glossary_inject_limit` = 3 条 |
 | 2 | `<对当前对话对象的了解>` | 有该用户的档案时，**每轮都有** | 印象/备注各截断 120 字，曾用名最多 3 个 |
 | 3 | `<群聊近况>` | 群聊且最近有人说过话 | `group_context_lines` = 3 人，每人 1 条，每条 ≤20 字 |
-| 4 | `<今日日报>` | 抓取后的时间窗内，且该会话冷却已过 | `digest_inject_limit` = 3 条标题，约 60 字 |
+| 4 | `<每日简报>` | 抓取后 12 小时内，且该会话冷却已过 | 最近一批全部条目（标题+一句），约 300-500 字 |
 | 5 | `<说话方式>` | 学到过规则/示范时 | 规则 6 条 + 示范 2 条，整块 ≤900 字 |
 | 6 | `<可能相关的历史记忆>` | 词面重合度达标时 | `memory_auto_inject_limit` = 3 条 |
 
@@ -155,9 +155,15 @@
 
 | 层 | 表现 |
 |---|---|
-| 注入 | 抓取后 `digest_inject_window_hours`（3）小时内，每次给 `digest_inject_limit`（3）条**标题**，约 60 字；同一会话 `digest_inject_cooldown_minutes`（60）内不重复 |
+| 注入 | 抓取后 `digest_inject_window_hours`（12）小时内，把**最近那一批全部条目**（标题 + 一句摘要）交给她，约 300-500 字；同一会话 `digest_inject_cooldown_minutes`（240）分钟内不重复。块上带 `<每日简报 日期=… 来源="系统自动抓取的公开资讯，不是对话内容">`，避免被当成"某人跟她说的话" |
 | 记忆 | 聊到相关关键词时，对应的那条自己浮出来 |
 | 检索 | `search_digest(关键词)` 找相关条目，`get_digest(日期)` 看某天全部 |
+
+**抓不到怎么办**：
+
+- 每条抓取结果都会记一笔（`digest_runs` 表），面板顶部显示"上次抓取：时间 · 成功/失败原因 · 新增几条 · 用了哪些源"
+- 失败不会等一整天：按 `digest_retry_minutes`（30 分钟）重试，成功后就停
+- 面板有「立即抓一次」，不用等到 9 点
 
 **会自己淡忘**：
 
@@ -223,7 +229,7 @@ AstrBot 面板 → 插件 → 记忆胶囊。五个标签：
 
 ---
 
-## 配置分组（56 项，全部可在面板改）
+## 配置分组（57 项，全部可在面板改）
 
 | 分组 | 关键项 |
 |---|---|
@@ -231,7 +237,7 @@ AstrBot 面板 → 插件 → 记忆胶囊。五个标签：
 | 注入 | `auto_inject_enabled`、`memory_auto_inject_enabled/limit/min_score`、`context_inject_position`、`glossary_inject_limit` |
 | 关系 | `relation_injection_refresh_time`、`relation_cache_ttl`、`max_aliases_per_user`（曾用名上限，默认 3） |
 | 群聊近况 | `group_context_enabled`、`group_context_lines`、`group_context_window_minutes` |
-| 每日日报 | `digest_enabled`、`digest_hour`、`digest_items_per_day`、`digest_inject_limit/window_hours/cooldown_minutes`、`digest_keep_days`、`digest_keep_bonus_days` |
+| 每日日报 | `digest_enabled`、`digest_hour`、`digest_retry_minutes`、`digest_items_per_day`、`digest_inject_limit/window_hours/cooldown_minutes`、`digest_keep_days`、`digest_keep_bonus_days` |
 | 检索排序 | `search_max_results`、`rrf_k`、`mmr_enabled`、`mmr_lambda`、`tfidf_search_enabled`、`tfidf_search_limit`、`max_extracted_tags` |
 | 衰减与归档 | `memory_decay_enabled`、`memory_archive_enabled/days/max_importance` |
 | 清理保护 | `memory_cleanup_enabled/days/max/protect_importance` |

@@ -437,7 +437,19 @@ class EmbeddedAPI:
                 self.db_manager.get_digest_by_date, day, include_archived)
             dates = await self._to_thread(self.db_manager.get_recent_digest_dates, 30)
             stats = await self._to_thread(self.db_manager.get_digest_stats)
-            return self._ok(date=day, items=items, dates=dates, **stats)
+            last_run = await self._to_thread(self.db_manager.get_last_digest_run)
+            return self._ok(date=day, items=items, dates=dates, last_run=last_run, **stats)
+        except Exception as e:
+            return self._err(e)
+
+    async def api_digest_run(self):
+        """立刻抓一次日报（手动触发，方便验证源和模型是否正常）。"""
+        try:
+            from .digest import run_digest_once
+            from .learner import resolve_learn_provider
+            provider = resolve_learn_provider(self.context, self.config)
+            result = await run_digest_once(self.db_manager, provider, self.config, "手动")
+            return self._ok(result=result)
         except Exception as e:
             return self._err(e)
 
@@ -548,6 +560,7 @@ def register_embedded_apis(context, db_manager, config=None):
         (f"/{PLUGIN_NAME}/api/learning/run", api.api_learning_run, ["POST"], "立即学习一次"),
         (f"/{PLUGIN_NAME}/api/digest/list", api.api_digest_list, ["GET"], "日报列表"),
         (f"/{PLUGIN_NAME}/api/digest/search", api.api_digest_search, ["GET"], "搜索日报"),
+        (f"/{PLUGIN_NAME}/api/digest/run", api.api_digest_run, ["POST"], "立即抓取日报"),
         (f"/{PLUGIN_NAME}/api/settings", api.api_settings_get, ["GET"], "读取设置"),
         (f"/{PLUGIN_NAME}/api/settings", api.api_settings_save, ["POST"], "保存设置"),
     ]

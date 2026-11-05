@@ -558,10 +558,13 @@
                        onkeydown="if(event.key==='Enter')dgSearch()">
                 <button class="btn btn-primary btn-sm" onclick="dgSearch()">搜索</button>
                 <button class="btn btn-outline btn-sm" onclick="dgBackToDates()">按日期看</button>
+                <button class="btn btn-outline btn-sm" id="dg-run-btn" onclick="dgRunNow()"
+                        style="color:#8b5cf6;border-color:rgba(139,92,246,0.4);">&#8635; 立即抓一次</button>
                 <label style="font-size:12px;color:#718096;margin-left:auto;display:flex;align-items:center;gap:6px;">
                     <input type="checkbox" id="dg-arch" onchange="dgLoad()"> 含已归档
                 </label>
             </div>
+            <div id="dg-lastrun" style="font-size:12px;color:#718096;margin:0 0 12px;">—</div>
             <div id="dg-dates" style="display:flex;gap:8px;flex-wrap:wrap;margin:4px 0 14px;"></div>
             <div class="card">
                 <div class="card-header"><div class="card-title" id="dg-title">加载中...</div></div>
@@ -1052,6 +1055,19 @@
                 document.getElementById('dg-list').innerHTML = items.length
                     ? items.map(dgCard).join('')
                     : '<div class="empty-state">这一天没有条目</div>';
+                // 上次抓取状态：能一眼看出是"没抓到"还是"没注入"
+                const lr = data.last_run;
+                const dgStatusText = {
+                    ok: '✅ 成功', no_data: '⚠️ 所有源都抓不到',
+                    no_provider: '⚠️ 没有可用模型', no_httpx: '⚠️ 缺少 httpx',
+                    llm_error: '⚠️ 模型调用失败', no_json: '⚠️ 模型没返回合法 JSON',
+                    no_items: '⚠️ 整理后条目为空'
+                };
+                document.getElementById('dg-lastrun').textContent = lr
+                    ? `上次抓取：${lr.created_at} · ${dgStatusText[lr.status] || lr.status} · `
+                      + `新增 ${lr.added} 条 · 源 ${lr.sources || '—'}`
+                      + (lr.detail ? ` · ${lr.detail}` : '')
+                    : '还没抓过（每天 9 点自动抓，也可点右侧「立即抓一次」）';
             } catch (e) {
                 document.getElementById('dg-list').innerHTML =
                     `<div class="empty-state">加载失败：${escapeHtml(e.message || e)}</div>`;
@@ -1077,6 +1093,29 @@
         function dgBackToDates() {
             document.getElementById('dg-search').value = '';
             dgLoad();
+        }
+
+        /** 立刻抓一次日报：验证源和模型是否正常，不用等到 9 点 */
+        async function dgRunNow() {
+            const btn = document.getElementById('dg-run-btn');
+            const old = btn.textContent;
+            btn.disabled = true;
+            btn.textContent = '抓取中…';
+            try {
+                const data = await apiPost('api/digest/run', {});
+                const r = (data && data.result) || {};
+                if (typeof showToast === 'function') {
+                    showToast(r.status === 'ok'
+                        ? `抓取完成，新增 ${r.added || 0} 条`
+                        : `抓取未成功：${r.status || '未知'}${r.detail ? ' · ' + r.detail : ''}`);
+                }
+                dgLoad();
+            } catch (e) {
+                if (typeof showToast === 'function') showToast('抓取失败：' + (e.message || e));
+            } finally {
+                btn.disabled = false;
+                btn.textContent = old;
+            }
         }
 
         /** 学习页的三个子标签：说话方式 / 梗百科 / 学习节奏 */
