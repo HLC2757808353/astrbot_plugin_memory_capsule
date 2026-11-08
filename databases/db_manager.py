@@ -378,9 +378,19 @@ class DatabaseManager:
             # 禁谈词：用户明确说"没有这回事/别再说这个"之后，相关记忆与新闻不再出现
             cursor.execute('''CREATE TABLE IF NOT EXISTS muted_topics (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                keyword TEXT NOT NULL,
+                keyword TEXT DEFAULT '',
+                memory_id INTEGER DEFAULT 0,
                 until TIMESTAMP,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
+            # 老库补列：按记忆 ID 禁谈（自动止复读用，比关键词精确）
+            try:
+                cursor.execute('PRAGMA table_info(muted_topics)')
+                cols = {r[1] for r in cursor.fetchall()}
+                if 'memory_id' not in cols:
+                    cursor.execute('ALTER TABLE muted_topics ADD COLUMN memory_id INTEGER DEFAULT 0')
+                    logger.info("Migrated: added muted_topics.memory_id")
+            except Exception:
+                pass
             # 对话缓存：供"放养式自学"回看，定期清理
             cursor.execute('''CREATE TABLE IF NOT EXISTS learn_turns (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1838,7 +1848,7 @@ class DatabaseManager:
                 return []
             cursor.execute(
                 'SELECT * FROM daily_digest WHERE COALESCE(archived, 0) = 0 '
-                'AND digest_date = ?', (latest,))
+                'AND digest_date = ? AND COALESCE(hits, 0) < 2', (latest,))
             rows = [dict(r) for r in cursor.fetchall()]
             for r in rows:
                 r['_score'] = int(r.get('chat_value') or 3) * 10 + int(r.get('hits') or 0) * 5
@@ -2126,7 +2136,7 @@ class DatabaseManager:
         result = self._execute_write(_do_op)
         return result if result is not None else 0
 
-    def archive_repetitive_memories(self, min_injections=5, max_importance=7):
+    def archive_repetitive_memories(self, min_injections=4, max_importance=7):
         """把"念了很多次、但从来没被真正用到"的记忆归档，止住无限复读。
 
         Args:
@@ -2147,7 +2157,7 @@ class DatabaseManager:
         result = self._execute_write(_do_op)
         return result if result is not None else 0
 
-    def mute_topic(self, keyword, days=7):
+    def mute_topic(self, keyword='', days=7, memory_id=0):
         """记一个禁谈词：相关记忆与新闻在一段时间内不再被她提起。
 
         Args:
@@ -2158,28 +2168,36 @@ class DatabaseManager:
             str: 结果说明。
         """
         kw = str(keyword or '').strip()
-        if len(kw) < 2:
+        mid = int(memory_id or 0)
+        if not kw and mid <= 0:
+            return "需要关键词或记忆 ID"
+        if kw and len(kw) < 2:
             return "关键词太短，至少 2 个字"
         until = None
         if days and int(days) > 0:
             until = (datetime.now() + timedelta(days=int(days))).isoformat()
         def _do_op(conn):
             cursor = conn.cursor()
-            cursor.execute('SELECT id FROM muted_topics WHERE keyword = ?', (kw,))
-            if cursor.fetchone():
-                cursor.execute('UPDATE muted_topics SET until = ? WHERE keyword = ?', (until, kw))
-                return f"已更新禁谈词: {kw}"
-            cursor.execute('INSERT INTO muted_topics (keyword, until) VALUES (?, ?)', (kw, until))
-            return f"已记下禁谈词: {kw}"
+            if mid > 0:
+                cursor.execute('SELECT id FROM muted_topics WHERE memory_id = ?', (mid,))
+            else:
+                cursor.execute('SELECT id FROM muted_topics WHERE keyword = ? AND COALESCE(memory_id,0)=0', (kw,))
+            row = cursor.fetchone()
+            if row:
+                cursor.execute('UPDATE muted_topics SET until = ? WHERE id = ?', (until, row[0]))
+                return f"已更新禁谈: {kw or mid}"
+            cursor.execute('INSERT INTO muted_topics (keyword, memory_id, until) VALUES (?, ?, ?)',
+                           (kw, mid, until))
+            return f"已记下禁谈: {kw or mid}"
         result = self._execute_write(_do_op)
-        return result or "禁谈词记录失败"
+        return result or "禁谈记录失败"
 
     def list_muted_topics(self):
         """列出仍在生效的禁谈词。"""
         def _do_op(conn):
             cursor = conn.cursor()
             cursor.execute(
-                'SELECT id, keyword, until FROM muted_topics '
+                'SELECT id, keyword, memory_id, until FROM muted_topics '
                 'WHERE until IS NULL OR until > ? ORDER BY id DESC',
                 (datetime.now().isoformat(),))
             return [dict(r) for r in cursor.fetchall()]
@@ -2187,10 +2205,14 @@ class DatabaseManager:
         return result if result is not None else []
 
     def unmute_topic(self, keyword):
-        """解除一个禁谈词。"""
+        """解除一个禁谈项：传关键词解关键词，传记忆 ID（数字）解那一条。"""
+        key = str(keyword or '').strip()
         def _do_op(conn):
             cursor = conn.cursor()
-            cursor.execute('DELETE FROM muted_topics WHERE keyword = ?', (str(keyword or ''),))
+            if key.isdigit():
+                cursor.execute('DELETE FROM muted_topics WHERE memory_id = ?', (int(key),))
+            else:
+                cursor.execute('DELETE FROM muted_topics WHERE keyword = ?', (key,))
             return cursor.rowcount
         return self._execute_write(_do_op) or 0
 
@@ -2239,7 +2261,7 @@ class DatabaseManager:
                      if len(w) >= 2 and w not in self._MATCH_STOPWORDS]
             words = list(dict.fromkeys(words))[:8]
             # 轻量模式（无 jieba）下中文会被正则切成一整串，退化为二元切片，否则永远匹配不上
-            if len(words) == 1 and len(words[0]) >= 4 and all(ord(c) > 127 for c in words[0]):
+            if len(words) == 1 and len(words[0]) >= 3 and all(ord(c) > 127 for c in words[0]):
                 run = words[0]
                 words = list(dict.fromkeys(run[i:i + 2] for i in range(len(run) - 1)))
             if not words: return []
@@ -2272,13 +2294,23 @@ class DatabaseManager:
             cursor = conn.cursor()
             # 先把主查询结果取完，再查禁谈词——否则第二个查询会覆盖掉结果集
             candidate_rows = cursor.execute(sql, params).fetchall()
-            muted = [r[0] for r in conn.cursor().execute(
-                "SELECT keyword FROM muted_topics WHERE until IS NULL OR until > ?",
-                (datetime.now().isoformat(),)).fetchall() if r and r[0]]
+            # 禁谈：既支持"按记忆 ID"（自动止复读），也支持"按关键词"（用户叫停某话题）
+            muted_ids = set()
+            muted_words = []
+            for mr in conn.cursor().execute(
+                    "SELECT keyword, memory_id FROM muted_topics "
+                    "WHERE until IS NULL OR until > ?",
+                    (datetime.now().isoformat(),)).fetchall():
+                if mr[1]:
+                    muted_ids.add(int(mr[1]))
+                if mr[0]:
+                    muted_words.append(str(mr[0]))
             scored = []
             for row in candidate_rows:
+                if row['id'] in muted_ids:
+                    continue
                 content = row['content'] or ''
-                if any(m in content for m in muted):
+                if any(m in content for m in muted_words):
                     continue
                 blob = f"{content} {row['tags'] or ''}"
                 score = sum(1 for w in words if w in blob)
@@ -2287,10 +2319,14 @@ class DatabaseManager:
                 importance = row['importance'] or 0
                 decay = self._decay_factor(importance, row['last_accessed'] or row['created_at'])
                 weight = score * (0.5 + 0.05 * importance) * decay
-                # 已经念过很多次的往后排（重要记忆不受这条影响）
+                # 反复出现的内容自己消失（重要记忆豁免）：
+                # 指数衰减让它排到后面，硬上限保证它最终不再主动出现。
                 repeats = int(row['inject_count'] or 0)
-                if repeats and importance < 8:
-                    weight /= (1 + 0.35 * repeats)
+                if importance < 7:
+                    if repeats >= 4:
+                        continue
+                    if repeats:
+                        weight *= 0.5 ** (repeats / 2.0)
                 scored.append((weight, importance, row))
             scored.sort(key=lambda x: (-x[0], -x[1]))
             matches = []

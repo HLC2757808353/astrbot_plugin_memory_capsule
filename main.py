@@ -29,7 +29,7 @@ _CORRECTION_HINTS = re.compile(
     r"能不能别|可以别|不用这么|应该这么|应该这样回)")
 
 
-@register("memory_capsule", "引灯续昼", "记忆胶囊插件", "v0.33.0", "https://github.com/HLC2757808353/astrbot_plugin_memory_capsule")
+@register("memory_capsule", "引灯续昼", "记忆胶囊插件", "v0.34.0", "https://github.com/HLC2757808353/astrbot_plugin_memory_capsule")
 class MemoryCapsulePlugin(Star):
     def __init__(self, context: Context, config=None):
         super().__init__(context)
@@ -46,6 +46,8 @@ class MemoryCapsulePlugin(Star):
         self._digest_last_date = ""
         self._digest_inject_ts = {}
         self._digest_retry_ts = 0.0
+        # 上一轮注入过哪些记忆（用户叫停时据此自动禁谈）
+        self._last_injected = {}
         self._glossary_cache = None
         self._glossary_cache_time = 0
         self._glossary_cache_ttl = self.config.get('glossary_cache_ttl', 120)
@@ -721,8 +723,52 @@ class MemoryCapsulePlugin(Star):
         except Exception as e:
             return f"失败: {e}"
 
-    # ==================== 关系被动注入 ====================
+    # ==================== 自动止复读 ====================
 
+    _DENIAL_HINTS = (
+        "没有这回事", "没有的事", "不是这样", "不是真的", "你记错", "记错了",
+        "别说了", "别再说", "别老提", "别总提", "别再提", "翻篇", "胡说", "瞎编",
+        "假的吧", "烦不烦",
+    )
+
+    def _session_key(self, event, group_id, user_id):
+        """会话标识：群聊按群、私聊按人。"""
+        try:
+            return f"{event.get_platform_id()}:{group_id or user_id}"
+        except Exception:
+            return group_id or user_id or "default"
+
+    async def _auto_mute_on_denial(self, session_key, text):
+        """用户否认或叫停时，自动把上一轮提到过的内容设成禁谈。
+
+        这是一个纯自动动作：听到"没有这回事/别说了"，就把刚才那条记忆里的
+        关键词记下来，7 天内不再因为关键词命中而主动提起。不需要任何人去后台登记。
+
+        Args:
+            session_key: 会话标识。
+            text: 用户这一轮说的话。
+
+        Returns:
+            None
+        """
+        if not text or not any(h in text for h in self._DENIAL_HINTS):
+            return
+        injected = self._last_injected.pop(session_key, [])
+        if not injected:
+            return
+        muted = []
+        for item in injected[:3]:
+            mid = item[0] if isinstance(item, (tuple, list)) else 0
+            try:
+                # 按记忆 ID 禁谈：精确、不依赖分词猜关键词
+                await asyncio.to_thread(self.db_manager.mute_topic, "", 7, int(mid or 0))
+                muted.append(mid)
+            except Exception:
+                pass
+        if muted:
+            logger.info(f"用户否认/叫停，已自动停用这几条记忆 7 天: {muted}")
+
+    # ==================== 关系被动注入 ====================
     @filter.on_llm_request()
     async def inject_context(self, event: AstrMessageEvent, req: ProviderRequest):
         if not self.config.get('auto_inject_enabled', True):
@@ -739,6 +785,10 @@ class MemoryCapsulePlugin(Star):
                 current_group = ""
             is_group = bool(current_group)
             user_message = (event.message_str or "").strip()
+
+            # 用户否认/叫停过的话题：自动禁谈，不需要人工维护
+            session_key = self._session_key(event, current_group, user_id)
+            await self._auto_mute_on_denial(session_key, user_message)
 
             # ---------- 身份登记：见到就建档，名字变了就记进别名池 ----------
             # 不花模型调用；主名不会被自动采集改掉，只由 AI 显式设定
@@ -912,6 +962,9 @@ class MemoryCapsulePlugin(Star):
                             await asyncio.to_thread(self.db_manager.bump_memory_access, ids)
                             # 另记一次"被注入"：同一条念太多次会被降权乃至归档，防止复读
                             await asyncio.to_thread(self.db_manager.bump_memory_injection, ids)
+                            # 记下这轮给了哪几条，万一用户下一句就是"别说了"，据此自动禁谈
+                            self._last_injected[session_key] = [
+                                (m['id'], m['content']) for m in matches]
                         except Exception:
                             pass
                 except Exception as e:

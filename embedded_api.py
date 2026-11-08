@@ -462,37 +462,6 @@ class EmbeddedAPI:
         except Exception as e:
             return self._err(e)
 
-    # ==================== 禁谈词 ====================
-
-    async def api_muted_list(self):
-        """列出生效中的禁谈词。"""
-        try:
-            items = await self._to_thread(self.db_manager.list_muted_topics)
-            return self._ok(items=items)
-        except Exception as e:
-            return self._err(e)
-
-    async def api_muted_add(self):
-        """新增一个禁谈词。"""
-        try:
-            data = await self._req.json() or {}
-            keyword = str(data.get("keyword") or "").strip()
-            days = int(data.get("days") or 30)
-            result = await self._to_thread(self.db_manager.mute_topic, keyword, days)
-            return self._ok(result=result)
-        except Exception as e:
-            return self._err(e)
-
-    async def api_muted_delete(self):
-        """解除一个禁谈词。"""
-        try:
-            data = await self._req.json() or {}
-            keyword = str(data.get("keyword") or "").strip()
-            n = await self._to_thread(self.db_manager.unmute_topic, keyword)
-            return self._ok(result={"removed": n})
-        except Exception as e:
-            return self._err(e)
-
     # ==================== 设置 ====================
 
     async def api_providers(self):
@@ -592,9 +561,6 @@ def register_embedded_apis(context, db_manager, config=None):
         (f"/{PLUGIN_NAME}/api/digest/list", api.api_digest_list, ["GET"], "日报列表"),
         (f"/{PLUGIN_NAME}/api/digest/search", api.api_digest_search, ["GET"], "搜索日报"),
         (f"/{PLUGIN_NAME}/api/digest/run", api.api_digest_run, ["POST"], "立即抓取日报"),
-        (f"/{PLUGIN_NAME}/api/muted", api.api_muted_list, ["GET"], "禁谈词列表"),
-        (f"/{PLUGIN_NAME}/api/muted", api.api_muted_add, ["POST"], "新增禁谈词"),
-        (f"/{PLUGIN_NAME}/api/muted/delete", api.api_muted_delete, ["POST"], "解除禁谈词"),
         (f"/{PLUGIN_NAME}/api/settings", api.api_settings_get, ["GET"], "读取设置"),
         (f"/{PLUGIN_NAME}/api/settings", api.api_settings_save, ["POST"], "保存设置"),
     ]
