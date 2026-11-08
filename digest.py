@@ -32,6 +32,31 @@ except ImportError:
 from .collector import _fetch_json
 
 
+def resolve_digest_provider(context, config):
+    """挑一个用来整理日报的模型：优先配置项，否则第一个可用模型。
+
+    Args:
+        context: AstrBot 的 Context。
+        config: 插件配置。
+
+    Returns:
+        LLM provider；取不到时返回 None。
+    """
+    try:
+        model_id = (config or {}).get("digest_model", "")
+        if model_id and context:
+            prov = context.get_provider_by_id(model_id)
+            if prov:
+                return prov
+        if context:
+            provs = context.get_all_providers()
+            if provs:
+                return provs[0]
+    except Exception as e:
+        logger.warning(f"获取日报模型失败: {e}")
+    return None
+
+
 _UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
 _BILI_HEADERS = {"User-Agent": "Mozilla/5.0", "Referer": "https://www.bilibili.com/"}
 
@@ -274,26 +299,7 @@ async def run_digest_once(db_manager, provider, config=None, reason="每日"):
     from datetime import date
     today = date.today().isoformat()
     added = await asyncio.to_thread(db_manager.add_digest_items, cleaned, today)
-
-    # ---------- 每条写一条记忆：让她"知道自己看过什么" ----------
-    # 内容不写日期（日期放标签）：同一件事再次被抓到时，内容哈希相同会被自动去重，
-    # 否则每天存一份，她就会每天把同一件事再说一遍
-    for it in cleaned:
-        try:
-            line = it['title']
-            if it["summary"]:
-                line += f"：{it['summary']}"
-            await asyncio.to_thread(
-                db_manager.write_memory,
-                line[:118],
-                category="每日日报",
-                importance=3,
-                tags=["新闻"] + [k for k in re.split(r"[,，]", it["keywords"]) if k.strip()][:4] + [today],
-                source="daily_digest",
-                visibility="public",
-                owner_id="")
-        except Exception as e:
-            logger.warning(f"日报记忆写入失败: {e}")
+    # 不再写进长期记忆：记忆由 RAG 插件负责，我们只保留日报本体
 
     logger.info(f"日报完成({reason}): 抓 {len(candidates)} 条 → 入库 {added} 条"
                 f"（跳重复 {skipped_dup} 条），源 {', '.join(ok_sources)}")
