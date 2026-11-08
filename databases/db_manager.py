@@ -283,6 +283,13 @@ class DatabaseManager:
             if 'archived' not in columns:
                 cursor.execute("ALTER TABLE memories ADD COLUMN archived INTEGER DEFAULT 0")
                 logger.info("Migrated: added memories.archived")
+            # 注入次数与最后注入时间：用来防止同一条记忆被反复念（"鱼的记忆"就是它造成的）
+            if 'inject_count' not in columns:
+                cursor.execute("ALTER TABLE memories ADD COLUMN inject_count INTEGER DEFAULT 0")
+                logger.info("Migrated: added memories.inject_count")
+            if 'last_injected_at' not in columns:
+                cursor.execute("ALTER TABLE memories ADD COLUMN last_injected_at TIMESTAMP")
+                logger.info("Migrated: added memories.last_injected_at")
             keywords = self._SENSITIVE_KEYWORDS
             conditions = ' OR '.join(['content LIKE ?'] * len(keywords))
             cursor.execute(
@@ -367,6 +374,12 @@ class DatabaseManager:
                 added INTEGER DEFAULT 0,
                 sources TEXT DEFAULT '',
                 detail TEXT DEFAULT '',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
+            # 禁谈词：用户明确说"没有这回事/别再说这个"之后，相关记忆与新闻不再出现
+            cursor.execute('''CREATE TABLE IF NOT EXISTS muted_topics (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                keyword TEXT NOT NULL,
+                until TIMESTAMP,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
             # 对话缓存：供"放养式自学"回看，定期清理
             cursor.execute('''CREATE TABLE IF NOT EXISTS learn_turns (
@@ -2050,6 +2063,161 @@ class DatabaseManager:
         result = self._execute_read(_do_op)
         return result if result is not None else []
 
+    def bump_memory_injection(self, ids):
+        """记一次"这条记忆被塞进上下文"，用于防止同一条被反复念叨。
+
+        与 bump_memory_access 分开：那个记"她用了"，这个记"我们给了"。
+        给得太频繁的记忆会被降权，念够次数且不重要的会归档。
+
+        Args:
+            ids: 记忆 ID 列表。
+
+        Returns:
+            int: 更新条数。
+        """
+        clean = []
+        for i in ids or []:
+            try:
+                clean.append(int(i))
+            except (TypeError, ValueError):
+                continue
+        if not clean:
+            return 0
+        def _do_op(conn):
+            cursor = conn.cursor()
+            now = datetime.now().isoformat()
+            for i in clean:
+                cursor.execute(
+                    'UPDATE memories SET inject_count = COALESCE(inject_count, 0) + 1, '
+                    'last_injected_at = ? WHERE id = ?', (now, i))
+            return len(clean)
+        result = self._execute_write(_do_op)
+        return result if result is not None else 0
+
+    def dedupe_digest_memories(self):
+        """把历史遗留的重复日报记忆归档，只留最新的一份。
+
+        旧版本每天把同一条新闻写成一条记忆（内容带日期前缀，哈希唯一），
+        攒几天就会变成"同一件事说好几遍"。这里按去掉日期后的标题归并。
+
+        Returns:
+            int: 归档的重复条数。
+        """
+        def _do_op(conn):
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT id, content, created_at FROM memories "
+                "WHERE category = '每日日报' AND COALESCE(archived, 0) = 0 "
+                "ORDER BY id DESC")
+            keep = {}
+            drop = []
+            for row in cursor.fetchall():
+                text = re.sub(r'^\[\d{4}-\d{2}-\d{2}\]\s*', '', str(row[1] or ''))
+                key = re.sub(r'[\s\W_]+', '', text)[:40]
+                if not key:
+                    continue
+                if key in keep:
+                    drop.append(row[0])
+                else:
+                    keep[key] = row[0]
+            for i in drop:
+                cursor.execute('UPDATE memories SET archived = 1 WHERE id = ?', (i,))
+            return len(drop)
+        result = self._execute_write(_do_op)
+        return result if result is not None else 0
+
+    def archive_repetitive_memories(self, min_injections=5, max_importance=7):
+        """把"念了很多次、但从来没被真正用到"的记忆归档，止住无限复读。
+
+        Args:
+            min_injections: 注入多少次后考虑归档。
+            max_importance: 重要度高过这个值的不动（生日、雷点这类要保留）。
+
+        Returns:
+            int: 归档条数。
+        """
+        def _do_op(conn):
+            cursor = conn.cursor()
+            cursor.execute(
+                'UPDATE memories SET archived = 1 WHERE COALESCE(archived, 0) = 0 '
+                'AND COALESCE(inject_count, 0) >= ? AND COALESCE(access_count, 0) = 0 '
+                'AND COALESCE(importance, 0) < ?',
+                (int(min_injections), int(max_importance)))
+            return cursor.rowcount
+        result = self._execute_write(_do_op)
+        return result if result is not None else 0
+
+    def mute_topic(self, keyword, days=7):
+        """记一个禁谈词：相关记忆与新闻在一段时间内不再被她提起。
+
+        Args:
+            keyword: 关键词（会做 contains 匹配）。
+            days: 生效天数，<=0 表示永久。
+
+        Returns:
+            str: 结果说明。
+        """
+        kw = str(keyword or '').strip()
+        if len(kw) < 2:
+            return "关键词太短，至少 2 个字"
+        until = None
+        if days and int(days) > 0:
+            until = (datetime.now() + timedelta(days=int(days))).isoformat()
+        def _do_op(conn):
+            cursor = conn.cursor()
+            cursor.execute('SELECT id FROM muted_topics WHERE keyword = ?', (kw,))
+            if cursor.fetchone():
+                cursor.execute('UPDATE muted_topics SET until = ? WHERE keyword = ?', (until, kw))
+                return f"已更新禁谈词: {kw}"
+            cursor.execute('INSERT INTO muted_topics (keyword, until) VALUES (?, ?)', (kw, until))
+            return f"已记下禁谈词: {kw}"
+        result = self._execute_write(_do_op)
+        return result or "禁谈词记录失败"
+
+    def list_muted_topics(self):
+        """列出仍在生效的禁谈词。"""
+        def _do_op(conn):
+            cursor = conn.cursor()
+            cursor.execute(
+                'SELECT id, keyword, until FROM muted_topics '
+                'WHERE until IS NULL OR until > ? ORDER BY id DESC',
+                (datetime.now().isoformat(),))
+            return [dict(r) for r in cursor.fetchall()]
+        result = self._execute_read(_do_op)
+        return result if result is not None else []
+
+    def unmute_topic(self, keyword):
+        """解除一个禁谈词。"""
+        def _do_op(conn):
+            cursor = conn.cursor()
+            cursor.execute('DELETE FROM muted_topics WHERE keyword = ?', (str(keyword or ''),))
+            return cursor.rowcount
+        return self._execute_write(_do_op) or 0
+
+    def get_latest_digest_date(self):
+        """库里最新一批日报的日期；没有则返回空串。
+
+        用来判断"今天到底抓到没有"——只看内存变量的话，插件重启或启动较晚就会漏抓。
+        """
+        def _do_op(conn):
+            cursor = conn.cursor()
+            cursor.execute('SELECT MAX(digest_date) FROM daily_digest')
+            row = cursor.fetchone()
+            return str(row[0]) if row and row[0] else ''
+        result = self._execute_read(_do_op)
+        return result or ''
+
+    def find_recent_digest_titles(self, days=14):
+        """取最近若干天的日报标题，用于跨天去重（同一条新闻不该每天重复入库）。"""
+        def _do_op(conn):
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT title FROM daily_digest WHERE digest_date >= date('now', ?)",
+                (f'-{int(days)} days',))
+            return [str(r[0] or '') for r in cursor.fetchall()]
+        result = self._execute_read(_do_op)
+        return result if result is not None else []
+
     def match_memories(self, query, limit=3, min_score=2, include_private=False, owner_id=""):
         """按词面重合度匹配与 query 相关的记忆，供对话中的自动记忆注入使用。
 
@@ -2082,7 +2250,8 @@ class DatabaseManager:
                 conditions.append('(content LIKE ? OR tags LIKE ?)')
                 params.extend([f'%{w}%', f'%{w}%'])
             sql = (f"SELECT id, content, category, importance, tags, visibility, owner_id, "
-                   f"created_at, last_accessed FROM memories "
+                   f"created_at, last_accessed, COALESCE(inject_count, 0) AS inject_count "
+                   f"FROM memories "
                    f"WHERE ({' OR '.join(conditions)}) AND COALESCE(archived, 0) = 0")
             if include_private:
                 # 私聊：公开记忆 + 归属自己的私有记忆（历史遗留的未归属私有记忆也放行）
@@ -2090,18 +2259,38 @@ class DatabaseManager:
                 params.append(str(owner_id or ''))
             else:
                 sql += " AND (visibility = 'public' OR visibility IS NULL)"
+            # 刚注入过的先压一压：否则同一件事会在一天里被她反复提起（"鱼的记忆"）
+            try:
+                cooldown_hours = int(self.config.get('memory_inject_cooldown_hours', 12) or 0)
+            except (TypeError, ValueError):
+                cooldown_hours = 12
+            if cooldown_hours > 0:
+                cutoff = (datetime.now() - timedelta(hours=cooldown_hours)).isoformat()
+                sql += " AND (last_injected_at IS NULL OR last_injected_at < ?)"
+                params.append(cutoff)
             sql += " LIMIT 200"
             cursor = conn.cursor()
-            cursor.execute(sql, params)
+            # 先把主查询结果取完，再查禁谈词——否则第二个查询会覆盖掉结果集
+            candidate_rows = cursor.execute(sql, params).fetchall()
+            muted = [r[0] for r in conn.cursor().execute(
+                "SELECT keyword FROM muted_topics WHERE until IS NULL OR until > ?",
+                (datetime.now().isoformat(),)).fetchall() if r and r[0]]
             scored = []
-            for row in cursor.fetchall():
-                blob = f"{row['content'] or ''} {row['tags'] or ''}"
+            for row in candidate_rows:
+                content = row['content'] or ''
+                if any(m in content for m in muted):
+                    continue
+                blob = f"{content} {row['tags'] or ''}"
                 score = sum(1 for w in words if w in blob)
                 if score < need: continue
                 # 相关度 × 重要度加成 × 时效系数：久没用到、又不重要的自然往后排
                 importance = row['importance'] or 0
                 decay = self._decay_factor(importance, row['last_accessed'] or row['created_at'])
                 weight = score * (0.5 + 0.05 * importance) * decay
+                # 已经念过很多次的往后排（重要记忆不受这条影响）
+                repeats = int(row['inject_count'] or 0)
+                if repeats and importance < 8:
+                    weight /= (1 + 0.35 * repeats)
                 scored.append((weight, importance, row))
             scored.sort(key=lambda x: (-x[0], -x[1]))
             matches = []

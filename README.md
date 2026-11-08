@@ -1,10 +1,10 @@
-# 记忆胶囊 v0.32.2
+# 记忆胶囊 v0.33.0
 
 <div align="center">
 
 [![AstrBot](https://img.shields.io/badge/AstrBot-v4.x-blue.svg)](https://github.com/AstrBotDevs/AstrBot)
 [![Python](https://img.shields.io/badge/Python-3.10+-green.svg)](https://www.python.org/)
-[![Version](https://img.shields.io/badge/version-v0.32.2-red.svg)]()
+[![Version](https://img.shields.io/badge/version-v0.33.0-red.svg)]()
 
 *长期记忆 · 人物档案 · 梗库 · 说话方式——一个面板全管*
 
@@ -58,7 +58,7 @@
 
 ---
 
-## AI 能用的工具（10 个）
+## AI 能用的工具（12 个）
 
 | 工具 | 用途 |
 |---|---|
@@ -72,6 +72,8 @@
 | `delete_relationship` | 删除档案 |
 | `search_digest` | 查最近新闻/科技/二次元/热点（按关键词） |
 | `get_digest` | 看某一天的完整日报 |
+| `mute_topic` | 记一个禁谈词：相关内容不再被想起来（对方说"别再说这个"时用） |
+| `unmute_topic` | 解除禁谈 |
 
 工具查不到东西时**不会装作失忆**——返回里会带上兜底提示，避免模型回"我没有记录"。
 
@@ -159,11 +161,20 @@
 | 记忆 | 聊到相关关键词时，对应的那条自己浮出来 |
 | 检索 | `search_digest(关键词)` 找相关条目，`get_digest(日期)` 看某天全部 |
 
+**不会断更**：只要库里没有"今天这一批"，到点后就会补抓（服务器启动晚、昨天失败都能自愈）。
+
 **抓不到怎么办**：
 
 - 每条抓取结果都会记一笔（`digest_runs` 表），面板顶部显示"上次抓取：时间 · 成功/失败原因 · 新增几条 · 用了哪些源"
 - 失败不会等一整天：按 `digest_retry_minutes`（30 分钟）重试，成功后就停
 - 面板有「立即抓一次」，不用等到 9 点
+
+**不会重复讲同一件事**：
+
+- 跨天去重：最近 14 天讲过的标题（含近似）不再重复入库，同一条新闻不会每天重新出现
+- 注入冷却：同一条记忆 `memory_inject_cooldown_hours`（12）小时内只出现一次
+- 自动止复读：被注入 5 次以上却从没被真正用到、且重要度 < 7 的记忆自动归档
+- 旧数据清理：历史遗留的重复日报记忆（同一条存了好几份）每天自动合并
 
 **会自己淡忘**：
 
@@ -229,12 +240,12 @@ AstrBot 面板 → 插件 → 记忆胶囊。五个标签：
 
 ---
 
-## 配置分组（54 项，全部可在面板改）
+## 配置分组（55 项，全部可在面板改）
 
 | 分组 | 关键项 |
 |---|---|
 | 记忆功能 | `memory_palace`、`identity_mapping_enabled`、`memory_categories` |
-| 注入 | `auto_inject_enabled`、`memory_auto_inject_enabled/limit/min_score`、`context_inject_position`、`glossary_inject_limit` |
+| 注入 | `auto_inject_enabled`、`memory_auto_inject_enabled/limit/min_score`、`memory_inject_cooldown_hours`（同一条记忆最少隔多久再出现）、`context_inject_position`、`glossary_inject_limit` |
 | 关系 | `relation_injection_refresh_time`、`relation_cache_ttl`、`max_aliases_per_user`（曾用名上限，默认 3） |
 | 群聊近况 | `group_context_enabled`、`group_context_lines`、`group_context_window_minutes` |
 | 每日日报 | `digest_enabled`、`digest_hour`、`digest_retry_minutes`、`digest_items_per_day`、`digest_keep_days`、`digest_keep_bonus_days` |

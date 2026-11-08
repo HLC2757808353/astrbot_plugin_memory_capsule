@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import asyncio
+import difflib
 import json
 import re
 import xml.etree.ElementTree as ET
@@ -240,16 +241,46 @@ async def run_digest_once(db_manager, provider, config=None, reason="每日"):
     if not cleaned:
         return await _record("no_items", sources=ok_sources, detail="模型返回的条目为空")
 
+    # ---------- 跨天去重：同一件事每天重复入库，她就会每天重复讲 ----------
+    recent = await asyncio.to_thread(db_manager.find_recent_digest_titles, 14)
+    def _norm(text):
+        return re.sub(r"[\s\W_]+", "", str(text or ""))[:60]
+
+    seen_norm = [x for x in (_norm(t) for t in recent) if x]
+    deduped = []
+    for it in cleaned:
+        key = _norm(it["title"])
+        if not key:
+            continue
+        duplicate = False
+        for old in seen_norm:
+            if key == old or key in old or old in key:
+                duplicate = True
+                break
+            if difflib.SequenceMatcher(None, key, old).ratio() >= 0.82:
+                duplicate = True
+                break
+        if duplicate:
+            continue
+        seen_norm.append(key)
+        deduped.append(it)
+    skipped_dup = len(cleaned) - len(deduped)
+    cleaned = deduped
+    if not cleaned:
+        return await _record("all_duplicate", sources=ok_sources,
+                             detail=f"{skipped_dup} 条都是最近两周讲过的")
+
     # ---------- 入库 ----------
     from datetime import date
     today = date.today().isoformat()
     added = await asyncio.to_thread(db_manager.add_digest_items, cleaned, today)
 
     # ---------- 每条写一条记忆：让她"知道自己看过什么" ----------
-    # 内容控制在 120 字以内，避免被记忆检索截断后看不到重点
+    # 内容不写日期（日期放标签）：同一件事再次被抓到时，内容哈希相同会被自动去重，
+    # 否则每天存一份，她就会每天把同一件事再说一遍
     for it in cleaned:
         try:
-            line = f"[{today}] {it['title']}"
+            line = it['title']
             if it["summary"]:
                 line += f"：{it['summary']}"
             await asyncio.to_thread(
@@ -264,7 +295,7 @@ async def run_digest_once(db_manager, provider, config=None, reason="每日"):
         except Exception as e:
             logger.warning(f"日报记忆写入失败: {e}")
 
-    logger.info(f"日报完成({reason}): 抓 {len(candidates)} 条 → 入库 {added} 条，"
-                f"源 {', '.join(ok_sources)}")
+    logger.info(f"日报完成({reason}): 抓 {len(candidates)} 条 → 入库 {added} 条"
+                f"（跳重复 {skipped_dup} 条），源 {', '.join(ok_sources)}")
     return await _record("ok", added, ok_sources,
                          f"候选 {len(candidates)} 条，整理 {len(cleaned)} 条")

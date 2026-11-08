@@ -451,6 +451,25 @@
             </div>
             <div class="memories-grid" id="m-grid"></div>
             <div class="pagination" id="m-pagination"></div>
+
+            <div class="card" style="margin-top:18px;">
+                <div class="card-header">
+                    <div class="card-title">禁谈词
+                        <span style="font-size:12px;font-weight:400;color:#a0aec0;">
+                            （命中这些词的记忆和新闻不会再被想起来，用来止住"同一件事反复说"）
+                        </span>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="toolbar" style="margin:0 0 10px;">
+                        <input type="text" class="search-box" id="mute-input" placeholder="比如：欠债、某个名字">
+                        <input type="number" id="mute-days" value="30" min="1" max="3650"
+                               style="width:90px;padding:8px;border-radius:8px;border:1px solid #e2e8f0;">
+                        <button class="btn btn-primary btn-sm" onclick="muteAdd()">加禁谈</button>
+                    </div>
+                    <div id="mute-list" style="font-size:13px;color:#4a5568;">加载中...</div>
+                </div>
+            </div>
         </div>
 
         <!-- ==================== 关系图谱 ==================== -->
@@ -1523,8 +1542,50 @@
             return 3;                  // 1 列 × 3 行
         }
 
+        // ==================== 禁谈词 ====================
+        async function muteLoad() {
+            try {
+                const d = await apiGet('api/muted');
+                const items = d.items || [];
+                const box = document.getElementById('mute-list');
+                if (!items.length) {
+                    box.innerHTML = '<span style="color:#a0aec0;">还没有禁谈词</span>';
+                    return;
+                }
+                box.innerHTML = items.map(it => `
+                    <span class="tag" style="margin:0 8px 8px 0;display:inline-block;">
+                        ${escapeHtml(it.keyword)}
+                        <span style="color:#a0aec0;">·
+                            ${it.until ? escapeHtml(String(it.until).slice(0, 10)) : '永久'}</span>
+                        <a href="javascript:void(0)" onclick="muteDelete('${escapeHtml(it.keyword)}')"
+                           style="color:#e53e3e;margin-left:6px;text-decoration:none;">×</a>
+                    </span>`).join('');
+            } catch (e) { /* 面板没加载好时不打扰 */ }
+        }
+
+        async function muteAdd() {
+            const kw = document.getElementById('mute-input').value.trim();
+            if (kw.length < 2) { showToast('至少 2 个字'); return; }
+            const days = parseInt(document.getElementById('mute-days').value || '30', 10);
+            try {
+                await apiPost('api/muted', { keyword: kw, days });
+                document.getElementById('mute-input').value = '';
+                showToast(`已禁谈「${kw}」`);
+                muteLoad();
+            } catch (e) { showToast('添加失败：' + (e.message || e)); }
+        }
+
+        async function muteDelete(kw) {
+            try {
+                await apiPost('api/muted/delete', { keyword: kw });
+                showToast(`已解除「${kw}」`);
+                muteLoad();
+            } catch (e) { showToast('解除失败：' + (e.message || e)); }
+        }
+
         async function mLoad(page = 1) {
             mPage = page;
+            muteLoad();
             const q = document.getElementById('m-search').value.trim();
             try {
                 if (q) {

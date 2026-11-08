@@ -29,7 +29,7 @@ _CORRECTION_HINTS = re.compile(
     r"能不能别|可以别|不用这么|应该这么|应该这样回)")
 
 
-@register("memory_capsule", "引灯续昼", "记忆胶囊插件", "v0.32.2", "https://github.com/HLC2757808353/astrbot_plugin_memory_capsule")
+@register("memory_capsule", "引灯续昼", "记忆胶囊插件", "v0.33.0", "https://github.com/HLC2757808353/astrbot_plugin_memory_capsule")
 class MemoryCapsulePlugin(Star):
     def __init__(self, context: Context, config=None):
         super().__init__(context)
@@ -99,6 +99,16 @@ class MemoryCapsulePlugin(Star):
                             n = await asyncio.to_thread(self.db_manager.archive_stale_memories)
                             if n:
                                 logger.info(f"记忆归档：{n} 条长期没用到、重要度一般的记忆已归档")
+                            # 念了很多次、却从没被真正用过的记忆：别再复读了
+                            n2 = await asyncio.to_thread(
+                                self.db_manager.archive_repetitive_memories)
+                            if n2:
+                                logger.info(f"防复读：{n2} 条被反复注入但从未用到的记忆已归档")
+                            # 历史遗留的重复日报记忆（同一条新闻存了好几份）合并掉
+                            n3 = await asyncio.to_thread(
+                                self.db_manager.dedupe_digest_memories)
+                            if n3:
+                                logger.info(f"日报记忆去重：{n3} 条重复的已归档")
                         except Exception as e:
                             logger.error(f"记忆归档出错: {e}")
                 if self.config.get('learn_enabled', True):
@@ -122,13 +132,18 @@ class MemoryCapsulePlugin(Star):
                             logger.info(f"热榜采集结果: {result}")
                         except Exception as e:
                             logger.error(f"热榜采集出错: {e}")
-                # 每日日报：到点后跑，成功才记今天已完成；失败则隔一段时间重试
+                # 每日日报：只要库里没有今天这一批就补抓（启动晚、昨天失败都能自愈）
                 if self.config.get('digest_enabled', True):
                     today_str = datetime.now().strftime('%Y-%m-%d')
                     digest_hour = int(self.config.get('digest_hour', 9) or 9)
                     retry_gap = max(600, int(
                         self.config.get('digest_retry_minutes', 30) or 30) * 60)
-                    due = (self._digest_last_date != today_str
+                    try:
+                        latest_day = await asyncio.to_thread(
+                            self.db_manager.get_latest_digest_date)
+                    except Exception:
+                        latest_day = ''
+                    due = (latest_day != today_str
                            and datetime.now().hour >= digest_hour
                            and now - self._digest_retry_ts >= retry_gap)
                     if due:
@@ -671,6 +686,41 @@ class MemoryCapsulePlugin(Star):
         except Exception as e:
             return json.dumps({"date": date, "results": [], "error": str(e)}, ensure_ascii=False)
 
+    # ==================== 禁谈 / 忘掉某件事 ====================
+
+    @filter.llm_tool(name="mute_topic")
+    async def mute_topic(self, event, keyword, days=7):
+        """
+        当对方明确说"没有这回事""别再说这个""这事翻篇了"，或者某件事每次提起来都让他不高兴时，
+        把关键词记成禁谈项：相关记忆和新闻一段时间内不会再被你想起来。
+
+        Args:
+            keyword(str): 关键词，如 "欠债"、"烤肉"
+            days(int): 生效天数，默认 7；填 0 表示永久
+        Returns:
+            操作结果
+        """
+        try:
+            return await asyncio.to_thread(self.db_manager.mute_topic, str(keyword), int(days))
+        except Exception as e:
+            return f"失败: {e}"
+
+    @filter.llm_tool(name="unmute_topic")
+    async def unmute_topic(self, event, keyword):
+        """
+        解除禁谈（对方又说可以聊了的时候用）。
+
+        Args:
+            keyword(str): 之前禁谈的关键词
+        Returns:
+            操作结果
+        """
+        try:
+            n = await asyncio.to_thread(self.db_manager.unmute_topic, str(keyword))
+            return f"已解除禁谈: {keyword}" if n else f"没有找到禁谈词: {keyword}"
+        except Exception as e:
+            return f"失败: {e}"
+
     # ==================== 关系被动注入 ====================
 
     @filter.on_llm_request()
@@ -858,8 +908,10 @@ class MemoryCapsulePlugin(Star):
                         # 记"最后被用到的时间"（不涨 access_count，避免自动注入自我强化），
                         # 供时效衰减判断这条记忆是不是已经很久没人用了
                         try:
-                            await asyncio.to_thread(
-                                self.db_manager.bump_memory_access, [m['id'] for m in matches])
+                            ids = [m['id'] for m in matches]
+                            await asyncio.to_thread(self.db_manager.bump_memory_access, ids)
+                            # 另记一次"被注入"：同一条念太多次会被降权乃至归档，防止复读
+                            await asyncio.to_thread(self.db_manager.bump_memory_injection, ids)
                         except Exception:
                             pass
                 except Exception as e:

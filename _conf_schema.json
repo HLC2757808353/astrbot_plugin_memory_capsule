@@ -76,6 +76,14 @@
     "editable": true,
     "display_name": "匹配严格度"
   },
+  "memory_inject_cooldown_hours": {
+    "description": "同一条记忆两次被注入之间至少隔多少小时",
+    "type": "int",
+    "default": 12,
+    "hint": "防止同一件事一天里被反复提起；0=不限制（不推荐）",
+    "editable": true,
+    "display_name": "记忆注入冷却(小时)"
+  },
   "learn_enabled": {
     "description": "自动学习（放养模式）：自己从日常对话里总结“该怎么说话”，不需要你一条条教",
     "type": "bool",
