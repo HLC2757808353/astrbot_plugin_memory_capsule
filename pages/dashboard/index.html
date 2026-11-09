@@ -332,6 +332,26 @@
         .related-item:last-child { border-bottom: none; }
         .related-cat { color: #ec4899; font-size: 0.72rem; margin-left: 6px; }
 
+        /* Digest entries size to their text; notebook cards keep their own layout. */
+        .digest-calendar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 12px; }
+        .digest-calendar label { display: flex; align-items: center; gap: 6px; font-size: 0.84rem; color: #64748b; }
+        .digest-calendar input { width: auto; min-width: 145px; }
+        [data-theme="dark"] .digest-calendar label { color: #cbd5e1; }
+        [data-theme="dark"] .digest-calendar input { color-scheme: dark; }
+        .digest-days { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 14px; }
+        .digest-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+        .digest-card { min-width: 0; padding: 14px 16px; border: 1px solid rgba(139,92,246,0.15); border-left: 3px solid #8b5cf6; border-radius: 10px; background: rgba(139,92,246,0.04); overflow-wrap: anywhere; }
+        .digest-card-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+        .digest-card-title { font-size: 0.95rem; line-height: 1.6; color: #2d3748; margin: 0 0 6px; }
+        .digest-card-summary { font-size: 0.88rem; line-height: 1.7; color: #475569; margin-bottom: 8px; }
+        .digest-card-tags { margin-bottom: 4px; }
+        .digest-card-meta { display: flex; flex-wrap: wrap; gap: 6px 12px; font-size: 0.76rem; color: #718096; }
+        .digest-card-meta a { color: #8b5cf6; }
+        [data-theme="dark"] .digest-card-title { color: #e2e8f0; }
+        [data-theme="dark"] .digest-card-summary { color: #cbd5e1; }
+        [data-theme="dark"] .digest-card-meta { color: #94a3b8; }
+        [data-theme="dark"] .digest-card-meta a { color: #a78bfa; }
+
         /* ===== 关系图谱 ===== */
         .rel-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; margin-bottom: 18px; }
         .rel-card {
@@ -432,7 +452,7 @@
         <div class="view" id="view-memories">
             <div class="page-header">
                 <h1 class="page-title">记忆宫殿</h1>
-                <p class="page-subtitle">管理和浏览所有记忆（精确记忆 / 小本本）</p>
+                <p class="page-subtitle">笔记本与日记，不自动注入对话；外部新闻请到「日报」查看</p>
             </div>
             <div class="toolbar">
                 <input type="text" class="search-box" id="m-search" placeholder="搜索记忆（多个词效果更好）...">
@@ -521,9 +541,9 @@
         <div class="view" id="view-digest">
             <div class="page-header">
                 <h1 class="page-title">每日日报</h1>
-                <p class="page-subtitle">她每天看到的外部消息：库里存全文，眼前只给几条标题，聊到了才细查</p>
+                <p class="page-subtitle">外部资讯按年、月、日独立存档；笔记和日记保留在记忆宫殿</p>
             </div>
-            <div class="stats-row" style="grid-template-columns:repeat(4,1fr);">
+            <div class="stats-row">
                 <div class="stat-card"><div class="stat-value" id="dgstat-total">0</div><div class="stat-label">在档条目</div></div>
                 <div class="stat-card"><div class="stat-value" id="dgstat-today">0</div><div class="stat-label">今日条数</div></div>
                 <div class="stat-card"><div class="stat-value" id="dgstat-hits">0</div><div class="stat-label">被用到次数</div></div>
@@ -540,12 +560,18 @@
                     <input type="checkbox" id="dg-arch" onchange="dgLoad()"> 含已归档
                 </label>
             </div>
+            <div class="digest-calendar" aria-label="日报日期导航">
+                <label for="dg-year">年份 <select id="dg-year" onchange="dgSelectYear()" aria-label="日报年份"></select></label>
+                <label for="dg-month">月份 <select id="dg-month" onchange="dgSelectMonth()" aria-label="日报月份"></select></label>
+                <label for="dg-date">指定日期 <input type="date" id="dg-date" class="form-control" onchange="dgLoad(this.value)" aria-label="日报日期"></label>
+                <button type="button" class="btn btn-outline btn-sm" id="dg-latest" onclick="dgLatest()">最新一期</button>
+            </div>
             <div id="dg-lastrun" style="font-size:12px;color:#718096;margin:0 0 12px;">—</div>
-            <div id="dg-dates" style="display:flex;gap:8px;flex-wrap:wrap;margin:4px 0 14px;"></div>
+            <nav id="dg-dates" class="digest-days" aria-label="当月日报日期"></nav>
             <div class="card">
                 <div class="card-header"><div class="card-title" id="dg-title">加载中...</div></div>
                 <div class="card-body">
-                    <div id="dg-list" style="max-height:560px;overflow:auto;">加载中...</div>
+                    <div id="dg-list" class="digest-list" aria-live="polite">加载中...</div>
                 </div>
             </div>
         </div>
@@ -1008,97 +1034,148 @@
         window.switchTab = switchTab;
 
         // ==================== 每日日报 ====================
-        let dgCurDate = '';
+        let dgCurDate = '', dgCurYear = '', dgCurMonth = '';
+        let dgRequestVersion = 0;
 
-        /** 渲染一条日报：标题 + 摘要 + 关键词 + 来源 */
         function dgCard(it) {
-            const tags = (it.keywords || '').split(/[,，]/).map(t => t.trim()).filter(Boolean)
+            const tags = String(it.keywords || '').split(/[,，]/).map(t => t.trim()).filter(Boolean)
                 .map(t => `<span class="tag">${escapeHtml(t)}</span>`).join('');
-            const link = it.url
-                ? ` · <a href="${escapeHtml(it.url)}" target="_blank" rel="noopener" style="color:#8b5cf6;">原文</a>`
+            const url = String(it.url || '').trim();
+            const link = /^https?:\/\//i.test(url)
+                ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">原文</a>`
                 : '';
-            const arch = it.archived ? ' · <span style="color:#a0aec0;">已归档</span>' : '';
-            return `
-                <div class="memory-card" style="margin-bottom:10px;">
-                    <div class="memory-header">
-                        <span class="memory-category">${escapeHtml(it.category || '热点')}</span>
-                        <span class="memory-importance">好聊 ${it.chat_value || 3} · 用到 ${it.hits || 0} 次</span>
-                    </div>
-                    <div class="memory-content" style="font-weight:600;margin-bottom:6px;">
-                        ${escapeHtml(it.title || '')}
-                    </div>
-                    ${it.summary ? `<div style="font-size:13px;color:#4a5568;line-height:1.6;margin-bottom:8px;">${escapeHtml(it.summary)}</div>` : ''}
-                    ${tags ? `<div class="memory-tags">${tags}</div>` : ''}
-                    <div class="memory-date">${escapeHtml(it.digest_date || '')} · ${escapeHtml(it.source || '')}${link}${arch}</div>
-                </div>`;
+            return `<article class="digest-card">
+                <div class="digest-card-header">
+                    <span class="memory-category">${escapeHtml(it.category || '热点')}</span>
+                    <span class="memory-importance">好聊 ${Number(it.chat_value) || 3} · 用到 ${Number(it.hits) || 0} 次</span>
+                </div>
+                <h2 class="digest-card-title">${escapeHtml(it.title || '')}</h2>
+                ${it.summary ? `<p class="digest-card-summary">${escapeHtml(it.summary)}</p>` : ''}
+                ${tags ? `<div class="digest-card-tags">${tags}</div>` : ''}
+                <div class="digest-card-meta">
+                    <time>${escapeHtml(it.digest_date || '')}</time>
+                    <span>${escapeHtml(it.source || '来源未记录')}</span>${link}
+                    ${it.archived ? '<span>已归档</span>' : ''}
+                </div>
+            </article>`;
         }
 
         async function dgLoad(date) {
             if (date !== undefined) dgCurDate = date;
             const params = {};
             if (dgCurDate) params.date = dgCurDate;
+            else {
+                if (dgCurYear) params.year = dgCurYear;
+                if (dgCurMonth) params.month = dgCurMonth;
+            }
             if (document.getElementById('dg-arch').checked) params.include_archived = 1;
+            const version = ++dgRequestVersion;
+            const list = document.getElementById('dg-list');
+            list.setAttribute('aria-busy', 'true');
+            list.innerHTML = '<div class="empty-state">加载中...</div>';
             try {
                 const data = await apiGet('api/digest/list', params);
+                if (version !== dgRequestVersion) return;
+                if (data.status === 'error') throw new Error(data.message || '读取日报失败');
                 document.getElementById('dgstat-total').textContent = data.total ?? 0;
                 document.getElementById('dgstat-today').textContent = data.today ?? 0;
                 document.getElementById('dgstat-hits').textContent = data.hits ?? 0;
                 document.getElementById('dgstat-arch').textContent = data.archived ?? 0;
                 dgCurDate = data.date || dgCurDate;
+                dgCurYear = data.year || dgCurDate.slice(0, 4);
+                dgCurMonth = data.month || dgCurDate.slice(0, 7);
+                const calendar = data.calendar || [];
+                const years = [...new Set(calendar.map(m => m.year))];
+                if (dgCurYear && !years.includes(dgCurYear)) years.push(dgCurYear);
+                years.sort().reverse();
+                document.getElementById('dg-year').innerHTML = years.map(y =>
+                    `<option value="${escapeHtml(y)}" ${y === dgCurYear ? 'selected' : ''}>${escapeHtml(y)} 年</option>`).join('');
+                const months = calendar.filter(m => m.year === dgCurYear);
+                if (dgCurMonth && !months.some(m => m.month === dgCurMonth)) {
+                    months.push({ month: dgCurMonth, days: 0, items: 0 });
+                }
+                document.getElementById('dg-month').innerHTML = months.map(m =>
+                    `<option value="${escapeHtml(m.month)}" ${m.month === dgCurMonth ? 'selected' : ''}>${Number(m.month.slice(5))} 月（${Number(m.days)} 天 / ${Number(m.items)} 条）</option>`).join('');
+                document.getElementById('dg-date').value = dgCurDate;
                 document.getElementById('dg-title').textContent =
                     `${dgCurDate} 的日报（${(data.items || []).length} 条）`;
-                const chips = (data.dates || []).map(d => {
+                document.getElementById('dg-dates').innerHTML = (data.dates || []).map(d => {
                     const on = d.digest_date === dgCurDate;
-                    return `<button class="btn ${on ? 'btn-primary' : 'btn-outline'} btn-sm"
-                        onclick="dgLoad('${d.digest_date}')">${d.digest_date} <span style="opacity:.6">${d.n}</span></button>`;
-                }).join('');
-                document.getElementById('dg-dates').innerHTML = chips ||
-                    '<span style="font-size:12px;color:#a0aec0;">还没有日报，等今天 9 点抓一次</span>';
+                    return `<button type="button" class="btn ${on ? 'btn-primary' : 'btn-outline'} btn-sm"
+                        data-digest-date="${escapeHtml(d.digest_date)}" aria-current="${on ? 'date' : 'false'}"
+                        aria-label="${escapeHtml(d.digest_date)} 的日报">${Number(d.digest_date.slice(8))} 日 <span style="opacity:.65">${Number(d.n)} 条</span></button>`;
+                }).join('') || '<span class="hint">这个月没有日报，可换月份或勾选「含已归档」。</span>';
                 const items = data.items || [];
-                document.getElementById('dg-list').innerHTML = items.length
-                    ? items.map(dgCard).join('')
-                    : '<div class="empty-state">这一天没有条目</div>';
-                // 上次抓取状态：能一眼看出是"没抓到"还是"没注入"
+                list.innerHTML = items.length ? items.map(dgCard).join('')
+                    : '<div class="empty-state">这一天没有日报</div>';
                 const lr = data.last_run;
-                const dgStatusText = {
-                    ok: '✅ 成功', no_data: '⚠️ 所有源都抓不到',
-                    no_provider: '⚠️ 没有可用模型', no_httpx: '⚠️ 缺少 httpx',
-                    llm_error: '⚠️ 模型调用失败', no_json: '⚠️ 模型没返回合法 JSON',
-                    no_items: '⚠️ 整理后条目为空'
+                const statusText = {
+                    ok: '成功', all_duplicate: '没有新条目（内容重复）', no_data: '所有源都抓不到',
+                    no_provider: '没有可用模型', no_httpx: '缺少 httpx',
+                    llm_error: '模型调用失败', no_json: '模型没返回合法 JSON', no_items: '整理后条目为空'
                 };
                 document.getElementById('dg-lastrun').textContent = lr
-                    ? `上次抓取：${lr.created_at} · ${dgStatusText[lr.status] || lr.status} · `
+                    ? `上次抓取：${lr.created_at} · ${statusText[lr.status] || lr.status} · `
                       + `新增 ${lr.added} 条 · 源 ${lr.sources || '—'}`
                       + (lr.detail ? ` · ${lr.detail}` : '')
-                    : '还没抓过（每天 9 点自动抓，也可点右侧「立即抓一次」）';
+                    : '还没抓过，可点击「立即抓一次」。';
             } catch (e) {
-                document.getElementById('dg-list').innerHTML =
-                    `<div class="empty-state">加载失败：${escapeHtml(e.message || e)}</div>`;
+                if (version !== dgRequestVersion) return;
+                list.innerHTML = `<div class="empty-state">加载失败：${escapeHtml(e.message || String(e))}</div>`;
+            } finally {
+                if (version === dgRequestVersion) list.setAttribute('aria-busy', 'false');
             }
         }
 
         async function dgSearch() {
             const q = document.getElementById('dg-search').value.trim();
-            if (!q) { dgLoad(); return; }
+            if (!q) return dgLoad();
+            const version = ++dgRequestVersion;
+            const list = document.getElementById('dg-list');
+            list.setAttribute('aria-busy', 'true');
             try {
-                const data = await apiGet('api/digest/search', { q });
+                const data = await apiGet('api/digest/search', {
+                    q, include_archived: document.getElementById('dg-arch').checked ? 1 : undefined
+                });
+                if (version !== dgRequestVersion) return;
+                if (data.status === 'error') throw new Error(data.message || '搜索失败');
                 const items = data.items || [];
                 document.getElementById('dg-title').textContent = `搜索「${q}」：${items.length} 条`;
-                document.getElementById('dg-list').innerHTML = items.length
-                    ? items.map(dgCard).join('')
+                list.innerHTML = items.length ? items.map(dgCard).join('')
                     : '<div class="empty-state">没找到相关消息</div>';
             } catch (e) {
-                document.getElementById('dg-list').innerHTML =
-                    `<div class="empty-state">搜索失败：${escapeHtml(e.message || e)}</div>`;
+                if (version !== dgRequestVersion) return;
+                list.innerHTML = `<div class="empty-state">搜索失败：${escapeHtml(e.message || String(e))}</div>`;
+            } finally {
+                if (version === dgRequestVersion) list.setAttribute('aria-busy', 'false');
             }
+        }
+
+        function dgSelectYear() {
+            dgCurYear = document.getElementById('dg-year').value;
+            dgCurMonth = '';
+            document.getElementById('dg-search').value = '';
+            return dgLoad('');
+        }
+
+        function dgSelectMonth() {
+            dgCurMonth = document.getElementById('dg-month').value;
+            dgCurYear = dgCurMonth.slice(0, 4);
+            document.getElementById('dg-search').value = '';
+            return dgLoad('');
+        }
+
+        function dgLatest() {
+            dgCurYear = dgCurMonth = '';
+            document.getElementById('dg-search').value = '';
+            return dgLoad('');
         }
 
         function dgBackToDates() {
             document.getElementById('dg-search').value = '';
-            dgLoad();
+            return dgLoad();
         }
 
-        /** 立刻抓一次日报：验证源和模型是否正常，不用等到 9 点 */
         async function dgRunNow() {
             const btn = document.getElementById('dg-run-btn');
             const old = btn.textContent;
@@ -1106,20 +1183,27 @@
             btn.textContent = '抓取中…';
             try {
                 const data = await apiPost('api/digest/run', {});
-                const r = (data && data.result) || {};
-                if (typeof showToast === 'function') {
-                    showToast(r.status === 'ok'
-                        ? `抓取完成，新增 ${r.added || 0} 条`
-                        : `抓取未成功：${r.status || '未知'}${r.detail ? ' · ' + r.detail : ''}`);
-                }
-                dgLoad();
+                if (data.status === 'error') throw new Error(data.message || '抓取失败');
+                const r = data.result || {};
+                showToast(r.status === 'ok' ? `抓取完成，新增 ${r.added || 0} 条`
+                    : `抓取结果：${r.status || '未知'}${r.detail ? ' · ' + r.detail : ''}`);
+                await dgLatest();
             } catch (e) {
-                if (typeof showToast === 'function') showToast('抓取失败：' + (e.message || e));
+                showToast('抓取失败：' + (e.message || e));
             } finally {
                 btn.disabled = false;
                 btn.textContent = old;
             }
         }
+
+        // Module-scoped functions must be exported for the HTML event handlers.
+        Object.assign(window, { dgLoad, dgSearch, dgBackToDates, dgRunNow, dgSelectYear, dgSelectMonth, dgLatest });
+        document.getElementById('dg-dates').addEventListener('click', event => {
+            const button = event.target.closest('button[data-digest-date]');
+            if (!button) return;
+            document.getElementById('dg-search').value = '';
+            dgLoad(button.dataset.digestDate);
+        });
 
         /** 梗百科页：只保留梗库（说话方式与学习节奏已下线） */
         function learnTab() {
@@ -1529,7 +1613,10 @@
             const cat = mJournalOnly ? '日记' : undefined;
             try {
                 if (q) {
-                    const d = await apiGet('api/memories/search', { q, page, limit: mPageSize(), category: cat });
+                    const d = await apiGet('api/memories/search', {
+                        q, page, limit: mPageSize(), category: cat,
+                        include_archived: mShowArchived ? 1 : undefined
+                    });
                     mMemories = d.results || [];
                     const related = d.related || [];
                     const sec = document.getElementById('m-related');

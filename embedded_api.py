@@ -4,6 +4,7 @@
 页面通过 window.AstrBotPluginPage bridge 调用，无需开放独立端口。
 路由前缀 /memory_capsule 对应插件名 memory_capsule。
 """
+
 from __future__ import annotations
 
 import json
@@ -12,6 +13,7 @@ try:
     from astrbot.api import logger
 except ImportError:
     import logging
+
     logger = logging.getLogger(__name__)
 
 PLUGIN_NAME = "astrbot_plugin_memory_capsule"
@@ -27,6 +29,7 @@ class EmbeddedAPI:
     def _req(self):
         """惰性获取当前请求（astrbot.api.web.request 在 handler 调用时才有上下文）。"""
         from astrbot.api.web import request
+
         return request
 
     # ==================== 工具方法 ====================
@@ -61,13 +64,27 @@ class EmbeddedAPI:
         limit = self._req.query.get("limit", 12, type=int)
         offset = (page - 1) * limit
         category = self._req.query.get("category")
-        include_archived = bool(self._req.query.get("include_archived"))
+        include_archived = str(
+            self._req.query.get("include_archived") or ""
+        ).lower() in ("1", "true", "yes")
         try:
             memories = await self._to_thread(
-                self.db_manager.get_all_memories, limit, offset, category, include_archived)
-            total = await self._to_thread(self.db_manager.get_memories_count)
-            return self._ok(memories=memories, total=total, page=page, limit=limit,
-                            total_pages=(total + limit - 1) // limit if limit else 1)
+                self.db_manager.get_all_memories,
+                limit,
+                offset,
+                category,
+                include_archived,
+            )
+            total = await self._to_thread(
+                self.db_manager.get_memories_count, category, include_archived
+            )
+            return self._ok(
+                memories=memories,
+                total=total,
+                page=page,
+                limit=limit,
+                total_pages=(total + limit - 1) // limit if limit else 1,
+            )
         except Exception as e:
             return self._err(e)
 
@@ -77,7 +94,9 @@ class EmbeddedAPI:
         try:
             result = await self._to_thread(
                 self.db_manager.set_memory_archived,
-                data.get("ids") or [], int(data.get("archived", 1)))
+                data.get("ids") or [],
+                int(data.get("archived", 1)),
+            )
             return self._ok(result={"updated": result})
         except Exception as e:
             return self._err(e)
@@ -122,7 +141,7 @@ class EmbeddedAPI:
                 category=data.get("category"),
                 importance=data.get("importance"),
                 tags=data.get("tags"),
-                visibility=data.get("visibility")
+                visibility=data.get("visibility"),
             )
             return self._ok(result=result)
         except Exception as e:
@@ -130,7 +149,9 @@ class EmbeddedAPI:
 
     async def api_memories_delete(self, memory_id):
         try:
-            result = await self._to_thread(self.db_manager.delete_memory, int(memory_id))
+            result = await self._to_thread(
+                self.db_manager.delete_memory, int(memory_id)
+            )
             return self._ok(result=result)
         except Exception as e:
             return self._err(e)
@@ -139,7 +160,8 @@ class EmbeddedAPI:
         data = await self._req.json() or {}
         try:
             result = await self._to_thread(
-                self.db_manager.delete_memories_many, data.get("ids") or [])
+                self.db_manager.delete_memories_many, data.get("ids") or []
+            )
             return self._ok(result=result)
         except Exception as e:
             return self._err(e)
@@ -148,16 +170,30 @@ class EmbeddedAPI:
         query = self._req.query.get("q", "")
         category = self._req.query.get("category")
         limit = self._req.query.get("limit", None, type=int)
+        include_archived = str(
+            self._req.query.get("include_archived") or ""
+        ).lower() in ("1", "true", "yes")
         try:
-            results = await self._to_thread(self.db_manager.search_memory, str(query), category, limit)
-            # 联想记忆
+            results = await self._to_thread(
+                self.db_manager.search_memory,
+                str(query),
+                category,
+                limit,
+                include_archived=include_archived,
+            )
+            # Related entries use the same notebook filters as the primary search.
             related = []
             try:
                 exclude_ids = [r["id"] for r in results if r.get("id")]
                 rel_limit = self.config.get("search_related_limit", 3)
                 if rel_limit > 0:
                     related = await self._to_thread(
-                        self.db_manager.search_memory_related, str(query), exclude_ids, int(rel_limit)
+                        self.db_manager.search_memory_related,
+                        str(query),
+                        exclude_ids,
+                        int(rel_limit),
+                        category_filter=category,
+                        include_archived=include_archived,
                     )
             except Exception:
                 related = []
@@ -171,7 +207,14 @@ class EmbeddedAPI:
             cfg = self.config.get("memory_categories", [])
             all_cats = list(dict.fromkeys(cfg + cats))
             if not all_cats:
-                all_cats = ["技术笔记", "生活记录", "学习资料", "个人想法", "待办事项", "general"]
+                all_cats = [
+                    "技术笔记",
+                    "生活记录",
+                    "学习资料",
+                    "个人想法",
+                    "待办事项",
+                    "general",
+                ]
             return self._ok(categories=all_cats)
         except Exception as e:
             return self._err(e)
@@ -183,18 +226,28 @@ class EmbeddedAPI:
         limit = self._req.query.get("limit", 12, type=int)
         offset = (page - 1) * limit
         try:
-            items = await self._to_thread(self.db_manager.get_all_relationships, limit, offset)
+            items = await self._to_thread(
+                self.db_manager.get_all_relationships, limit, offset
+            )
             # 别名在库里是 JSON，前端只关心名字，这里摊平成名字列表
             for it in items:
                 try:
-                    it['identity_aliases'] = [
-                        a['name'] for a in self.db_manager._parse_aliases(it.get('identity_aliases'))
+                    it["identity_aliases"] = [
+                        a["name"]
+                        for a in self.db_manager._parse_aliases(
+                            it.get("identity_aliases")
+                        )
                     ]
                 except Exception:
-                    it['identity_aliases'] = []
+                    it["identity_aliases"] = []
             total = await self._to_thread(self.db_manager.get_relationships_count)
-            return self._ok(relationships=items, total=total, page=page, limit=limit,
-                            total_pages=(total + limit - 1) // limit if limit else 1)
+            return self._ok(
+                relationships=items,
+                total=total,
+                page=page,
+                limit=limit,
+                total_pages=(total + limit - 1) // limit if limit else 1,
+            )
         except Exception as e:
             return self._err(e)
 
@@ -208,7 +261,7 @@ class EmbeddedAPI:
                 data.get("summary"),
                 data.get("nickname"),
                 data.get("first_met_location"),
-                data.get("notes")
+                data.get("notes"),
             )
             return self._ok(result=result)
         except Exception as e:
@@ -216,7 +269,9 @@ class EmbeddedAPI:
 
     async def api_relationships_delete(self, user_id):
         try:
-            result = await self._to_thread(self.db_manager.delete_relationship, str(user_id))
+            result = await self._to_thread(
+                self.db_manager.delete_relationship, str(user_id)
+            )
             return self._ok(result=result)
         except Exception as e:
             return self._err(e)
@@ -224,7 +279,9 @@ class EmbeddedAPI:
     async def api_relationships_search(self):
         query = self._req.query.get("q", "")
         try:
-            results = await self._to_thread(self.db_manager.search_relationship, str(query), 10)
+            results = await self._to_thread(
+                self.db_manager.search_relationship, str(query), 10
+            )
             return self._ok(results=results)
         except Exception as e:
             return self._err(e)
@@ -238,10 +295,19 @@ class EmbeddedAPI:
         category = self._req.query.get("category") or None
         query = self._req.query.get("q") or None
         try:
-            items = await self._to_thread(self.db_manager.get_glossaries, limit, offset, category, query)
-            total = await self._to_thread(self.db_manager.get_glossaries_count, category, query)
-            return self._ok(items=items, total=total, page=page, limit=limit,
-                            total_pages=(total + limit - 1) // limit if limit else 1)
+            items = await self._to_thread(
+                self.db_manager.get_glossaries, limit, offset, category, query
+            )
+            total = await self._to_thread(
+                self.db_manager.get_glossaries_count, category, query
+            )
+            return self._ok(
+                items=items,
+                total=total,
+                page=page,
+                limit=limit,
+                total_pages=(total + limit - 1) // limit if limit else 1,
+            )
         except Exception as e:
             return self._err(e)
 
@@ -254,7 +320,7 @@ class EmbeddedAPI:
                 data.get("category", "其他梗"),
                 data.get("meaning", ""),
                 data.get("source", ""),
-                data.get("tags", "")
+                data.get("tags", ""),
             )
             if result == "already_exists":
                 return self._err("已存在相同梗词")
@@ -272,7 +338,7 @@ class EmbeddedAPI:
                 category=data.get("category"),
                 meaning=data.get("meaning"),
                 source=data.get("source"),
-                tags=data.get("tags")
+                tags=data.get("tags"),
             )
             return self._ok(result=result)
         except Exception as e:
@@ -280,7 +346,9 @@ class EmbeddedAPI:
 
     async def api_glossary_delete(self, glossary_id):
         try:
-            result = await self._to_thread(self.db_manager.delete_glossary, int(glossary_id))
+            result = await self._to_thread(
+                self.db_manager.delete_glossary, int(glossary_id)
+            )
             return self._ok(result=result)
         except Exception as e:
             return self._err(e)
@@ -291,7 +359,9 @@ class EmbeddedAPI:
         if not source:
             return self._err("No source provided")
         try:
-            result = await self._to_thread(self.db_manager.delete_glossary_by_source, source)
+            result = await self._to_thread(
+                self.db_manager.delete_glossary_by_source, source
+            )
             return self._ok(result=result)
         except Exception as e:
             return self._err(e)
@@ -300,7 +370,8 @@ class EmbeddedAPI:
         data = await self._req.json() or {}
         try:
             result = await self._to_thread(
-                self.db_manager.delete_glossary_many, data.get("ids") or [])
+                self.db_manager.delete_glossary_many, data.get("ids") or []
+            )
             return self._ok(result=result)
         except Exception as e:
             return self._err(e)
@@ -310,19 +381,30 @@ class EmbeddedAPI:
         data = await self._req.json() or {}
         dry_run = data.get("dry_run", True)
         try:
-            report = await self._to_thread(self.db_manager.find_duplicate_glossary_groups)
+            report = await self._to_thread(
+                self.db_manager.find_duplicate_glossary_groups
+            )
             if dry_run:
                 return self._ok(**report)
             ids = []
             for group in report.get("groups", []):
                 ids.extend(d["id"] for d in group.get("duplicates", []))
             if not ids:
-                return self._ok(result={"deleted": 0}, groups=[], scanned=report.get("scanned", 0),
-                                truncated=report.get("truncated", False), duplicate_count=0)
+                return self._ok(
+                    result={"deleted": 0},
+                    groups=[],
+                    scanned=report.get("scanned", 0),
+                    truncated=report.get("truncated", False),
+                    duplicate_count=0,
+                )
             result = await self._to_thread(self.db_manager.delete_glossary_many, ids)
-            return self._ok(result=result, groups=[], scanned=report.get("scanned", 0),
-                            truncated=report.get("truncated", False),
-                            duplicate_count=report.get("duplicate_count", 0))
+            return self._ok(
+                result=result,
+                groups=[],
+                scanned=report.get("scanned", 0),
+                truncated=report.get("truncated", False),
+                duplicate_count=report.get("duplicate_count", 0),
+            )
         except Exception as e:
             return self._err(e)
 
@@ -330,14 +412,18 @@ class EmbeddedAPI:
 
     async def api_style_rules_list(self):
         try:
-            rules = await self._to_thread(self.db_manager.list_style_rules, 200, True, None)
+            rules = await self._to_thread(
+                self.db_manager.list_style_rules, 200, True, None
+            )
             return self._ok(rules=rules)
         except Exception as e:
             return self._err(e)
 
     async def api_style_rule_delete(self, rule_id):
         try:
-            result = await self._to_thread(self.db_manager.delete_style_rule, int(rule_id))
+            result = await self._to_thread(
+                self.db_manager.delete_style_rule, int(rule_id)
+            )
             return self._ok(result=result)
         except Exception as e:
             return self._err(e)
@@ -346,14 +432,21 @@ class EmbeddedAPI:
         """学习页的汇总数据：学到多少、还有多少没学、各自的周期。"""
         try:
             stats = await self._to_thread(self.db_manager.get_learning_stats)
-            return self._ok(status=stats, config={
-                "learn_enabled": self.config.get('learn_enabled', True),
-                "learn_review_hours": self.config.get('learn_review_hours', 24),
-                "collect_interval_hours": self.config.get('glossary_collect_interval_hours', 72),
-                "learn_max_rules": self.config.get('learn_max_rules', 6),
-                "learn_max_examples": self.config.get('learn_max_examples', 2),
-                "glossary_inject_limit": self.config.get('glossary_inject_limit', 3),
-            })
+            return self._ok(
+                status=stats,
+                config={
+                    "learn_enabled": self.config.get("learn_enabled", True),
+                    "learn_review_hours": self.config.get("learn_review_hours", 24),
+                    "collect_interval_hours": self.config.get(
+                        "glossary_collect_interval_hours", 72
+                    ),
+                    "learn_max_rules": self.config.get("learn_max_rules", 6),
+                    "learn_max_examples": self.config.get("learn_max_examples", 2),
+                    "glossary_inject_limit": self.config.get(
+                        "glossary_inject_limit", 3
+                    ),
+                },
+            )
         except Exception as e:
             return self._err(e)
 
@@ -361,6 +454,7 @@ class EmbeddedAPI:
         """立刻跑一次语气学习（面板上的「立即学习一次」）。"""
         try:
             from .learner import resolve_learn_provider, run_learn_once
+
             provider = resolve_learn_provider(self.context, self.config)
             if not provider:
                 return self._err("没有可用的 LLM 模型")
@@ -398,16 +492,23 @@ class EmbeddedAPI:
 
     async def api_glossary_export(self):
         try:
-            items = await self._to_thread(self.db_manager.get_glossaries, 99999, 0, None, None)
+            items = await self._to_thread(
+                self.db_manager.get_glossaries, 99999, 0, None, None
+            )
             lines = []
             for i in items:
-                lines.append(json.dumps({
-                    "term": i.get("term", ""),
-                    "category": i.get("category", ""),
-                    "meaning": i.get("meaning", ""),
-                    "source": i.get("source", ""),
-                    "tags": i.get("tags", "")
-                }, ensure_ascii=False))
+                lines.append(
+                    json.dumps(
+                        {
+                            "term": i.get("term", ""),
+                            "category": i.get("category", ""),
+                            "meaning": i.get("meaning", ""),
+                            "source": i.get("source", ""),
+                            "tags": i.get("tags", ""),
+                        },
+                        ensure_ascii=False,
+                    )
+                )
             return self._ok(jsonl="\n".join(lines), count=len(lines))
         except Exception as e:
             return self._err(e)
@@ -416,6 +517,7 @@ class EmbeddedAPI:
         """手动触发一次热榜采集（抓取 + LLM 提炼 + 入库）。"""
         try:
             from .collector import run_collect_once
+
             result = await run_collect_once(self.db_manager, self.context, self.config)
             return self._ok(**result)
         except Exception as e:
@@ -424,40 +526,105 @@ class EmbeddedAPI:
     # ==================== 日报 ====================
 
     async def api_digest_list(self):
-        """某一天的日报条目；不给日期就取最近一天。"""
+        """Return one issue and its year/month calendar.
+
+        Returns:
+            dict: Items, dates in the selected month, the full calendar and stats.
+        """
         from datetime import date as _date
+
         try:
             day = (self._req.query.get("date") or "").strip()
+            year = (self._req.query.get("year") or "").strip()
+            month = (self._req.query.get("month") or "").strip()
             include_archived = str(
-                self._req.query.get("include_archived") or "").lower() in ("1", "true", "yes")
+                self._req.query.get("include_archived") or ""
+            ).lower() in ("1", "true", "yes")
+            if day:
+                day = _date.fromisoformat(day).isoformat()
+                year, month = day[:4], day[:7]
+            else:
+                if year:
+                    year = f"{_date(int(year), 1, 1).year:04d}"
+                if month:
+                    month = _date.fromisoformat(month + "-01").isoformat()[:7]
+                    if year and year != month[:4]:
+                        return self._err("年份和月份不一致")
+                    year = month[:4]
+            calendar = await self._to_thread(
+                self.db_manager.get_digest_calendar, include_archived
+            )
+            if not month:
+                choices = [m for m in calendar if not year or m["year"] == year]
+                if choices:
+                    year, month = choices[0]["year"], choices[0]["month"]
+            dates = await self._to_thread(
+                self.db_manager.get_recent_digest_dates,
+                None,
+                year or None,
+                month or None,
+                include_archived,
+            )
             if not day:
-                dates = await self._to_thread(self.db_manager.get_recent_digest_dates, 1)
-                day = dates[0]["digest_date"] if dates else _date.today().isoformat()
+                day = (
+                    dates[0]["digest_date"]
+                    if dates
+                    else (
+                        month + "-01"
+                        if month
+                        else (year + "-01-01" if year else _date.today().isoformat())
+                    )
+                )
             items = await self._to_thread(
-                self.db_manager.get_digest_by_date, day, include_archived)
-            dates = await self._to_thread(self.db_manager.get_recent_digest_dates, 30)
+                self.db_manager.get_digest_by_date, day, include_archived
+            )
             stats = await self._to_thread(self.db_manager.get_digest_stats)
             last_run = await self._to_thread(self.db_manager.get_last_digest_run)
-            return self._ok(date=day, items=items, dates=dates, last_run=last_run, **stats)
+            return self._ok(
+                date=day,
+                year=year or day[:4],
+                month=month or day[:7],
+                items=items,
+                dates=dates,
+                calendar=calendar,
+                last_run=last_run,
+                **stats,
+            )
         except Exception as e:
             return self._err(e)
 
     async def api_digest_run(self):
-        """立刻抓一次日报（手动触发，方便验证源和模型是否正常）。"""
+        """Fetch a digest immediately with the current configured provider.
+
+        Returns:
+            dict: Fetch status and the number of added items, or an error.
+        """
         try:
-            from .digest import run_digest_once
-            from .learner import resolve_learn_provider
-            provider = resolve_learn_provider(self.context, self.config)
-            result = await run_digest_once(self.db_manager, provider, self.config, "手动")
+            from .digest import run_digest_once, resolve_digest_provider
+
+            provider = resolve_digest_provider(self.context, self.config)
+            result = await run_digest_once(
+                self.db_manager, provider, self.config, "手动"
+            )
             return self._ok(result=result)
         except Exception as e:
             return self._err(e)
 
     async def api_digest_search(self):
+        """Search the full digest archive for the dashboard.
+
+        Returns:
+            dict: Matching items, respecting the archive checkbox.
+        """
         try:
             q = (self._req.query.get("q") or "").strip()
-            limit = self._req.query.get("limit", 20, type=int)
-            items = await self._to_thread(self.db_manager.search_digest, q, limit)
+            limit = max(1, min(200, self._req.query.get("limit", 50, type=int)))
+            include_archived = str(
+                self._req.query.get("include_archived") or ""
+            ).lower() in ("1", "true", "yes")
+            items = await self._to_thread(
+                self.db_manager.search_digest, q, limit, None, include_archived
+            )
             return self._ok(query=q, items=items)
         except Exception as e:
             return self._err(e)
@@ -472,11 +639,13 @@ class EmbeddedAPI:
                 for p in self.context.get_all_providers():
                     try:
                         meta = p.meta()
-                        providers.append({
-                            "id": meta.id,
-                            "name": f"{meta.type} / {meta.model}",
-                            "model": meta.model
-                        })
+                        providers.append(
+                            {
+                                "id": meta.id,
+                                "name": f"{meta.type} / {meta.model}",
+                                "model": meta.model,
+                            }
+                        )
                     except Exception:
                         continue
             return self._ok(providers=providers)
@@ -503,10 +672,10 @@ class EmbeddedAPI:
             # 不调用它的话改动只在内存里，重启插件就回到旧值。
             persisted = False
             try:
-                if hasattr(cfg, 'save_config_async'):
+                if hasattr(cfg, "save_config_async"):
                     await cfg.save_config_async()
                     persisted = True
-                elif hasattr(cfg, 'save_config'):
+                elif hasattr(cfg, "save_config"):
                     cfg.save_config()
                     persisted = True
             except Exception as e:
@@ -519,6 +688,7 @@ class EmbeddedAPI:
 
     async def _to_thread(self, func, *args, **kwargs):
         import asyncio
+
         return await asyncio.to_thread(func, *args, **kwargs)
 
 
@@ -530,37 +700,167 @@ def register_embedded_apis(context, db_manager, config=None):
         (f"/{PLUGIN_NAME}/api/activities", api.api_activities, ["GET"], "最近活动"),
         (f"/{PLUGIN_NAME}/api/memories", api.api_memories_list, ["GET"], "记忆列表"),
         (f"/{PLUGIN_NAME}/api/memories", api.api_memories_add, ["POST"], "新增记忆"),
-        (f"/{PLUGIN_NAME}/api/memories/search", api.api_memories_search, ["GET"], "搜索记忆"),
-        (f"/{PLUGIN_NAME}/api/memories/import", api.api_memories_import, ["POST"], "记忆批量导入"),
-        (f"/{PLUGIN_NAME}/api/memories/<memory_id>/update", api.api_memories_update, ["POST"], "更新记忆"),
-        (f"/{PLUGIN_NAME}/api/memories/<memory_id>/delete", api.api_memories_delete, ["POST"], "删除记忆"),
-        (f"/{PLUGIN_NAME}/api/memories/batch-delete", api.api_memories_batch_delete, ["POST"], "批量删除记忆"),
-        (f"/{PLUGIN_NAME}/api/memories/archive", api.api_memories_archive, ["POST"], "归档/恢复记忆"),
+        (
+            f"/{PLUGIN_NAME}/api/memories/search",
+            api.api_memories_search,
+            ["GET"],
+            "搜索记忆",
+        ),
+        (
+            f"/{PLUGIN_NAME}/api/memories/import",
+            api.api_memories_import,
+            ["POST"],
+            "记忆批量导入",
+        ),
+        (
+            f"/{PLUGIN_NAME}/api/memories/<memory_id>/update",
+            api.api_memories_update,
+            ["POST"],
+            "更新记忆",
+        ),
+        (
+            f"/{PLUGIN_NAME}/api/memories/<memory_id>/delete",
+            api.api_memories_delete,
+            ["POST"],
+            "删除记忆",
+        ),
+        (
+            f"/{PLUGIN_NAME}/api/memories/batch-delete",
+            api.api_memories_batch_delete,
+            ["POST"],
+            "批量删除记忆",
+        ),
+        (
+            f"/{PLUGIN_NAME}/api/memories/archive",
+            api.api_memories_archive,
+            ["POST"],
+            "归档/恢复记忆",
+        ),
         (f"/{PLUGIN_NAME}/api/categories", api.api_categories, ["GET"], "记忆分类"),
-        (f"/{PLUGIN_NAME}/api/relationships", api.api_relationships_list, ["GET"], "关系列表"),
-        (f"/{PLUGIN_NAME}/api/relationships", api.api_relationships_add, ["POST"], "新增关系"),
-        (f"/{PLUGIN_NAME}/api/relationships/search", api.api_relationships_search, ["GET"], "搜索关系"),
-        (f"/{PLUGIN_NAME}/api/relationships/<user_id>/delete", api.api_relationships_delete, ["POST"], "删除关系"),
+        (
+            f"/{PLUGIN_NAME}/api/relationships",
+            api.api_relationships_list,
+            ["GET"],
+            "关系列表",
+        ),
+        (
+            f"/{PLUGIN_NAME}/api/relationships",
+            api.api_relationships_add,
+            ["POST"],
+            "新增关系",
+        ),
+        (
+            f"/{PLUGIN_NAME}/api/relationships/search",
+            api.api_relationships_search,
+            ["GET"],
+            "搜索关系",
+        ),
+        (
+            f"/{PLUGIN_NAME}/api/relationships/<user_id>/delete",
+            api.api_relationships_delete,
+            ["POST"],
+            "删除关系",
+        ),
         (f"/{PLUGIN_NAME}/api/glossary", api.api_glossary_list, ["GET"], "梗列表"),
         (f"/{PLUGIN_NAME}/api/glossary", api.api_glossary_add, ["POST"], "新增梗"),
-        (f"/{PLUGIN_NAME}/api/glossary/categories", api.api_glossary_categories, ["GET"], "梗分类"),
-        (f"/{PLUGIN_NAME}/api/glossary/stats", api.api_glossary_stats, ["GET"], "梗统计"),
-        (f"/{PLUGIN_NAME}/api/glossary/import", api.api_glossary_import, ["POST"], "梗批量导入"),
-        (f"/{PLUGIN_NAME}/api/glossary/export", api.api_glossary_export, ["GET"], "梗导出"),
-        (f"/{PLUGIN_NAME}/api/glossary/collect", api.api_glossary_collect, ["POST"], "热榜采集"),
-        (f"/{PLUGIN_NAME}/api/glossary/<glossary_id>/update", api.api_glossary_update, ["POST"], "更新梗"),
-        (f"/{PLUGIN_NAME}/api/glossary/<glossary_id>/delete", api.api_glossary_delete, ["POST"], "删除梗"),
-        (f"/{PLUGIN_NAME}/api/glossary/delete-by-source", api.api_glossary_delete_by_source, ["POST"], "按来源删除梗"),
-        (f"/{PLUGIN_NAME}/api/glossary/batch-delete", api.api_glossary_batch_delete, ["POST"], "批量删除梗"),
-        (f"/{PLUGIN_NAME}/api/glossary/dedup", api.api_glossary_dedup, ["POST"], "存量重复检测/去重"),
+        (
+            f"/{PLUGIN_NAME}/api/glossary/categories",
+            api.api_glossary_categories,
+            ["GET"],
+            "梗分类",
+        ),
+        (
+            f"/{PLUGIN_NAME}/api/glossary/stats",
+            api.api_glossary_stats,
+            ["GET"],
+            "梗统计",
+        ),
+        (
+            f"/{PLUGIN_NAME}/api/glossary/import",
+            api.api_glossary_import,
+            ["POST"],
+            "梗批量导入",
+        ),
+        (
+            f"/{PLUGIN_NAME}/api/glossary/export",
+            api.api_glossary_export,
+            ["GET"],
+            "梗导出",
+        ),
+        (
+            f"/{PLUGIN_NAME}/api/glossary/collect",
+            api.api_glossary_collect,
+            ["POST"],
+            "热榜采集",
+        ),
+        (
+            f"/{PLUGIN_NAME}/api/glossary/<glossary_id>/update",
+            api.api_glossary_update,
+            ["POST"],
+            "更新梗",
+        ),
+        (
+            f"/{PLUGIN_NAME}/api/glossary/<glossary_id>/delete",
+            api.api_glossary_delete,
+            ["POST"],
+            "删除梗",
+        ),
+        (
+            f"/{PLUGIN_NAME}/api/glossary/delete-by-source",
+            api.api_glossary_delete_by_source,
+            ["POST"],
+            "按来源删除梗",
+        ),
+        (
+            f"/{PLUGIN_NAME}/api/glossary/batch-delete",
+            api.api_glossary_batch_delete,
+            ["POST"],
+            "批量删除梗",
+        ),
+        (
+            f"/{PLUGIN_NAME}/api/glossary/dedup",
+            api.api_glossary_dedup,
+            ["POST"],
+            "存量重复检测/去重",
+        ),
         (f"/{PLUGIN_NAME}/api/providers", api.api_providers, ["GET"], "LLM提供商列表"),
-        (f"/{PLUGIN_NAME}/api/style-rules", api.api_style_rules_list, ["GET"], "已学到的说话规则"),
-        (f"/{PLUGIN_NAME}/api/style-rules/<rule_id>/delete", api.api_style_rule_delete, ["POST"], "删除学到规则"),
-        (f"/{PLUGIN_NAME}/api/learning/status", api.api_learning_status, ["GET"], "学习状态"),
-        (f"/{PLUGIN_NAME}/api/learning/run", api.api_learning_run, ["POST"], "立即学习一次"),
+        (
+            f"/{PLUGIN_NAME}/api/style-rules",
+            api.api_style_rules_list,
+            ["GET"],
+            "已学到的说话规则",
+        ),
+        (
+            f"/{PLUGIN_NAME}/api/style-rules/<rule_id>/delete",
+            api.api_style_rule_delete,
+            ["POST"],
+            "删除学到规则",
+        ),
+        (
+            f"/{PLUGIN_NAME}/api/learning/status",
+            api.api_learning_status,
+            ["GET"],
+            "学习状态",
+        ),
+        (
+            f"/{PLUGIN_NAME}/api/learning/run",
+            api.api_learning_run,
+            ["POST"],
+            "立即学习一次",
+        ),
         (f"/{PLUGIN_NAME}/api/digest/list", api.api_digest_list, ["GET"], "日报列表"),
-        (f"/{PLUGIN_NAME}/api/digest/search", api.api_digest_search, ["GET"], "搜索日报"),
-        (f"/{PLUGIN_NAME}/api/digest/run", api.api_digest_run, ["POST"], "立即抓取日报"),
+        (
+            f"/{PLUGIN_NAME}/api/digest/search",
+            api.api_digest_search,
+            ["GET"],
+            "搜索日报",
+        ),
+        (
+            f"/{PLUGIN_NAME}/api/digest/run",
+            api.api_digest_run,
+            ["POST"],
+            "立即抓取日报",
+        ),
         (f"/{PLUGIN_NAME}/api/settings", api.api_settings_get, ["GET"], "读取设置"),
         (f"/{PLUGIN_NAME}/api/settings", api.api_settings_save, ["POST"], "保存设置"),
     ]

@@ -104,7 +104,7 @@ class DatabaseManager:
         except Exception as e:
             err_msg = str(e).lower()
             if 'malformed' in err_msg:
-                logger.error(f"Database malformed, rebuilding...")
+                logger.error("Database malformed, rebuilding...")
                 if conn:
                     try: conn.close()
                     except Exception: pass
@@ -166,6 +166,7 @@ class DatabaseManager:
         self._initialize_database_structure()
         self._migrate_relationship_fields()
         self._migrate_memory_visibility()
+        self._migrate_digest_memories()
         self._migrate_activities_fk()
         self._clean_dirty_categories()
         self._cleanup_blank_relationships()
@@ -199,6 +200,7 @@ class DatabaseManager:
         self._migrate_old_data()
         self._migrate_relationship_fields()
         self._migrate_memory_visibility()
+        self._migrate_digest_memories()
         self._migrate_activities_fk()
         self._clean_dirty_categories()
         self._cleanup_blank_relationships()
@@ -300,6 +302,99 @@ class DatabaseManager:
                 logger.info(f"Marked {cursor.rowcount} sensitive memories as private")
         self._execute_write(_do_op)
 
+    def _migrate_digest_memories(self):
+        """Copy each legacy automatic news row into the digest archive once.
+
+        Returns:
+            None. Original memories remain unchanged; a separate ledger prevents
+            deliberately deleted digest entries from reappearing on restart.
+        """
+
+        def _do_migrate(conn):
+            cursor = conn.cursor()
+            rows = cursor.execute(
+                "SELECT * FROM memories WHERE source = 'daily_digest' "
+                "AND id NOT IN (SELECT memory_id FROM digest_memory_migrations) ORDER BY id"
+            ).fetchall()
+            added = 0
+            for row in rows:
+                memory = dict(row)
+                content = str(memory.get("content") or "").strip()
+                prefix = re.match(r"^\[(\d{4}-\d{2}-\d{2})\]\s*", content)
+                tags = str(memory.get("tags") or "")
+                candidates = (
+                    ([prefix[1]] if prefix else [])
+                    + re.findall(r"(?<!\d)\d{4}-\d{2}-\d{2}(?!\d)", tags)
+                    + [str(memory.get("created_at") or "")[:10]]
+                )
+                digest_date = None
+                for candidate in candidates:
+                    try:
+                        digest_date = (
+                            datetime.strptime(candidate, "%Y-%m-%d").date().isoformat()
+                        )
+                        break
+                    except ValueError:
+                        continue
+                if digest_date is None:
+                    digest_date = datetime.now().date().isoformat()
+                    logger.warning(
+                        f"Legacy digest memory {memory['id']} has no valid date; using today"
+                    )
+                body = content[prefix.end() :] if prefix else content
+                try:
+                    metadata = json.loads(body)
+                except (ValueError, TypeError):
+                    metadata = {}
+                if not isinstance(metadata, dict):
+                    metadata = {}
+                parts = re.split(r"：|\n|: ", body, maxsplit=1)
+                title = str(metadata.get("title") or parts[0]).strip()
+                summary = str(
+                    metadata.get("summary") or (parts[1] if len(parts) > 1 else "")
+                ).strip()
+                if not title:
+                    title = content or f"Legacy digest memory {memory['id']}"
+                cursor.execute(
+                    "INSERT INTO digest_memory_migrations (memory_id) VALUES (?)",
+                    (memory["id"],),
+                )
+                if cursor.execute(
+                    "SELECT id FROM daily_digest WHERE digest_date = ? AND title = ?",
+                    (digest_date, title),
+                ).fetchone():
+                    continue
+                source_match = re.search(
+                    r"(?:^|\n)(?:来源|source)\s*[:：]\s*([^\n]+)", body, re.I
+                )
+                url_match = re.search(r"https?://[^\s<>]+", body)
+                source = str(
+                    metadata.get("source") or (source_match[1] if source_match else "")
+                )
+                url = str(metadata.get("url") or (url_match[0] if url_match else ""))
+                cursor.execute(
+                    "INSERT INTO daily_digest (digest_date, category, title, summary, "
+                    "keywords, source, url, archived, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        digest_date,
+                        str(metadata.get("category") or memory.get("category") or ""),
+                        title,
+                        summary,
+                        str(metadata.get("keywords") or tags),
+                        source,
+                        url,
+                        memory.get("archived") or 0,
+                        memory.get("created_at"),
+                    ),
+                )
+                added += 1
+            if added:
+                logger.info(
+                    f"Migrated {added} legacy digest memories into the digest archive"
+                )
+
+        self._execute_write(_do_migrate)
+
     def _migrate_activities_fk(self):
         def _do_migrate(conn):
             cursor = conn.cursor()
@@ -367,6 +462,8 @@ class DatabaseManager:
                 last_hit_at TIMESTAMP,
                 archived INTEGER DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
+            cursor.execute("""CREATE TABLE IF NOT EXISTS digest_memory_migrations (
+                memory_id INTEGER PRIMARY KEY)""")
             # 每次抓取的结果留一条记录，方便在面板上看"到底抓没抓到"
             cursor.execute('''CREATE TABLE IF NOT EXISTS digest_runs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -650,18 +747,46 @@ class DatabaseManager:
         if result == "already_exists": return "Memory already exists"
         return result if result is not None else "Error: database write failed"
 
-    def search_memory(self, query, category_filter=None, limit=None):
+    @staticmethod
+    def _notebook_filter(category=None, include_archived=False, alias=""):
+        """Build shared notebook predicates before applying query limits.
+
+        Args:
+            category: Optional exact notebook category.
+            include_archived: Whether archived notebook entries are visible.
+            alias: Internal SQL table alias, never supplied by API callers.
+
+        Returns:
+            A SQL predicate and its bound parameters.
+        """
+        prefix = f"{alias}." if alias else ""
+        clauses = [f"COALESCE({prefix}source, '') != 'daily_digest'"]
+        params = []
+        if not include_archived:
+            clauses.append(f"COALESCE({prefix}archived, 0) = 0")
+        if category:
+            clauses.append(f"{prefix}category = ?")
+            params.append(category)
+        return " AND ".join(clauses), params
+
+    def search_memory(
+        self, query, category_filter=None, limit=None, include_archived=False
+    ):
         def _do_op(conn):
             _limit = limit if limit is not None else self.config.get('search_max_results', 5)
             result_lists = []
-            fts_results = self._fts_search(conn, query, _limit * 3)
+            filters = {
+                "category_filter": category_filter,
+                "include_archived": include_archived,
+            }
+            fts_results = self._fts_search(conn, query, _limit * 3, **filters)
             if fts_results: result_lists.append(fts_results)
-            tag_results = self._tag_retrieve(conn, query, _limit * 2)
+            tag_results = self._tag_retrieve(conn, query, _limit * 2, **filters)
             if tag_results: result_lists.append(tag_results)
-            tfidf_results = self._tfidf_search(conn, query, _limit * 2)
+            tfidf_results = self._tfidf_search(conn, query, _limit * 2, **filters)
             if tfidf_results: result_lists.append(tfidf_results)
             if not result_lists:
-                fallback = self._fallback_search(conn, query, _limit * 3)
+                fallback = self._fallback_search(conn, query, _limit * 3, **filters)
                 if fallback: result_lists.append(fallback)
             fused = self._rrf_fuse(result_lists, k=self.config.get('rrf_k', 60)) if result_lists else []
             if category_filter:
@@ -765,43 +890,59 @@ class DatabaseManager:
     def get_all_memories(self, limit=100, offset=0, category=None, include_archived=False):
         def _do_op(conn):
             cursor = conn.cursor()
-            arch = '' if include_archived else ' AND COALESCE(archived, 0) = 0'
-            if category:
-                cursor.execute('SELECT id, content, category, importance, tags, visibility, access_count, created_at, COALESCE(archived, 0) AS archived FROM memories WHERE category = ?' + arch + ' ORDER BY created_at DESC LIMIT ? OFFSET ?', (category, limit, offset))
-            else:
-                cursor.execute('SELECT id, content, category, importance, tags, visibility, access_count, created_at, COALESCE(archived, 0) AS archived FROM memories WHERE 1=1' + arch + ' ORDER BY created_at DESC LIMIT ? OFFSET ?', (limit, offset))
+            where, params = self._notebook_filter(category, include_archived)
+            cursor.execute(
+                "SELECT id, content, category, importance, tags, visibility, access_count, "
+                "created_at, COALESCE(archived, 0) AS archived FROM memories WHERE "
+                + where
+                + " ORDER BY created_at DESC LIMIT ? OFFSET ?",
+                params + [limit, offset],
+            )
             return [dict(row) for row in cursor.fetchall()]
         result = self._execute_read(_do_op)
         return result if result is not None else []
 
-    def get_memories_count(self):
+    def get_memories_count(self, category=None, include_archived=False):
         def _do_op(conn):
             cursor = conn.cursor()
-            cursor.execute('SELECT COUNT(*) FROM memories')
+            where, params = self._notebook_filter(category, include_archived)
+            cursor.execute("SELECT COUNT(*) FROM memories WHERE " + where, params)
             return cursor.fetchone()[0]
         result = self._execute_read(_do_op)
         return result if result is not None else 0
 
-    def get_recent_memories(self, limit=5):
+    def get_recent_memories(self, limit=5, include_archived=False):
         def _do_op(conn):
             cursor = conn.cursor()
-            cursor.execute('SELECT id, content, category, importance, created_at FROM memories ORDER BY created_at DESC LIMIT ?', (limit,))
+            where, params = self._notebook_filter(include_archived=include_archived)
+            cursor.execute(
+                "SELECT id, content, category, importance, created_at FROM memories WHERE "
+                + where
+                + " ORDER BY created_at DESC LIMIT ?",
+                params + [limit],
+            )
             return [dict(row) for row in cursor.fetchall()]
         result = self._execute_read(_do_op)
         return result if result is not None else []
 
-    def get_memory_categories(self):
+    def get_memory_categories(self, include_archived=False):
         def _do_op(conn):
             cursor = conn.cursor()
-            cursor.execute('SELECT DISTINCT category FROM memories')
+            where, params = self._notebook_filter(include_archived=include_archived)
+            cursor.execute(
+                "SELECT DISTINCT category FROM memories WHERE " + where, params
+            )
             return [row[0] for row in cursor.fetchall()]
         result = self._execute_read(_do_op)
         return result if result is not None else []
 
-    def get_all_tags(self):
+    def get_all_tags(self, include_archived=False):
         def _do_op(conn):
             cursor = conn.cursor()
-            cursor.execute('SELECT tags FROM memories WHERE tags != ""')
+            where, params = self._notebook_filter(include_archived=include_archived)
+            cursor.execute(
+                'SELECT tags FROM memories WHERE tags != "" AND ' + where, params
+            )
             all_tags = set()
             for row in cursor.fetchall():
                 for tag in row[0].split(','):
@@ -821,7 +962,9 @@ class DatabaseManager:
 
     # ==================== Search Engines ====================
 
-    def _fts_search(self, conn, query, limit):
+    def _fts_search(
+        self, conn, query, limit, category_filter=None, include_archived=False
+    ):
         try:
             cursor = conn.cursor()
             cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='memories_fts'")
@@ -836,15 +979,26 @@ class DatabaseManager:
             else:
                 fts_query = ' OR '.join(f'"{w}"' for w in re.findall(r'\w{2,}', query))
             if not fts_query: return []
+            where, params = self._notebook_filter(
+                category_filter, include_archived, alias="m"
+            )
             cursor.execute(
-                'SELECT m.id, m.content, m.category, m.importance, m.tags, m.visibility, m.created_at, m.access_count, '
-                'bm25(memories_fts) as bm25_score FROM memories m JOIN memories_fts f ON m.id = f.rowid '
-                'WHERE memories_fts MATCH ? ORDER BY bm25_score LIMIT ?', (fts_query, limit))
+                "SELECT m.id, m.content, m.category, m.importance, m.tags, m.visibility, m.created_at, m.access_count, "
+                "bm25(memories_fts) as bm25_score FROM memories m JOIN memories_fts f ON m.id = f.rowid "
+                "WHERE memories_fts MATCH ? AND "
+                + where
+                + " ORDER BY bm25_score LIMIT ?",
+                [fts_query] + params + [limit],
+            )
             return [dict(row) for row in cursor.fetchall()]
         except Exception:
-            return self._fallback_search(conn, query, limit)
+            return self._fallback_search(
+                conn, query, limit, category_filter, include_archived
+            )
 
-    def _fallback_search(self, conn, query, limit):
+    def _fallback_search(
+        self, conn, query, limit, category_filter=None, include_archived=False
+    ):
         try:
             cursor = conn.cursor()
             keywords = query.split()
@@ -854,14 +1008,20 @@ class DatabaseManager:
                 conditions.append("(content LIKE ? OR tags LIKE ? OR category LIKE ?)")
                 params.extend([f'%{kw}%', f'%{kw}%', f'%{kw}%'])
             where = ' OR '.join(conditions)
+            notebook_where, notebook_params = self._notebook_filter(
+                category_filter, include_archived
+            )
             cursor.execute(
-                f'SELECT id, content, category, importance, tags, visibility, created_at, access_count FROM memories WHERE {where} ORDER BY importance DESC, created_at DESC LIMIT ?',
-                params + [limit])
+                f"SELECT id, content, category, importance, tags, visibility, created_at, access_count FROM memories WHERE ({where}) AND {notebook_where} ORDER BY importance DESC, created_at DESC LIMIT ?",
+                params + notebook_params + [limit],
+            )
             return [dict(row) for row in cursor.fetchall()]
         except Exception:
             return []
 
-    def _tag_retrieve(self, conn, query, limit):
+    def _tag_retrieve(
+        self, conn, query, limit, category_filter=None, include_archived=False
+    ):
         try:
             words = self._tokenize(query)
             if not words: return []
@@ -872,19 +1032,30 @@ class DatabaseManager:
                 conditions.append("tags LIKE ?")
                 params.append(f'%{w}%')
             where = ' OR '.join(conditions)
+            notebook_where, notebook_params = self._notebook_filter(
+                category_filter, include_archived
+            )
             cursor.execute(
-                f'SELECT id, content, category, importance, tags, visibility, created_at, access_count FROM memories WHERE {where} ORDER BY importance DESC LIMIT ?',
-                params + [limit])
+                f"SELECT id, content, category, importance, tags, visibility, created_at, access_count FROM memories WHERE ({where}) AND {notebook_where} ORDER BY importance DESC LIMIT ?",
+                params + notebook_params + [limit],
+            )
             return [dict(row) for row in cursor.fetchall()]
         except Exception:
             return []
 
-    def _tfidf_search(self, conn, query, limit):
+    def _tfidf_search(
+        self, conn, query, limit, category_filter=None, include_archived=False
+    ):
         if not self.config.get('tfidf_search_enabled', True): return []
         try:
             cursor = conn.cursor()
-            cursor.execute('SELECT id, content, category, importance, tags, visibility, created_at, access_count FROM memories LIMIT ?',
-                           (self.config.get('tfidf_search_limit', 200),))
+            where, params = self._notebook_filter(category_filter, include_archived)
+            cursor.execute(
+                "SELECT id, content, category, importance, tags, visibility, created_at, access_count FROM memories WHERE "
+                + where
+                + " LIMIT ?",
+                params + [self.config.get("tfidf_search_limit", 200)],
+            )
             all_memories = [dict(row) for row in cursor.fetchall()]
             if not all_memories: return []
             query_tokens = self._tokenize(query.lower())
@@ -1334,10 +1505,11 @@ class DatabaseManager:
         result = self._execute_write(_do_op)
         return result if result is not None else "Error: bulk import failed"
 
-    def get_memory_stats(self):
+    def get_memory_stats(self, include_archived=False):
         def _do_op(conn):
             cursor = conn.cursor()
-            cursor.execute('SELECT COUNT(*) FROM memories')
+            where, params = self._notebook_filter(include_archived=include_archived)
+            cursor.execute("SELECT COUNT(*) FROM memories WHERE " + where, params)
             mem_count = cursor.fetchone()[0]
             cursor.execute('SELECT COUNT(*) FROM relationships')
             rel_count = cursor.fetchone()[0]
@@ -1775,27 +1947,102 @@ class DatabaseManager:
         result = self._execute_read(_do_op)
         return result if result is not None else []
 
-    def get_recent_digest_dates(self, limit=7):
-        """最近的几个日报日期，供面板翻页。"""
+    def get_recent_digest_dates(
+        self, limit=7, year=None, month=None, include_archived=True
+    ):
+        """Return digest dates and item counts across the complete archive.
+
+        Args:
+            limit: Maximum dates, or None for all matching dates.
+            year: Optional four-digit year.
+            month: Optional YYYY-MM, or a month number when year is provided.
+            include_archived: Whether archived items contribute to each date count.
+
+        Returns:
+            Date dictionaries containing digest_date and n, newest first.
+
+        Raises:
+            ValueError: If a date filter or limit is invalid.
+        """
+        year_text = None if year is None else str(year)
+        if year_text is not None and (
+            not re.fullmatch(r"\d{4}", year_text) or not 1 <= int(year_text) <= 9999
+        ):
+            raise ValueError("year must be a four-digit year")
+        month_text = None if month is None else str(month)
+        if month_text is not None:
+            if re.fullmatch(r"\d{1,2}", month_text) and year_text is not None:
+                month_text = f"{year_text}-{int(month_text):02d}"
+            if not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", month_text):
+                raise ValueError("month must be YYYY-MM or a month number with year")
+            if int(month_text[:4]) == 0 or (year_text and month_text[:4] != year_text):
+                raise ValueError("month must belong to the requested year")
+        if limit is not None and (
+            isinstance(limit, bool) or not isinstance(limit, int) or limit < 0
+        ):
+            raise ValueError("limit must be a nonnegative integer or None")
+
         def _do_op(conn):
             cursor = conn.cursor()
-            cursor.execute(
-                'SELECT digest_date, COUNT(*) AS n FROM daily_digest '
-                'GROUP BY digest_date ORDER BY digest_date DESC LIMIT ?', (limit,))
+            conditions = []
+            params = []
+            if not include_archived:
+                conditions.append("COALESCE(archived, 0) = 0")
+            if year_text is not None:
+                conditions.append("substr(digest_date, 1, 4) = ?")
+                params.append(year_text)
+            if month_text is not None:
+                conditions.append("substr(digest_date, 1, 7) = ?")
+                params.append(month_text)
+            where = " WHERE " + " AND ".join(conditions) if conditions else ""
+            sql = (
+                "SELECT digest_date, COUNT(*) AS n FROM daily_digest"
+                + where
+                + " GROUP BY digest_date ORDER BY digest_date DESC"
+            )
+            if limit is not None:
+                sql += " LIMIT ?"
+                params.append(limit)
+            cursor.execute(sql, params)
             return [dict(row) for row in cursor.fetchall()]
         result = self._execute_read(_do_op)
         return result if result is not None else []
 
-    def search_digest(self, query, limit=5, days=60):
-        """按关键词检索日报：标题/摘要/关键词任一命中。
+    def get_digest_calendar(self, include_archived=False):
+        """Count digest days and items per month across the complete archive.
 
         Args:
-            query: 关键词。
-            limit: 最多返回条数。
-            days: 只回溯最近多少天。
+            include_archived: Whether archived items contribute to month counts.
 
         Returns:
-            list[dict]: 命中的条目，按 提及次数 × 新近度 排序。
+            Dictionaries with year, month (YYYY-MM), days, and items, newest first.
+        """
+
+        def _do_op(conn):
+            where = "" if include_archived else " WHERE COALESCE(archived, 0) = 0"
+            rows = conn.execute(
+                "SELECT substr(digest_date, 1, 4) AS year, "
+                "substr(digest_date, 1, 7) AS month, COUNT(DISTINCT digest_date) AS days, "
+                "COUNT(*) AS items FROM daily_digest"
+                + where
+                + " GROUP BY substr(digest_date, 1, 7) ORDER BY month DESC"
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+        result = self._execute_read(_do_op)
+        return result if result is not None else []
+
+    def search_digest(self, query, limit=5, days=60, include_archived=False):
+        """Search digest titles, summaries, and keywords.
+
+        Args:
+            query: Search text.
+            limit: Maximum number of results.
+            days: Lookback in local calendar days, or None for all dates.
+            include_archived: Whether archived items are searchable.
+
+        Returns:
+            Matching items ranked by hit count and recency.
         """
         q = str(query or '').strip()
         if not q:
@@ -1803,10 +2050,16 @@ class DatabaseManager:
         def _do_op(conn):
             cursor = conn.cursor()
             like = f'%{q}%'
+            conditions = ["(title LIKE ? OR summary LIKE ? OR keywords LIKE ?)"]
+            params = [like, like, like]
+            if not include_archived:
+                conditions.append("COALESCE(archived, 0) = 0")
+            if days is not None:
+                conditions.append("digest_date >= date('now', 'localtime', ?)")
+                params.append(f"-{int(days)} days")
             cursor.execute(
-                "SELECT * FROM daily_digest WHERE COALESCE(archived, 0) = 0 "
-                "AND digest_date >= date('now', ?) AND (title LIKE ? OR summary LIKE ? "
-                "OR keywords LIKE ?) LIMIT 200", (f'-{int(days)} days', like, like, like))
+                "SELECT * FROM daily_digest WHERE " + " AND ".join(conditions), params
+            )
             rows = [dict(row) for row in cursor.fetchall()]
             from datetime import date
             today = date.today()
@@ -2027,11 +2280,32 @@ class DatabaseManager:
 
     # ==================== Associative Memory (搜索联想) ====================
 
-    def search_memory_related(self, query, exclude_ids=None, limit=3):
-        """在精确搜索结果之外，返回一些不完全相关但可能有用的记忆（联想）。"""
+    def search_memory_related(
+        self,
+        query,
+        exclude_ids=None,
+        limit=3,
+        include_archived=False,
+        category_filter=None,
+    ):
+        """Find related notebook entries after excluding automatic digest memories.
+
+        Args:
+            query: Text used to infer related categories.
+            exclude_ids: Memory IDs already shown to the caller.
+            limit: Maximum number of related entries.
+            include_archived: Whether archived notebook entries are eligible.
+            category_filter: Optional exact notebook category.
+
+        Returns:
+            Related notebook entries with associative set to True.
+        """
         exclude_ids = exclude_ids or []
         def _do_op(conn):
             cursor = conn.cursor()
+            notebook_where, notebook_params = self._notebook_filter(
+                category_filter, include_archived
+            )
             excl_ph = ','.join('?' * len(exclude_ids)) if exclude_ids else ''
             excl_sql = f' AND id NOT IN ({excl_ph})' if excl_ph else ''
             excl_params = list(exclude_ids)
@@ -2043,18 +2317,20 @@ class DatabaseManager:
             if query_words:
                 for w in query_words:
                     cursor.execute(
-                        f'SELECT category, COUNT(*) as c FROM memories WHERE content LIKE ? GROUP BY category ORDER BY c DESC LIMIT 1',
-                        (f'%{w}%',))
+                        f"SELECT category, COUNT(*) as c FROM memories WHERE content LIKE ? AND {notebook_where} GROUP BY category ORDER BY c DESC LIMIT 1",
+                        [f"%{w}%"] + notebook_params,
+                    )
                     row = cursor.fetchone()
                     if row and row['category']:
                         cats.add(row['category'])
             if cats:
                 cat_ph = ','.join('?' * len(cats))
                 cursor.execute(
-                    f'SELECT id, content, category, importance, tags, created_at FROM memories '
-                    f'WHERE category IN ({cat_ph}) AND importance >= 6{excl_sql} '
-                    f'ORDER BY importance DESC, created_at DESC LIMIT ?',
-                    list(cats) + excl_params + [limit])
+                    f"SELECT id, content, category, importance, tags, created_at FROM memories "
+                    f"WHERE category IN ({cat_ph}) AND {notebook_where} AND importance >= 6{excl_sql} "
+                    f"ORDER BY importance DESC, created_at DESC LIMIT ?",
+                    list(cats) + notebook_params + excl_params + [limit],
+                )
                 related.extend(dict(r) for r in cursor.fetchall())
             # 2) 补充：随机"也许有用"的高分记忆（不同分类，避免完全无关）
             if len(related) < limit:
@@ -2062,9 +2338,10 @@ class DatabaseManager:
                 seen_ph = ','.join('?' * len(seen)) if seen else ''
                 seen_sql = f' AND id NOT IN ({seen_ph})' if seen_ph else ''
                 cursor.execute(
-                    f'SELECT id, content, category, importance, tags, created_at FROM memories '
-                    f'WHERE importance >= 7{seen_sql} ORDER BY RANDOM() LIMIT ?',
-                    list(seen) + [limit - len(related)])
+                    f"SELECT id, content, category, importance, tags, created_at FROM memories "
+                    f"WHERE {notebook_where} AND importance >= 7{seen_sql} ORDER BY RANDOM() LIMIT ?",
+                    notebook_params + list(seen) + [limit - len(related)],
+                )
                 related.extend(dict(r) for r in cursor.fetchall())
             for r in related:
                 r['content'] = r['content'][:80] + ('...' if len(r['content']) > 80 else '')
@@ -2117,8 +2394,9 @@ class DatabaseManager:
             cursor = conn.cursor()
             cursor.execute(
                 "SELECT id, content, created_at FROM memories "
-                "WHERE category = '每日日报' AND COALESCE(archived, 0) = 0 "
-                "ORDER BY id DESC")
+                "WHERE source = 'daily_digest' AND COALESCE(archived, 0) = 0 "
+                "ORDER BY id DESC"
+            )
             keep = {}
             drop = []
             for row in cursor.fetchall():
