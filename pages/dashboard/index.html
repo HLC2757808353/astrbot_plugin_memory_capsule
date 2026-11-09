@@ -436,6 +436,7 @@
                 <button class="btn btn-primary btn-sm" onclick="mAdd()">+ 添加记忆</button>
                 <button class="btn btn-outline btn-sm" id="m-batch-btn" onclick="mEnterBatch()">&#128203; 批量删除</button>
                 <button class="btn btn-outline btn-sm" id="m-archived-btn" onclick="mToggleArchived()">显示已归档</button>
+                <button class="btn btn-outline btn-sm" id="m-journal-btn" onclick="mToggleJournal()">&#128211; 看日记</button>
                 <button class="btn btn-outline btn-sm" onclick="mShowImport()">批量导入</button>
                 <button class="btn btn-outline btn-sm" onclick="mLoad(1)">刷新</button>
             </div>
@@ -1489,9 +1490,10 @@
         async function mLoad(page = 1) {
             mPage = page;
             const q = document.getElementById('m-search').value.trim();
+            const cat = mJournalOnly ? '日记' : undefined;
             try {
                 if (q) {
-                    const d = await apiGet('api/memories/search', { q, page, limit: mPageSize() });
+                    const d = await apiGet('api/memories/search', { q, page, limit: mPageSize(), category: cat });
                     mMemories = d.results || [];
                     const related = d.related || [];
                     const sec = document.getElementById('m-related');
@@ -1506,7 +1508,7 @@
                     document.getElementById('m-pagination').innerHTML = `<span class="page-info">共 ${mMemories.length} 条</span>`;
                 } else {
                     const d = await apiGet('api/memories', {
-                        page, limit: mPageSize(),
+                        page, limit: mPageSize(), category: cat,
                         include_archived: mShowArchived ? 1 : undefined
                     });
                     mMemories = d.memories || [];
@@ -1516,6 +1518,17 @@
                 }
             } catch (e) { console.error('记忆加载失败:', e); }
         }
+
+        /** 只看日记（她写进笔记本的内容）／回到全部 */
+        function mToggleJournal() {
+            mJournalOnly = !mJournalOnly;
+            const btn = document.getElementById('m-journal-btn');
+            btn.classList.toggle('btn-primary', mJournalOnly);
+            btn.classList.toggle('btn-outline', !mJournalOnly);
+            btn.innerHTML = mJournalOnly ? '&#128211; 回到全部' : '&#128211; 看日记';
+            mLoad(1);
+        }
+        window.mToggleJournal = mToggleJournal;
 
         function mRender(mems) {
             const grid = document.getElementById('m-grid');
@@ -1546,6 +1559,7 @@
         // ==================== 记忆批量删除 / 归档 ====================
         let mBatchMode = false;
         let mShowArchived = false;
+        let mJournalOnly = false;
         const mSelected = new Set();
 
         function mToggleArchived() {

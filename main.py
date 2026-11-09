@@ -23,7 +23,7 @@ _CORRECTION_HINTS = re.compile(
     r"能不能别|可以别|不用这么|应该这么|应该这样回)")
 
 
-@register("memory_capsule", "引灯续昼", "记忆胶囊插件", "v0.35.0", "https://github.com/HLC2757808353/astrbot_plugin_memory_capsule")
+@register("memory_capsule", "引灯续昼", "记忆胶囊插件", "v0.35.1", "https://github.com/HLC2757808353/astrbot_plugin_memory_capsule")
 class MemoryCapsulePlugin(Star):
     def __init__(self, context: Context, config=None):
         super().__init__(context)
@@ -214,6 +214,32 @@ class MemoryCapsulePlugin(Star):
             # 档案变了，立刻让缓存失效，否则接下来几分钟还会读到旧档案
             self._relation_cache.pop(user_id, None)
             return result
+        except Exception as e:
+            return f"失败: {e}"
+
+    # ==================== 笔记本（只写不读） ====================
+
+    @filter.llm_tool(name="write_journal")
+    async def write_journal(self, event, content):
+        """
+        想记点什么的时候用：今天发生的事、答应过的事、此刻的想法。
+        写进去的东西只留在笔记本里，不会出现在之后的对话里，也不会被检索到——
+        它是写给人看的，不是你的记忆。
+
+        Args:
+            content(str): 要记的内容，一两句话
+        Returns:
+            操作结果
+        """
+        try:
+            text = str(content or '').strip()
+            if not text:
+                return "内容为空"
+            tags = ["日记", datetime.now().strftime("%Y-%m-%d")]
+            return await asyncio.to_thread(
+                self.db_manager.write_memory,
+                text, category="日记", importance=1, tags=tags,
+                source="journal", visibility="private", owner_id="")
         except Exception as e:
             return f"失败: {e}"
 
