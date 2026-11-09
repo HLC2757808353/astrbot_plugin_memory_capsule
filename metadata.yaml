@@ -2,6 +2,6 @@ name: astrbot_plugin_memory_capsule
 display_name: 记忆胶囊
 desc: 身份认人 + 人物档案 + 梗库 + 每日日报 + 笔记本：只做 RAG 做不了的事
 short_desc: 她认得你是谁，记得住梗，跟得上新闻，也有自己的小本子
-version: v0.35.2
+version: v0.35.3
 author: 引灯续昼
 repo: https://github.com/HLC2757808353/astrbot_plugin_memory_capsule

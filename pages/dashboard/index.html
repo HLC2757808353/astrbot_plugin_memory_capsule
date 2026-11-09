@@ -127,6 +127,15 @@
         .pagination button:disabled { opacity: 0.4; cursor: not-allowed; }
         .pagination .page-info { font-size: 0.82rem; color: #94a3b8; margin-left: 8px; }
 
+        .toast {
+            position: fixed; left: 50%; bottom: 32px; transform: translateX(-50%) translateY(8px);
+            background: rgba(30,41,59,0.96); color: #f8fafc; font-size: 13px;
+            padding: 10px 18px; border-radius: 10px; z-index: 99999;
+            opacity: 0; transition: opacity .18s ease, transform .18s ease;
+            pointer-events: none; max-width: 80vw; text-align: center;
+        }
+        .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
         .modal {
             display: none; position: fixed; z-index: 1000; left: 0; top: 0;
             width: 100%; height: 100%; background: rgba(0,0,0,0.3); backdrop-filter: blur(10px);
@@ -952,8 +961,35 @@
                 closeModal('confirm-modal');
                 if (typeof onOk === 'function') onOk();
             };
-            modal.classList.add('show');
+            openModal(modal);
         }
+
+        // 弹框统一入口：后打开的框一定盖在先打开的上面（同名 z-index 时 DOM 顺序会反过来）
+        let modalZ = 1000;
+        function openModal(el) {
+            if (!el) return;
+            modalZ += 1;
+            el.style.zIndex = String(modalZ);
+            el.classList.add('show');
+        }
+        window.openModal = openModal;
+
+        /** 轻提示：始终在最上层，用于"抓取成功/失败"这类即时反馈 */
+        let toastTimer = null;
+        function showToast(message, ms = 2600) {
+            let el = document.getElementById('app-toast');
+            if (!el) {
+                el = document.createElement('div');
+                el.id = 'app-toast';
+                el.className = 'toast';
+                document.body.appendChild(el);
+            }
+            el.textContent = String(message || '');
+            el.classList.add('show');
+            if (toastTimer) clearTimeout(toastTimer);
+            toastTimer = setTimeout(() => el.classList.remove('show'), ms);
+        }
+        window.showToast = showToast;
 
         // ==================== Tab 切换 ====================
         function switchTab(name) {
@@ -1312,7 +1348,7 @@
                         </div>`).join('');
                     applyBtn.style.display = 'inline-flex';
                 }
-                document.getElementById('g-dedup-modal').classList.add('show');
+                openModal(document.getElementById('g-dedup-modal'));
             } catch (e) {
                 showConfirm('检查失败: ' + e.message, function(){});
             } finally {
@@ -1363,7 +1399,7 @@
                     document.getElementById('g-tags').value = item.tags || '';
                 }
             }
-            document.getElementById('g-edit-modal').classList.add('show');
+            openModal(document.getElementById('g-edit-modal'));
         }
 
         async function gSave() {
@@ -1402,7 +1438,7 @@
             document.getElementById('g-import-jsonl').value = '';
             document.getElementById('g-import-file').value = '';
             document.getElementById('g-import-result').textContent = '';
-            document.getElementById('g-import-modal').classList.add('show');
+            openModal(document.getElementById('g-import-modal'));
         }
 
         async function gDoImport() {
@@ -1660,7 +1696,7 @@
             document.getElementById('m-importance-display').textContent = 5;
             document.getElementById('m-visibility').value = 'public';
             document.getElementById('m-edit-title').textContent = '添加记忆';
-            document.getElementById('m-edit-modal').classList.add('show');
+            openModal(document.getElementById('m-edit-modal'));
         }
 
         function mEdit(id) {
@@ -1674,7 +1710,7 @@
             document.getElementById('m-importance-display').textContent = m.importance || 5;
             document.getElementById('m-visibility').value = m.visibility === 'private' ? 'private' : 'public';
             document.getElementById('m-edit-title').textContent = '编辑记忆';
-            document.getElementById('m-edit-modal').classList.add('show');
+            openModal(document.getElementById('m-edit-modal'));
         }
 
         async function mSave() {
@@ -1724,7 +1760,7 @@
             document.getElementById('m-import-json').value = '';
             document.getElementById('m-import-file').value = '';
             document.getElementById('m-import-result').textContent = '';
-            document.getElementById('m-import-modal').classList.add('show');
+            openModal(document.getElementById('m-import-modal'));
         }
 
         async function mDoImport() {
@@ -1839,7 +1875,7 @@
             document.getElementById('r-first-met').value = '';
             document.getElementById('r-del-btn').style.display = 'none';
             document.getElementById('r-edit-title').textContent = '添加关系';
-            document.getElementById('r-edit-modal').classList.add('show');
+            openModal(document.getElementById('r-edit-modal'));
         }
 
         function rEdit(userId) {
@@ -1854,7 +1890,7 @@
             document.getElementById('r-first-met').value = r.first_met_location || '';
             document.getElementById('r-del-btn').style.display = 'inline-flex';
             document.getElementById('r-edit-title').textContent = '编辑关系';
-            document.getElementById('r-edit-modal').classList.add('show');
+            openModal(document.getElementById('r-edit-modal'));
         }
 
         async function rSave() {

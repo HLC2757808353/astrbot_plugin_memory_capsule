@@ -1,10 +1,10 @@
-# 记忆胶囊 v0.35.2
+# 记忆胶囊 v0.35.3
 
 <div align="center">
 
 [![AstrBot](https://img.shields.io/badge/AstrBot-v4.x-blue.svg)](https://github.com/AstrBotDevs/AstrBot)
 [![Python](https://img.shields.io/badge/Python-3.10+-green.svg)](https://www.python.org/)
-[![Version](https://img.shields.io/badge/version-v0.35.2-red.svg)]()
+[![Version](https://img.shields.io/badge/version-v0.35.3-red.svg)]()
 
 *身份映射 · 人物档案 · 梗库 · 每日日报——一个面板全管（长期记忆交给 RAG 插件）*
 
