@@ -2,7 +2,9 @@ from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.provider import ProviderRequest
 from astrbot.api.star import Context, Star, register
 from astrbot.api import logger
+import os
 import re
+import threading
 import asyncio
 import json
 import time
@@ -23,7 +25,7 @@ _CORRECTION_HINTS = re.compile(
     r"能不能别|可以别|不用这么|应该这么|应该这样回)")
 
 
-@register("memory_capsule", "引灯续昼", "记忆胶囊插件", "v0.35.1", "https://github.com/HLC2757808353/astrbot_plugin_memory_capsule")
+@register("memory_capsule", "引灯续昼", "记忆胶囊插件", "v0.35.2", "https://github.com/HLC2757808353/astrbot_plugin_memory_capsule")
 class MemoryCapsulePlugin(Star):
     def __init__(self, context: Context, config=None):
         super().__init__(context)
@@ -45,7 +47,6 @@ class MemoryCapsulePlugin(Star):
         self._glossary_cache_ttl = self.config.get('glossary_cache_ttl', 120)
         self._collect_task = None
         self._background_task = None
-        # 自学调用的节流：用户 -> 上次触发时间；以及每日调用上限
 
     async def initialize(self):
         self._create_directories()
@@ -71,8 +72,7 @@ class MemoryCapsulePlugin(Star):
     async def _background_loop(self):
         """统一的后台调度：热榜采集、日报、归档各按自己的周期跑，共用一条日志线。
 
-        语气学习默认 24h 回看一次；热榜采集默认 72h 一次。两者互不阻塞，
-        任一管线抛异常只影响自己——免得采集挂了把语气学习一起带停。
+        每条管线各自按周期触发、互不阻塞；任一管线抛异常只影响自己。
         """
         await asyncio.sleep(60)
         last_collect = 0.0
@@ -155,6 +155,70 @@ class MemoryCapsulePlugin(Star):
                 logger.error(f"学习调度出错: {e}")
             # 5 分钟一跳：改配置不必等一整个周期才生效
             await asyncio.sleep(300)
+
+    def _create_directories(self):
+        for d in ["databases", "webui/templates", "webui/static", "pages"]:
+            os.makedirs(os.path.join(os.path.dirname(__file__), d.replace('/', os.sep)), exist_ok=True)
+
+    def _get_persistent_data_dir(self):
+        """返回插件独立数据目录（独立 WebUI 与数据库共用的持久目录）。"""
+        try:
+            from astrbot.api.star import StarTools
+            return str(StarTools.get_data_dir("memory_capsule"))
+        except Exception:
+            return os.path.join(os.path.dirname(__file__), "data")
+
+    def _start_webui(self):
+        """启动独立的 WebUI 服务（默认关闭，用 AstrBot 内嵌页面时不会走这里）。"""
+        try:
+            from .webui.auth import AuthManager
+            auth_manager = AuthManager(self._get_persistent_data_dir())
+        except Exception:
+            auth_manager = None
+        try:
+            if self.webui_server:
+                self.webui_server.stop()
+                time.sleep(1)
+                self.webui_server = None
+            from .webui.server import WebUIServer
+            self.webui_server = WebUIServer(
+                self.db_manager, host=self.webui_host, port=self.webui_port,
+                data_dir=self._get_persistent_data_dir(), existing_auth=auth_manager
+            )
+            self.webui_server.server_thread = threading.Thread(
+                target=self.webui_server.run, daemon=True, name='WebUI'
+            )
+            self.webui_server.server_thread.start()
+            time.sleep(0.5)
+            if self.webui_server.running:
+                logger.info(f"WebUI: http://{self.webui_host}:{self.webui_port}")
+            else:
+                logger.error(f"WebUI failed to start on port {self.webui_port}")
+        except Exception as e:
+            logger.error(f"WebUI start failed: {e}")
+
+    async def terminate(self):
+        """卸载插件：停后台任务、关 WebUI、关数据库。"""
+        task = getattr(self, '_background_task', None)
+        if task:
+            try:
+                task.cancel()
+            except Exception:
+                pass
+            self._background_task = None
+        if self.webui_server:
+            try:
+                self.webui_server.stop()
+            except Exception:
+                pass
+            self.webui_server = None
+        if self.db_manager:
+            try:
+                self.db_manager.close()
+            except Exception:
+                pass
+            self.db_manager = None
+        self._relation_cache.clear()
 
     # ==================== AI 可用工具 ====================
 
